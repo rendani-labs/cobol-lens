@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "Navigate COBOL copybooks and symbols with Go to Definition, Peek, Find All References, autocomplete, code folding, integrated linter, and more (no compiler required)",
