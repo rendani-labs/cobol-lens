@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0] - 2026-06-08
+
+### Added
+- Diagnostic messages are now available in both Italian and English
+- New setting `cobolLens.language`: `"auto"` (detect from VS Code locale), `"it"` (Italian), `"en"` (English)
+- When set to `"auto"`, the language is detected from `vscode.env.language`
+- Settings descriptions are now localized (Italian and English) and follow the VS Code display language
+
 ## [1.0.1] - 2026-06-08
 
 ### Fixed

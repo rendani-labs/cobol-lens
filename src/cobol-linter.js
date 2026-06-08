@@ -15,6 +15,7 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 const { isComment, resolveCopybookPath, COPY_REGEX, COBOL_RESERVED, REPLACING_PAIR_REGEX } = require('./cobol-parser');
+const { msg, getLang, setLang } = require('./messages');
 
 // ============================================================================
 // Helper
@@ -313,7 +314,7 @@ function checkCol72(lines) {
         const beyond72 = raw.substring(72);
         if (/\S/.test(beyond72)) {
             diags.push(makeDiag(i, cfg.severity, 'col72',
-                `Contenuto non consentito oltre la colonna 72`, 72, raw.length));
+                msg('col72'), 72, raw.length));
         }
     }
     return diags;
@@ -335,7 +336,7 @@ function checkNoGoto(lines) {
             const colStart = 7 + goMatch.index;
             const colEnd = colStart + goMatch[0].length;
             diags.push(makeDiag(i, cfg.severity, 'no-goto',
-                'Uso di GOTO non consentito. Usare PERFORM e IF.', colStart, colEnd));
+                msg('noGoto'), colStart, colEnd));
         }
     }
     return diags;
@@ -354,7 +355,7 @@ function checkNoAtEnd(lines) {
         const code = getCodeContent(raw).toUpperCase();
         if (/\bAT\s+END\b/.test(code) || /\bNOT\s+AT\s+END\b/.test(code)) {
             diags.push(makeDiag(i, cfg.severity, 'no-at-end',
-                'Uso di AT END / NOT AT END non consentito. Usare il file status con EVALUATE.'));
+                msg('noAtEnd')));
         }
     }
     return diags;
@@ -378,7 +379,7 @@ function checkNoLevel7778(lines) {
             if (/^(77|78)\s+/.test(stripped.toUpperCase())) {
                 const level = stripped.substring(0, 2);
                 diags.push(makeDiag(i, cfg.severity, 'no-level-77-78',
-                    `Livello ${level} non consentito in WORKING-STORAGE. Usare 01, 05, 10, 15...`));
+                    msg('noLevel7778', level)));
             }
         }
     }
@@ -404,7 +405,7 @@ function checkUppercase(lines) {
         cleaned = cleaned.replace(/<[^>]*>/g, '');
         if (cleaned !== cleaned.toUpperCase() && cleaned.trim()) {
             diags.push(makeDiag(i, cfg.severity, 'uppercase',
-                'Il codice COBOL deve essere in MAIUSCOLO'));
+                msg('uppercase')));
         }
     }
     return diags;
@@ -440,7 +441,7 @@ function checkDivisionSeparator(lines) {
             }
             if (!foundSep) {
                 diags.push(makeDiag(i, cfg.severity, 'division-separator',
-                    `Manca la riga separatrice (*---) prima di: ${code}`));
+                    msg('divisionSeparator', code)));
             }
         }
     }
@@ -469,7 +470,7 @@ function checkPicAlignment(lines) {
                 const beforePic = raw.substring(0, upperRaw.indexOf(picMatch[0])).trimEnd();
                 if (beforePic.length < expected - 2 && picCol !== expected) {
                     diags.push(makeDiag(i, cfg.severity, 'pic-alignment',
-                        `PIC alla colonna ${picCol}, attesa colonna ${expected}`));
+                        msg('picAlignment', picCol, expected)));
                 }
             }
         }
@@ -498,7 +499,7 @@ function checkSelectCol12(lines) {
                 const selCol = selMatch.index + 1;
                 if (selCol !== expected) {
                     diags.push(makeDiag(i, cfg.severity, 'select-col12',
-                        `SELECT alla colonna ${selCol}, attesa colonna ${expected}`));
+                        msg('selectCol12', selCol, expected)));
                 }
             }
         }
@@ -531,7 +532,7 @@ function checkAssignCol29(lines) {
                     const kwCol = kwMatch.index + 1;
                     if (kwCol !== expected) {
                         diags.push(makeDiag(i, cfg.severity, 'assign-col29',
-                            `${kw} alla colonna ${kwCol}, attesa colonna ${expected}`));
+                            msg('assignCol29', kw, kwCol, expected)));
                     }
                 }
             }
@@ -561,7 +562,7 @@ function checkWsLevels(lines) {
                 const level = parseInt(levelMatch[1], 10);
                 if (!validLevels.has(level)) {
                     diags.push(makeDiag(i, cfg.severity, 'ws-levels',
-                        `Livello ${String(level).padStart(2, '0')} non standard. Usare: 01, 05, 10, 15, 20... (incremento di 5) oppure 66, 88`));
+                        msg('wsLevels', String(level).padStart(2, '0'))));
                 }
             }
         }
@@ -582,7 +583,7 @@ function checkNoElseIf(lines) {
         const code = getCodeContent(raw).toUpperCase();
         if (/\bELSE\s+IF\b/.test(code)) {
             diags.push(makeDiag(i, cfg.severity, 'no-else-if',
-                'Non usare ELSE IF. Indentare le IF dentro un blocco ELSE.'));
+                msg('noElseIf')));
         }
     }
     return diags;
@@ -613,7 +614,7 @@ function checkMoveToAlignment(lines) {
                 const beforeTo = raw.substring(0, moveMatch.index + moveMatch[0].length + toMatch.index).trimEnd();
                 if (beforeTo.length < expected - 2 && toCol !== expected) {
                     diags.push(makeDiag(i, cfg.severity, 'move-to-alignment',
-                        `TO alla colonna ${toCol}, attesa colonna ${expected}`));
+                        msg('moveToAlignment', toCol, expected)));
                 }
             }
         }
@@ -641,7 +642,7 @@ function checkWsLevelSpacing(lines) {
                 const spaces = levelMatch[2];
                 if (spaces.length !== 1) {
                     diags.push(makeDiag(i, cfg.severity, 'ws-level-spacing',
-                        `Tra il livello e il nome devono esserci esattamente 1 spazio (trovati ${spaces.length})`));
+                        msg('wsLevelSpacing', spaces.length)));
                 }
             }
         }
@@ -759,7 +760,7 @@ function checkEndStructure(lines) {
                     ['IF', 'EVALUATE', 'PERFORM', 'UNSTRING', 'SEARCH',
                      'CALL'].includes(openKw)) {
                     diags.push(makeDiag(i, orphanCfg.severity, 'orphan-scope-delimiter',
-                        `${endKw} senza una corrispondente istruzione ${openKw} di apertura`));
+                        msg('orphanScope', endKw, openKw)));
                 }
             }
         }
@@ -770,7 +771,7 @@ function checkEndStructure(lines) {
             if (cfg.enabled) {
                 for (const item of stack) {
                     diags.push(makeDiag(item.line, cfg.severity, 'end-structure',
-                        `Struttura ${item.type} aperta alla riga ${item.line + 1} chiusa da un punto anziche' da END-${item.type}`));
+                        msg('endStructurePoint', item.type, item.line + 1)));
                 }
             }
             stack.length = 0;
@@ -782,7 +783,7 @@ function checkEndStructure(lines) {
     if (cfg.enabled) {
         for (const item of stack) {
             diags.push(makeDiag(item.line, cfg.severity, 'end-structure',
-                `Struttura ${item.type} aperta alla riga ${item.line + 1} senza chiusura (manca END-${item.type})`));
+                msg('endStructureUnclosed', item.type, item.line + 1)));
         }
     }
 
@@ -820,7 +821,7 @@ function checkStringDelimited(lines) {
                 const intoPos = stringStmt.search(/\bINTO\b/);
                 if (intoPos >= 0 && (delimPos < 0 || delimPos > intoPos)) {
                     diags.push(makeDiag(stringLine, cfg.severity, 'end-structure',
-                        'STRING: manca DELIMITED BY prima della clausola INTO'));
+                        msg('stringDelimited')));
                 }
                 inString = false;
                 stringStmt = '';
@@ -838,7 +839,7 @@ function checkStringDelimited(lines) {
                 const intoPos = stringStmt.search(/\bINTO\b/);
                 if (intoPos >= 0 && (delimPos < 0 || delimPos > intoPos)) {
                     diags.push(makeDiag(stringLine, cfg.severity, 'end-structure',
-                        'STRING: manca DELIMITED BY prima della clausola INTO'));
+                        msg('stringDelimited')));
                 }
                 inString = false;
                 stringStmt = '';
@@ -942,7 +943,7 @@ function checkParagraphNaming(lines) {
 
         if (!validPatterns.some(p => p.test(firstName))) {
             diags.push(makeDiag(i, cfg.severity, 'paragraph-naming',
-                `Il paragrafo '${firstName}' non segue la convenzione (I0001-, E0001-, F0001-, V0000-, S0000-, X9999-)`,
+                msg('paragraphNaming', firstName),
                 undefined, undefined, firstName));
         }
     }
@@ -984,7 +985,7 @@ function checkMissingPeriod(lines) {
                 nextCode.startsWith('COPY ') ||
                 nextCode.includes('SECTION.') || nextCode.includes('DIVISION')) {
                 diags.push(makeDiag(i, cfg.severity, 'missing-period',
-                    'Manca il punto alla fine della definizione di variabile'));
+                    msg('missingPeriod')));
             }
             break;
         }
@@ -1084,7 +1085,7 @@ function checkPicMissing(lines) {
         if (item.hasRedefines && idx + 1 < dataItems.length && dataItems[idx + 1].level > item.level) continue;
 
         diags.push(makeDiag(item.line, cfg.severity, 'pic-missing',
-            `Variabile '${item.name}' senza clausola PIC (livello ${String(item.level).padStart(2, '0')} elementare richiede PIC)`));
+            msg('picMissing', item.name, String(item.level).padStart(2, '0'))));
     }
     return diags;
 }
@@ -1131,7 +1132,7 @@ function checkMismatchedCopy(lines, workspaceRoot) {
                 const resolved = resolveCopybookPath(copyName, workspaceRoot);
                 if (!resolved) {
                     diags.push(makeDiag(i, cfg.severity, 'mismatched-copy',
-                        `COPY '${copyName}' non trovata nelle cartelle configurate`));
+                        msg('mismatchedCopy', copyName)));
                 }
             }
         }
@@ -1169,7 +1170,7 @@ function checkSectionOrder(lines) {
         const prevIdx = expectedOrder.indexOf(found[idx - 1].div);
         if (currIdx >= 0 && prevIdx >= 0 && currIdx <= prevIdx) {
             diags.push(makeDiag(found[idx].line, cfg.severity, 'section-order',
-                `'${found[idx].div}' non nell'ordine corretto (deve venire dopo '${found[idx - 1].div}')`));
+                msg('sectionOrder', found[idx].div, found[idx - 1].div)));
         }
     }
     return diags;
@@ -1223,7 +1224,7 @@ function checkPerformThruOrder(lines) {
                 if (performTarget in paraPositions && thruTarget in paraPositions) {
                     if (paraPositions[thruTarget] <= paraPositions[performTarget]) {
                         diags.push(makeDiag(i, cfg.severity, 'perform-thru-order',
-                            `PERFORM ${performTarget} THRU ${thruTarget}: '${thruTarget}' deve essere definito DOPO '${performTarget}'`));
+                            msg('performThruOrder', performTarget, thruTarget)));
                     }
                 }
                 performTarget = null;
@@ -1238,7 +1239,7 @@ function checkPerformThruOrder(lines) {
                 if (performTarget in paraPositions && thruTarget in paraPositions) {
                     if (paraPositions[thruTarget] <= paraPositions[performTarget]) {
                         diags.push(makeDiag(performStart, cfg.severity, 'perform-thru-order',
-                            `PERFORM ${performTarget} THRU ${thruTarget}: '${thruTarget}' deve essere definito DOPO '${performTarget}'`));
+                            msg('performThruOrder', performTarget, thruTarget)));
                     }
                 }
                 performTarget = null;
@@ -1292,7 +1293,7 @@ function checkEmptyParagraph(lines) {
         }
         if (!hasCode) {
             diags.push(makeDiag(startLine, cfg.severity, 'empty-paragraph',
-                `Paragrafo '${name}' vuoto o contiene solo EXIT/CONTINUE`,
+                msg('emptyParagraph', name),
                 undefined, undefined, name));
         }
     }
@@ -1327,7 +1328,7 @@ function checkConsecutivePerformSpacing(lines) {
         if (/^\s*PERFORM\s+[A-Z0-9][\w-]*/i.test(upper)) {
             if (lastPerformEnd !== null) {
                 diags.push(makeDiag(i, cfg.severity, 'consecutive-perform-spacing',
-                    'Manca una riga vuota prima di questa PERFORM (le PERFORM consecutive devono essere separate da una riga vuota)'));
+                    msg('consecutivePerform')));
             }
             lastPerformEnd = i;
             continue;
@@ -1368,7 +1369,7 @@ function checkMissingFileStatus(lines) {
         if (selMatch) {
             if (selectName && !hasStatus) {
                 diags.push(makeDiag(selectLine, cfg.severity, 'missing-file-status',
-                    `SELECT '${selectName}' senza clausola STATUS (usare FILE STATUS per gestire errori I/O)`));
+                    msg('missingFileStatus', selectName)));
             }
             selectName = selMatch[1];
             selectLine = i;
@@ -1379,7 +1380,7 @@ function checkMissingFileStatus(lines) {
     }
     if (selectName && !hasStatus) {
         diags.push(makeDiag(selectLine, cfg.severity, 'missing-file-status',
-            `SELECT '${selectName}' senza clausola STATUS (usare FILE STATUS per gestire errori I/O)`));
+            msg('missingFileStatus', selectName)));
     }
     return diags;
 }
@@ -1410,7 +1411,7 @@ function checkMissingStopRun(lines) {
     }
     if (lastProcLine > 0 && !hasStop) {
         diags.push(makeDiag(lastProcLine, cfg.severity, 'missing-stop-run',
-            'Il programma non contiene STOP RUN, GOBACK o EXEC CICS RETURN'));
+            msg('missingStopRun')));
     }
     return diags;
 }
@@ -1439,12 +1440,12 @@ function checkAndOrIf(lines) {
         // Stessa riga: AND IF / OR IF
         if (/\b(AND|OR)\s+IF\b/.test(upper)) {
             diags.push(makeDiag(i, cfg.severity, 'and-or-if',
-                'IF non necessario dopo AND/OR in una condizione composta. Rimuovere IF.'));
+                msg('andOrIf')));
         }
         // Riga precedente finiva con AND/OR e questa inizia con IF
         else if (prevEndsWithConnector && /^\s*IF\b/.test(upper)) {
             diags.push(makeDiag(i, cfg.severity, 'and-or-if',
-                'IF non necessario dopo AND/OR in una condizione composta. Rimuovere IF.'));
+                msg('andOrIf')));
         }
 
         // Aggiorna flag per riga successiva
@@ -1649,7 +1650,7 @@ function checkRedefinesSize(lines) {
 
         if (origSize > 0 && redefSize > 0 && origSize !== redefSize) {
             diags.push(makeDiag(item.lineNum, cfg.severity, 'redefines-size',
-                `REDEFINES: '${item.redefines}' occupa ${origSize} byte, la ridefinizione occupa ${redefSize} byte (devono coincidere)`,
+                msg('redefinesSize', item.redefines, origSize, redefSize),
                 undefined, undefined, item.name));
         }
     }
@@ -2120,7 +2121,7 @@ function checkInvalidColumn7(lines) {
         const col7 = raw.charAt(6);
         if (!validIndicators.has(col7)) {
             diags.push(makeDiag(i, cfg.severity, 'invalid-column-7',
-                `Carattere '${col7}' non valido in colonna 7 (ammessi: spazio, *, /, D, -, $)`,
+                msg('invalidColumn7', col7),
                 6, 7));
         }
     }
@@ -2191,7 +2192,7 @@ function checkUnsubscriptedOccurs(lines, workspaceRoot) {
                         }
                         if (!hasSubscriptNextLine) {
                             diags.push(makeDiag(i, cfg.severity, 'unsubscripted-occurs',
-                                `Variabile '${varName}' ha clausola OCCURS e richiede un indice o subscript`,
+                                msg('unsubscriptedOccurs', varName),
                                 undefined, undefined, varName));
                             reported.add(varName);
                             break;
@@ -2230,7 +2231,7 @@ function checkUndefinedVariables(lines, workspaceRoot) {
     for (const { line, name } of refs) {
         if (!defined.has(name) && !reported.has(name)) {
             diags.push(makeDiag(line, cfg.severity, 'undefined-variable',
-                `Variabile '${name}' non definita nel programma ne' nelle copy utilizzate`,
+                msg('undefinedVariable', name),
                 undefined, undefined, name));
             reported.add(name);
         }
@@ -2261,7 +2262,7 @@ function checkUndefinedParagraph(lines, workspaceRoot) {
     for (const { line, target } of targets) {
         if (!defined.has(target) && !reported.has(target)) {
             diags.push(makeDiag(line, cfg.severity, 'undefined-paragraph',
-                `PERFORM verso paragrafo '${target}' non definito nel programma`,
+                msg('undefinedParagraph', target),
                 undefined, undefined, target));
             reported.add(target);
         }
@@ -2286,7 +2287,7 @@ function checkUnusedParagraph(lines) {
         if (name.endsWith('-EX')) continue;
         if (line === minLine) continue;
         diags.push(makeDiag(line, cfg.severity, 'unused-paragraph',
-            `Paragrafo '${name}' definito ma mai richiamato da una PERFORM`,
+            msg('unusedParagraph', name),
             undefined, undefined, name));
     }
     return diags;
@@ -2363,7 +2364,7 @@ function checkUnusedVariable(lines, workspaceRoot) {
         }
 
         diags.push(makeDiag(line, cfg.severity, 'unused-variable',
-            `Variabile '${name}' definita in WORKING-STORAGE ma mai utilizzata nella PROCEDURE DIVISION`,
+            msg('unusedVariable', name),
             undefined, undefined, name));
     }
     return diags;
@@ -2463,11 +2464,10 @@ function checkDuplicateVariable(lines, workspaceRoot) {
                 }
                 if (isConditionalDup) continue;
 
-                let msg = `Variabile '${name}' definita piu' volte nel programma (prima definizione a riga ${lineList[0] + 1})`;
-                if (copyVarSources.has(name)) {
-                    msg += ` e anche in ${copyVarSources.get(name).join(', ')}`;
-                }
-                diags.push(makeDiag(lineList[k], cfg.severity, 'duplicate-variable', msg,
+                const msgText = copyVarSources.has(name)
+                    ? msg('duplicateVarProgramAndCopy', name, lineList[0] + 1, copyVarSources.get(name).join(', '))
+                    : msg('duplicateVarProgram', name, lineList[0] + 1);
+                diags.push(makeDiag(lineList[k], cfg.severity, 'duplicate-variable', msgText,
                     undefined, undefined, name));
             }
         }
@@ -2479,7 +2479,7 @@ function checkDuplicateVariable(lines, workspaceRoot) {
         if (copyVarSources.has(name)) {
             const copies = copyVarSources.get(name);
             diags.push(makeDiag(lineList[0], cfg.severity, 'duplicate-variable',
-                `Variabile '${name}' definita nel programma a riga ${lineList[0] + 1} e anche in ${copies.join(', ')}`,
+                msg('duplicateVarProgAndCopy', name, lineList[0] + 1, copies.join(', ')),
                 undefined, undefined, name));
         }
     }
@@ -2490,7 +2490,7 @@ function checkDuplicateVariable(lines, workspaceRoot) {
         if (copies.length > 1) {
             const stmtLine = copyStmtLines.get(copies[0]) || 0;
             diags.push(makeDiag(stmtLine, cfg.severity, 'duplicate-variable',
-                `Variabile '${name}' definita in piu' copy: ${copies.join(', ')}`,
+                msg('duplicateVarCopies', name, copies.join(', ')),
                 undefined, undefined, name));
         }
     }
@@ -2520,7 +2520,7 @@ function checkVariableNameLength(lines) {
             if (name === 'FILLER') continue;
             if (name.length > MAX_NAME_LENGTH) {
                 diags.push(makeDiag(i, cfg.severity, 'variable-name-length',
-                    `Nome variabile '${name}' troppo lungo (${name.length} caratteri, massimo consentito: ${MAX_NAME_LENGTH})`,
+                    msg('variableNameLength', name, name.length, MAX_NAME_LENGTH),
                     undefined, undefined, name));
             }
         }
@@ -2576,7 +2576,7 @@ function checkMissingLevel(lines) {
             const firstWord = upper.split(/\s+/)[0].replace(/\.$/, '');
             if (!COBOL_RESERVED_EXTENDED.has(firstWord)) {
                 diags.push(makeDiag(i, cfg.severity, 'missing-level',
-                    `Definizione variabile '${firstWord}' senza numero di livello (01-49, 66, 77, 88)`,
+                    msg('missingLevel', firstWord),
                     undefined, undefined, firstWord));
             }
         }
@@ -2629,7 +2629,7 @@ function checkCharsAfterPeriod(lines) {
                     const colStart = 7 + periodIdx + 1 + (nonSpaceOffset >= 0 ? nonSpaceOffset : 0);
                     const colEnd = colStart + 1;
                     diags.push(makeDiag(i, cfg.severity, 'chars-after-period',
-                        'Contenuto non valido dopo il punto terminatore della riga COBOL',
+                        msg('charsAfterPeriod'),
                         colStart, colEnd));
                 }
             }
@@ -2644,7 +2644,7 @@ function checkCharsAfterPeriod(lines) {
                 const colStart = 7 + startIdx;
                 const colEnd = 7 + upperCode.length;
                 diags.push(makeDiag(i, cfg.severity, 'chars-after-period',
-                    'Possibile numero di sequenza non valido in coda alla riga (formato fixed usato in sourceformat variable/free)',
+                    msg('charsAfterPeriodSeq'),
                     colStart, colEnd));
             }
         }
@@ -2688,7 +2688,7 @@ function checkComputeMultilineAsterisk(lines) {
             const trimmedCode = withoutLit.trimEnd().replace(/\.$/, '').trimEnd();
             if (trimmedCode.endsWith('*') && !withoutLit.trimEnd().endsWith('.')) {
                 diags.push(makeDiag(i, cfg.severity, 'compute-multiline-asterisk',
-                    `COMPUTE su piu' righe: la riga termina con '*' (operatore moltiplicazione). Il precompilatore CICS potrebbe generare errori. Spostare l'operatore '*' all'inizio della riga successiva.`));
+                    msg('computeAsterisk')));
             }
 
             // Fine della COMPUTE (punto o END-COMPUTE)
@@ -2858,7 +2858,7 @@ function _checkMathStatement(stmt, verb, lineNum, alphanumericVars, diags, cfg) 
         if (numvalProtected.has(token)) continue;
         if (alphanumericVars.has(token)) {
             diags.push(makeDiag(lineNum, cfg.severity, 'alphanumeric-in-compute',
-                `Variabile alfanumerica '${token}' utilizzata in istruzione ${verb}. Le operazioni matematiche richiedono variabili numeriche.`,
+                msg('alphanumericInCompute', token, verb),
                 undefined, undefined, token));
             reported.add(token);
         }
@@ -2879,6 +2879,9 @@ function runLinter(text, workspaceRoot) {
     // Verifica se il linter e' abilitato
     const config = vscode.workspace.getConfiguration('cobolLens.linter');
     if (!config.get('enabled', true)) return [];
+
+    // Imposta la lingua per tutti i messaggi di questa esecuzione
+    setLang(getLang());
 
     const lines = text.split(/\r?\n/);
 

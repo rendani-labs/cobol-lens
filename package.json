@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "Navigate COBOL copybooks and symbols with Go to Definition, Peek, Find All References, autocomplete, code folding, integrated linter, and more (no compiler required)",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -53,7 +53,7 @@
             "Copy_DR",
             "Copy_Prod"
           ],
-          "description": "Cartelle in cui cercare le copybook (relative al workspace root)"
+          "description": "%cobolLens.copyFolders.description%"
         },
         "cobolLens.copyExtensions": {
           "type": "array",
@@ -64,7 +64,7 @@
             ".COPY",
             ".copy"
           ],
-          "description": "Estensioni da provare per risolvere le copybook (stringa vuota = nessuna estensione)"
+          "description": "%cobolLens.copyExtensions.description%"
         },
         "cobolLens.ignoredCopybooks": {
           "type": "array",
@@ -72,463 +72,474 @@
             "DFHBMSCA",
             "DFHAID"
           ],
-          "description": "Elenco di copybook da escludere dalla diagnostica bloccante sulle COPY non risolte"
+          "description": "%cobolLens.ignoredCopybooks.description%"
+        },
+        "cobolLens.language": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "it", "en"],
+          "enumDescriptions": [
+            "%cobolLens.language.auto%",
+            "%cobolLens.language.it%",
+            "%cobolLens.language.en%"
+          ],
+          "description": "%cobolLens.language.description%"
         },
         "cobolLens.ifBlockHighlight.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Evidenzia i blocchi IF/ELSE/END-IF con colori diversi per livello di nesting"
+          "description": "%cobolLens.ifBlockHighlight.enabled.description%"
         },
         "cobolLens.ifBlockHighlight.scopeBars": {
           "type": "boolean",
           "default": true,
-          "description": "Mostra barre laterali colorate per indicare lo scope di ogni blocco IF"
+          "description": "%cobolLens.ifBlockHighlight.scopeBars.description%"
         },
         "cobolLens.linter.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Abilita/disabilita il linter COBOL integrato"
+          "description": "%cobolLens.linter.enabled.description%"
         },
         "cobolLens.linter.onType": {
           "type": "boolean",
           "default": true,
-          "description": "Esegui il linter in tempo reale mentre scrivi (se false, solo al salvataggio)"
+          "description": "%cobolLens.linter.onType.description%"
         },
         "cobolLens.linter.delay": {
           "type": "number",
           "default": 500,
-          "description": "Ritardo in millisecondi prima di eseguire il linter dopo una modifica",
+          "description": "%cobolLens.linter.delay.description%",
           "minimum": 100,
           "maximum": 5000
         },
         "cobolLens.linter.rules.col72.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Il codice non deve superare la colonna 72"
+          "description": "%cobolLens.linter.rules.col72.enabled.description%"
         },
         "cobolLens.linter.rules.col72.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola col72"
+          "description": "%cobolLens.linter.rules.col72.severity.description%"
         },
         "cobolLens.linter.rules.no-goto.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Non usare GOTO, preferire PERFORM e IF"
+          "description": "%cobolLens.linter.rules.no-goto.enabled.description%"
         },
         "cobolLens.linter.rules.no-goto.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola no-goto"
+          "description": "%cobolLens.linter.rules.no-goto.severity.description%"
         },
         "cobolLens.linter.rules.no-at-end.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Non usare AT END / NOT AT END, usare il file status con EVALUATE"
+          "description": "%cobolLens.linter.rules.no-at-end.enabled.description%"
         },
         "cobolLens.linter.rules.no-at-end.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola no-at-end"
+          "description": "%cobolLens.linter.rules.no-at-end.severity.description%"
         },
         "cobolLens.linter.rules.no-level-77-78.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Non usare livelli 77 e 78 in WORKING-STORAGE"
+          "description": "%cobolLens.linter.rules.no-level-77-78.enabled.description%"
         },
         "cobolLens.linter.rules.no-level-77-78.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola no-level-77-78"
+          "description": "%cobolLens.linter.rules.no-level-77-78.severity.description%"
         },
         "cobolLens.linter.rules.uppercase.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Il codice COBOL deve essere in maiuscolo"
+          "description": "%cobolLens.linter.rules.uppercase.enabled.description%"
         },
         "cobolLens.linter.rules.uppercase.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola uppercase"
+          "description": "%cobolLens.linter.rules.uppercase.severity.description%"
         },
         "cobolLens.linter.rules.division-separator.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Prima di ogni DIVISION/SECTION deve esserci la riga separatrice"
+          "description": "%cobolLens.linter.rules.division-separator.enabled.description%"
         },
         "cobolLens.linter.rules.division-separator.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola division-separator"
+          "description": "%cobolLens.linter.rules.division-separator.severity.description%"
         },
         "cobolLens.linter.rules.pic-alignment.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "La definizione PIC deve iniziare alla posizione 45"
+          "description": "%cobolLens.linter.rules.pic-alignment.enabled.description%"
         },
         "cobolLens.linter.rules.pic-alignment.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola pic-alignment"
+          "description": "%cobolLens.linter.rules.pic-alignment.severity.description%"
         },
         "cobolLens.linter.rules.select-col12.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "SELECT in FILE-CONTROL deve iniziare a colonna 12"
+          "description": "%cobolLens.linter.rules.select-col12.enabled.description%"
         },
         "cobolLens.linter.rules.select-col12.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola select-col12"
+          "description": "%cobolLens.linter.rules.select-col12.severity.description%"
         },
         "cobolLens.linter.rules.assign-col29.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "ASSIGN TO, ORGANIZATION, ecc. devono iniziare a colonna 29"
+          "description": "%cobolLens.linter.rules.assign-col29.enabled.description%"
         },
         "cobolLens.linter.rules.assign-col29.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola assign-col29"
+          "description": "%cobolLens.linter.rules.assign-col29.severity.description%"
         },
         "cobolLens.linter.rules.ws-levels.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Livelli WORKING-STORAGE devono essere 01, 05, 10, 15... oppure 66, 88"
+          "description": "%cobolLens.linter.rules.ws-levels.enabled.description%"
         },
         "cobolLens.linter.rules.ws-levels.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola ws-levels"
+          "description": "%cobolLens.linter.rules.ws-levels.severity.description%"
         },
         "cobolLens.linter.rules.paragraph-naming.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "I paragrafi devono seguire la convenzione I0001-/E0001-/F0001-/V0000-/S0000-"
+          "description": "%cobolLens.linter.rules.paragraph-naming.enabled.description%"
         },
         "cobolLens.linter.rules.paragraph-naming.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola paragraph-naming"
+          "description": "%cobolLens.linter.rules.paragraph-naming.severity.description%"
         },
         "cobolLens.linter.rules.no-else-if.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Non usare ELSE IF, indentare le IF dentro un ELSE"
+          "description": "%cobolLens.linter.rules.no-else-if.enabled.description%"
         },
         "cobolLens.linter.rules.no-else-if.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola no-else-if"
+          "description": "%cobolLens.linter.rules.no-else-if.severity.description%"
         },
         "cobolLens.linter.rules.move-to-alignment.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Nel comando MOVE...TO, la parola TO deve iniziare alla posizione 45"
+          "description": "%cobolLens.linter.rules.move-to-alignment.enabled.description%"
         },
         "cobolLens.linter.rules.move-to-alignment.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola move-to-alignment"
+          "description": "%cobolLens.linter.rules.move-to-alignment.severity.description%"
         },
         "cobolLens.linter.rules.ws-level-spacing.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Tra il livello e il nome della variabile deve esserci esattamente 1 spazio"
+          "description": "%cobolLens.linter.rules.ws-level-spacing.enabled.description%"
         },
         "cobolLens.linter.rules.ws-level-spacing.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola ws-level-spacing"
+          "description": "%cobolLens.linter.rules.ws-level-spacing.severity.description%"
         },
         "cobolLens.linter.rules.end-structure.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Ogni IF/PERFORM/EVALUATE deve avere la corrispondente chiusura END-"
+          "description": "%cobolLens.linter.rules.end-structure.enabled.description%"
         },
         "cobolLens.linter.rules.end-structure.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola end-structure"
+          "description": "%cobolLens.linter.rules.end-structure.severity.description%"
         },
         "cobolLens.linter.rules.undefined-variable.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che le variabili usate siano definite nel programma o nelle copy"
+          "description": "%cobolLens.linter.rules.undefined-variable.enabled.description%"
         },
         "cobolLens.linter.rules.undefined-variable.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola undefined-variable"
+          "description": "%cobolLens.linter.rules.undefined-variable.severity.description%"
         },
         "cobolLens.linter.rules.undefined-paragraph.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che ogni PERFORM faccia riferimento a un paragrafo definito"
+          "description": "%cobolLens.linter.rules.undefined-paragraph.enabled.description%"
         },
         "cobolLens.linter.rules.undefined-paragraph.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola undefined-paragraph"
+          "description": "%cobolLens.linter.rules.undefined-paragraph.severity.description%"
         },
         "cobolLens.linter.rules.unused-paragraph.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Segnala paragrafi definiti ma mai richiamati"
+          "description": "%cobolLens.linter.rules.unused-paragraph.enabled.description%"
         },
         "cobolLens.linter.rules.unused-paragraph.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola unused-paragraph"
+          "description": "%cobolLens.linter.rules.unused-paragraph.severity.description%"
         },
         "cobolLens.linter.rules.unused-variable.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Segnala variabili definite in WORKING-STORAGE ma mai utilizzate"
+          "description": "%cobolLens.linter.rules.unused-variable.enabled.description%"
         },
         "cobolLens.linter.rules.unused-variable.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola unused-variable"
+          "description": "%cobolLens.linter.rules.unused-variable.severity.description%"
         },
         "cobolLens.linter.rules.duplicate-variable.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che non esistano variabili definite piu' volte"
+          "description": "%cobolLens.linter.rules.duplicate-variable.enabled.description%"
         },
         "cobolLens.linter.rules.duplicate-variable.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola duplicate-variable"
+          "description": "%cobolLens.linter.rules.duplicate-variable.severity.description%"
         },
         "cobolLens.linter.rules.missing-period.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che le definizioni di variabile terminino con un punto"
+          "description": "%cobolLens.linter.rules.missing-period.enabled.description%"
         },
         "cobolLens.linter.rules.missing-period.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola missing-period"
+          "description": "%cobolLens.linter.rules.missing-period.severity.description%"
         },
         "cobolLens.linter.rules.pic-missing.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che le variabili elementari abbiano la clausola PIC"
+          "description": "%cobolLens.linter.rules.pic-missing.enabled.description%"
         },
         "cobolLens.linter.rules.pic-missing.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola pic-missing"
+          "description": "%cobolLens.linter.rules.pic-missing.severity.description%"
         },
         "cobolLens.linter.rules.mismatched-copy.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che le istruzioni COPY facciano riferimento a file esistenti"
+          "description": "%cobolLens.linter.rules.mismatched-copy.enabled.description%"
         },
         "cobolLens.linter.rules.mismatched-copy.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola mismatched-copy"
+          "description": "%cobolLens.linter.rules.mismatched-copy.severity.description%"
         },
         "cobolLens.linter.rules.perform-thru-order.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che in PERFORM X THRU Y, Y sia definito dopo X"
+          "description": "%cobolLens.linter.rules.perform-thru-order.enabled.description%"
         },
         "cobolLens.linter.rules.perform-thru-order.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola perform-thru-order"
+          "description": "%cobolLens.linter.rules.perform-thru-order.severity.description%"
         },
         "cobolLens.linter.rules.section-order.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che le DIVISION siano nell'ordine obbligatorio"
+          "description": "%cobolLens.linter.rules.section-order.enabled.description%"
         },
         "cobolLens.linter.rules.section-order.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola section-order"
+          "description": "%cobolLens.linter.rules.section-order.severity.description%"
         },
         "cobolLens.linter.rules.empty-paragraph.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Segnala paragrafi vuoti o che contengono solo EXIT/CONTINUE"
+          "description": "%cobolLens.linter.rules.empty-paragraph.enabled.description%"
         },
         "cobolLens.linter.rules.empty-paragraph.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola empty-paragraph"
+          "description": "%cobolLens.linter.rules.empty-paragraph.severity.description%"
         },
         "cobolLens.linter.rules.consecutive-perform-spacing.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Verifica che tra due PERFORM consecutivi ci sia una riga vuota"
+          "description": "%cobolLens.linter.rules.consecutive-perform-spacing.enabled.description%"
         },
         "cobolLens.linter.rules.consecutive-perform-spacing.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola consecutive-perform-spacing"
+          "description": "%cobolLens.linter.rules.consecutive-perform-spacing.severity.description%"
         },
         "cobolLens.linter.rules.missing-file-status.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che ogni SELECT abbia una clausola STATUS"
+          "description": "%cobolLens.linter.rules.missing-file-status.enabled.description%"
         },
         "cobolLens.linter.rules.missing-file-status.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola missing-file-status"
+          "description": "%cobolLens.linter.rules.missing-file-status.severity.description%"
         },
         "cobolLens.linter.rules.missing-stop-run.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che il programma contenga STOP RUN o GOBACK"
+          "description": "%cobolLens.linter.rules.missing-stop-run.enabled.description%"
         },
         "cobolLens.linter.rules.missing-stop-run.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola missing-stop-run"
+          "description": "%cobolLens.linter.rules.missing-stop-run.severity.description%"
         },
         "cobolLens.linter.rules.and-or-if.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Segnala IF spurio dopo AND/OR in condizione composta"
+          "description": "%cobolLens.linter.rules.and-or-if.enabled.description%"
         },
         "cobolLens.linter.rules.and-or-if.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola and-or-if"
+          "description": "%cobolLens.linter.rules.and-or-if.severity.description%"
         },
         "cobolLens.linter.rules.redefines-size.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che REDEFINES abbia la stessa dimensione dell'elemento originale"
+          "description": "%cobolLens.linter.rules.redefines-size.enabled.description%"
         },
         "cobolLens.linter.rules.redefines-size.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola redefines-size"
+          "description": "%cobolLens.linter.rules.redefines-size.severity.description%"
         },
         "cobolLens.linter.rules.invalid-column-7.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Verifica che la colonna 7 contenga solo caratteri indicatore validi (spazio, *, /, D, -, $)"
+          "description": "%cobolLens.linter.rules.invalid-column-7.enabled.description%"
         },
         "cobolLens.linter.rules.invalid-column-7.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola invalid-column-7"
+          "description": "%cobolLens.linter.rules.invalid-column-7.severity.description%"
         },
         "cobolLens.linter.rules.unsubscripted-occurs.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Segnala variabili con OCCURS usate senza indice o subscript"
+          "description": "%cobolLens.linter.rules.unsubscripted-occurs.enabled.description%"
         },
         "cobolLens.linter.rules.unsubscripted-occurs.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola unsubscripted-occurs"
+          "description": "%cobolLens.linter.rules.unsubscripted-occurs.severity.description%"
         },
         "cobolLens.linter.rules.orphan-scope-delimiter.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Segnala END-IF/END-PERFORM/END-EVALUATE senza l'istruzione di apertura corrispondente"
+          "description": "%cobolLens.linter.rules.orphan-scope-delimiter.enabled.description%"
         },
         "cobolLens.linter.rules.orphan-scope-delimiter.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola orphan-scope-delimiter"
+          "description": "%cobolLens.linter.rules.orphan-scope-delimiter.severity.description%"
         },
         "cobolLens.linter.rules.variable-name-length.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Il nome della variabile non deve superare 30 caratteri (limite Micro Focus COBOL)"
+          "description": "%cobolLens.linter.rules.variable-name-length.enabled.description%"
         },
         "cobolLens.linter.rules.variable-name-length.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola variable-name-length"
+          "description": "%cobolLens.linter.rules.variable-name-length.severity.description%"
         },
         "cobolLens.linter.rules.missing-level.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Variabile nella DATA DIVISION dichiarata senza numero di livello"
+          "description": "%cobolLens.linter.rules.missing-level.enabled.description%"
         },
         "cobolLens.linter.rules.missing-level.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola missing-level"
+          "description": "%cobolLens.linter.rules.missing-level.severity.description%"
         },
         "cobolLens.linter.rules.chars-after-period.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Contenuto non valido dopo il punto terminatore di un'istruzione COBOL"
+          "description": "%cobolLens.linter.rules.chars-after-period.enabled.description%"
         },
         "cobolLens.linter.rules.chars-after-period.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola chars-after-period"
+          "description": "%cobolLens.linter.rules.chars-after-period.severity.description%"
         },
         "cobolLens.linter.rules.compute-multiline-asterisk.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "COMPUTE su piu' righe con riga che termina con '*': il precompilatore CICS potrebbe generare errori"
+          "description": "%cobolLens.linter.rules.compute-multiline-asterisk.enabled.description%"
         },
         "cobolLens.linter.rules.compute-multiline-asterisk.severity": {
           "type": "string",
           "default": "warning",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola compute-multiline-asterisk"
+          "description": "%cobolLens.linter.rules.compute-multiline-asterisk.severity.description%"
         },
         "cobolLens.linter.rules.alphanumeric-in-compute.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Variabile alfanumerica usata in un'istruzione matematica (COMPUTE/ADD/SUBTRACT/MULTIPLY/DIVIDE)"
+          "description": "%cobolLens.linter.rules.alphanumeric-in-compute.enabled.description%"
         },
         "cobolLens.linter.rules.alphanumeric-in-compute.severity": {
           "type": "string",
           "default": "error",
           "enum": ["error", "warning", "info"],
-          "description": "Severita' per la regola alphanumeric-in-compute"
+          "description": "%cobolLens.linter.rules.alphanumeric-in-compute.severity.description%"
         }
       }
     }
