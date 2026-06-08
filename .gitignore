@@ -2,8 +2,8 @@ node_modules/
 *.vsix
 .vscode-test/
 
-# CI/CD workflows - local only, not tracked in git
-.github/
+# Copilot instructions - local only
+.github/copilot-instructions.md
 
 # File interni/personali - non pubblicare
 storico-conversazioni.md
