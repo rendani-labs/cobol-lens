@@ -2,10 +2,7 @@ node_modules/
 *.vsix
 .vscode-test/
 .vscode/
+tests/
 
 # Copilot instructions - local only
 .github/copilot-instructions.md
-
-# File interni/personali - non pubblicare
-storico-conversazioni.md
-parse-sessions.ps1
