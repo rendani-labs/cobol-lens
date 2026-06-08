@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2026-06-08
+
+### Fixed
+- Replaced corrupted special characters in README with ASCII equivalents
+- Removed .vscode from repository (local-only config)
+
 ## [1.0.0] - 2026-06-08
 
 ### Features

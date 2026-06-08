@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "Navigate COBOL copybooks and symbols with Go to Definition, Peek, Find All References, autocomplete, code folding, integrated linter, and more (no compiler required)",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
