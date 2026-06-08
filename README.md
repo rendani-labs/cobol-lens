@@ -1,6 +1,6 @@
 # COBOL Lens
 
-A lightweight VS Code extension for navigating COBOL copybooks and symbols ? no compiler or language server required.
+A lightweight VS Code extension for navigating COBOL copybooks and symbols -- no compiler or language server required.
 
 ## Features
 
@@ -30,28 +30,28 @@ A built-in COBOL linter with **25+ configurable rules** that checks your code in
 
 Categories of rules:
 
-- **Structure** ? DIVISION order, END-IF/END-PERFORM matching, orphan scope delimiters
-- **Formatting** ? column 72 limit, PIC alignment, level spacing, uppercase enforcement
-- **Code quality** ? undefined/unused variables, undefined/unused paragraphs, duplicate definitions
-- **Best practices** ? no GOTO, no AT END, no ELSE IF, REDEFINES size check, missing STOP RUN
-- **File handling** ? missing FILE STATUS, COPY resolution, PERFORM THRU order
+- **Structure** -- DIVISION order, END-IF/END-PERFORM matching, orphan scope delimiters
+- **Formatting** -- column 72 limit, PIC alignment, level spacing, uppercase enforcement
+- **Code quality** -- undefined/unused variables, undefined/unused paragraphs, duplicate definitions
+- **Best practices** -- no GOTO, no AT END, no ELSE IF, REDEFINES size check, missing STOP RUN
+- **File handling** -- missing FILE STATUS, COPY resolution, PERFORM THRU order
 
 See [Linter Rules](#linter-rules) below for the full list.
 
 ## Supported File Types
 
-- `.CBL`, `.cbl` ? COBOL batch programs
-- `.clt`, `.CLT` ? COBOL online programs
+- `.CBL`, `.cbl` -- COBOL batch programs
+- `.clt`, `.CLT` -- COBOL online programs
 - Copybooks with any extension (configurable) or no extension at all
 
 ## How It Works
 
 The extension parses your COBOL source files and recursively resolves `COPY` statements to build a complete symbol index. This includes:
 
-- **Variables** ? All levels (01?49, 66, 77, 88) from both the program and included copybooks
-- **Paragraphs** ? Procedure names in area A
-- **Sections** ? Named sections in the PROCEDURE DIVISION
-- **COPY ... REPLACING** ? Symbols from copybooks are renamed according to replacement pairs
+- **Variables** -- All levels (01-49, 66, 77, 88) from both the program and included copybooks
+- **Paragraphs** -- Procedure names in area A
+- **Sections** -- Named sections in the PROCEDURE DIVISION
+- **COPY ... REPLACING** -- Symbols from copybooks are renamed according to replacement pairs
 
 No compilation is needed. No external tools. No network access. Everything runs locally in your editor.
 
@@ -64,7 +64,7 @@ Search for **COBOL Lens** in the Extensions view (`Ctrl+Shift+X`) and click Inst
 ### From VSIX file
 
 1. Get the `.vsix` file
-2. In VS Code: `Ctrl+Shift+P` ? **Extensions: Install from VSIX...** ? select the file
+2. In VS Code: `Ctrl+Shift+P` > **Extensions: Install from VSIX...** > select the file
 3. Reload VS Code
 
 ## Configuration
@@ -88,7 +88,7 @@ Add these settings to your workspace `.vscode/settings.json`:
 | `cobolLens.ifBlockHighlight.scopeBars` | `true` | Show colored side bars to visualize the scope of each IF block |
 | `cobolLens.linter.enabled` | `true` | Enable/disable the integrated linter |
 | `cobolLens.linter.onType` | `true` | Lint in real-time while typing (if false, only on save) |
-| `cobolLens.linter.delay` | `500` | Delay in ms before linting after a change (100?5000) |
+| `cobolLens.linter.delay` | `500` | Delay in ms before linting after a change (100-5000) |
 
 ## Linter Rules
 
@@ -97,8 +97,8 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | Rule | Default | Severity | Description |
 |------|---------|----------|-------------|
 | `col72` | on | error | Code must not exceed column 72 |
-| `no-goto` | on | error | No GOTO ? use PERFORM and IF instead |
-| `no-at-end` | on | error | No AT END / NOT AT END ? use FILE STATUS with EVALUATE |
+| `no-goto` | on | error | No GOTO -- use PERFORM and IF instead |
+| `no-at-end` | on | error | No AT END / NOT AT END -- use FILE STATUS with EVALUATE |
 | `no-level-77-78` | on | error | No level 77/78 in WORKING-STORAGE |
 | `uppercase` | on | warning | COBOL code must be uppercase |
 | `division-separator` | on | warning | A separator line is required before each DIVISION/SECTION |
@@ -107,7 +107,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `assign-col29` | on | warning | ASSIGN TO, ORGANIZATION, etc. must start at column 29 |
 | `ws-levels` | on | warning | WORKING-STORAGE levels must be 01, 05, 10, 15... or 66, 88 |
 | `paragraph-naming` | on | warning | Paragraphs must follow naming convention (I0001-/E0001-/F0001-/V0000-/S0000-) |
-| `no-else-if` | on | warning | No ELSE IF ? nest IF inside ELSE instead |
+| `no-else-if` | on | warning | No ELSE IF -- nest IF inside ELSE instead |
 | `move-to-alignment` | on | warning | In MOVE...TO, the word TO must start at position 45 |
 | `ws-level-spacing` | on | warning | Exactly 1 space between level number and variable name |
 | `end-structure` | on | warning | Every IF/PERFORM/EVALUATE must have its END- counterpart |
@@ -145,8 +145,8 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 
 ## Known Limitations
 
-- Free-format COBOL is not supported (fixed-format only, columns 7?72)
-- The linter is not a compiler ? it catches common issues but does not validate full COBOL semantics
+- Free-format COBOL is not supported (fixed-format only, columns 7-72)
+- The linter is not a compiler -- it catches common issues but does not validate full COBOL semantics
 - Copybook resolution requires the files to be present locally in the workspace
 
 ## License

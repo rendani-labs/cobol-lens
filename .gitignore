@@ -2,6 +2,9 @@ node_modules/
 *.vsix
 .vscode-test/
 
+# CI/CD workflows - local only, not tracked in git
+.github/
+
 # File interni/personali - non pubblicare
 storico-conversazioni.md
 parse-sessions.ps1
