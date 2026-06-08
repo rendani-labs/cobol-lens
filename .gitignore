@@ -1,6 +1,7 @@
 node_modules/
 *.vsix
 .vscode-test/
+.vscode/
 
 # Copilot instructions - local only
 .github/copilot-instructions.md
