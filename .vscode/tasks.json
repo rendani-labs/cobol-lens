@@ -1,0 +1,46 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "SSH DR",
+      "type": "shell",
+      "command": "ssh DR"
+    },
+    {
+      "label": "SSH PROD",
+      "type": "shell",
+      "command": "ssh PROD"
+    },
+    {
+      "label": "DebugSS",
+      "type": "shell",
+      "command": "DebugSS"
+    },
+    {
+      "label": "DebugMG",
+      "type": "shell",
+      "command": "DebugMG"
+    },
+    {
+      "label": "Test Linter Regression (npm)",
+      "type": "shell",
+      "command": "npm",
+      "args": [
+        "test"
+      ],
+      "group": "test"
+    },
+    {
+      "label": "Test Linter Regression (PowerShell fallback)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "tests/test-linter-regression.ps1"
+      ],
+      "group": "test"
+    }
+  ]
+}

@@ -1,0 +1,545 @@
+{
+  "name": "cobol-lens",
+  "displayName": "COBOL Lens",
+  "description": "Navigate COBOL copybooks and symbols with Go to Definition, Peek, Find All References, autocomplete, code folding, integrated linter, and more (no compiler required)",
+  "version": "1.0.0",
+  "publisher": "rendani-labs",
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rendani-labs/cobol-lens"
+  },
+  "bugs": {
+    "url": "https://github.com/rendani-labs/cobol-lens/issues"
+  },
+  "homepage": "https://github.com/rendani-labs/cobol-lens#readme",
+  "keywords": [
+    "cobol",
+    "copybook",
+    "linter",
+    "mainframe",
+    "ibm",
+    "cbl",
+    "definition",
+    "references"
+  ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:cobol",
+    "onLanguage:COBOL",
+    "workspaceContains:**/*.CBL",
+    "workspaceContains:**/*.clt"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "COBOL Lens",
+      "properties": {
+        "cobolLens.copyFolders": {
+          "type": "array",
+          "default": [
+            "Copy",
+            "Copy_DR",
+            "Copy_Prod"
+          ],
+          "description": "Cartelle in cui cercare le copybook (relative al workspace root)"
+        },
+        "cobolLens.copyExtensions": {
+          "type": "array",
+          "default": [
+            "",
+            ".cpy",
+            ".CPY",
+            ".COPY",
+            ".copy"
+          ],
+          "description": "Estensioni da provare per risolvere le copybook (stringa vuota = nessuna estensione)"
+        },
+        "cobolLens.ignoredCopybooks": {
+          "type": "array",
+          "default": [
+            "DFHBMSCA",
+            "DFHAID"
+          ],
+          "description": "Elenco di copybook da escludere dalla diagnostica bloccante sulle COPY non risolte"
+        },
+        "cobolLens.ifBlockHighlight.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Evidenzia i blocchi IF/ELSE/END-IF con colori diversi per livello di nesting"
+        },
+        "cobolLens.ifBlockHighlight.scopeBars": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mostra barre laterali colorate per indicare lo scope di ogni blocco IF"
+        },
+        "cobolLens.linter.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Abilita/disabilita il linter COBOL integrato"
+        },
+        "cobolLens.linter.onType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Esegui il linter in tempo reale mentre scrivi (se false, solo al salvataggio)"
+        },
+        "cobolLens.linter.delay": {
+          "type": "number",
+          "default": 500,
+          "description": "Ritardo in millisecondi prima di eseguire il linter dopo una modifica",
+          "minimum": 100,
+          "maximum": 5000
+        },
+        "cobolLens.linter.rules.col72.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Il codice non deve superare la colonna 72"
+        },
+        "cobolLens.linter.rules.col72.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola col72"
+        },
+        "cobolLens.linter.rules.no-goto.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Non usare GOTO, preferire PERFORM e IF"
+        },
+        "cobolLens.linter.rules.no-goto.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola no-goto"
+        },
+        "cobolLens.linter.rules.no-at-end.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Non usare AT END / NOT AT END, usare il file status con EVALUATE"
+        },
+        "cobolLens.linter.rules.no-at-end.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola no-at-end"
+        },
+        "cobolLens.linter.rules.no-level-77-78.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Non usare livelli 77 e 78 in WORKING-STORAGE"
+        },
+        "cobolLens.linter.rules.no-level-77-78.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola no-level-77-78"
+        },
+        "cobolLens.linter.rules.uppercase.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Il codice COBOL deve essere in maiuscolo"
+        },
+        "cobolLens.linter.rules.uppercase.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola uppercase"
+        },
+        "cobolLens.linter.rules.division-separator.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Prima di ogni DIVISION/SECTION deve esserci la riga separatrice"
+        },
+        "cobolLens.linter.rules.division-separator.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola division-separator"
+        },
+        "cobolLens.linter.rules.pic-alignment.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "La definizione PIC deve iniziare alla posizione 45"
+        },
+        "cobolLens.linter.rules.pic-alignment.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola pic-alignment"
+        },
+        "cobolLens.linter.rules.select-col12.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "SELECT in FILE-CONTROL deve iniziare a colonna 12"
+        },
+        "cobolLens.linter.rules.select-col12.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola select-col12"
+        },
+        "cobolLens.linter.rules.assign-col29.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "ASSIGN TO, ORGANIZATION, ecc. devono iniziare a colonna 29"
+        },
+        "cobolLens.linter.rules.assign-col29.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola assign-col29"
+        },
+        "cobolLens.linter.rules.ws-levels.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Livelli WORKING-STORAGE devono essere 01, 05, 10, 15... oppure 66, 88"
+        },
+        "cobolLens.linter.rules.ws-levels.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola ws-levels"
+        },
+        "cobolLens.linter.rules.paragraph-naming.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "I paragrafi devono seguire la convenzione I0001-/E0001-/F0001-/V0000-/S0000-"
+        },
+        "cobolLens.linter.rules.paragraph-naming.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola paragraph-naming"
+        },
+        "cobolLens.linter.rules.no-else-if.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Non usare ELSE IF, indentare le IF dentro un ELSE"
+        },
+        "cobolLens.linter.rules.no-else-if.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola no-else-if"
+        },
+        "cobolLens.linter.rules.move-to-alignment.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Nel comando MOVE...TO, la parola TO deve iniziare alla posizione 45"
+        },
+        "cobolLens.linter.rules.move-to-alignment.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola move-to-alignment"
+        },
+        "cobolLens.linter.rules.ws-level-spacing.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Tra il livello e il nome della variabile deve esserci esattamente 1 spazio"
+        },
+        "cobolLens.linter.rules.ws-level-spacing.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola ws-level-spacing"
+        },
+        "cobolLens.linter.rules.end-structure.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ogni IF/PERFORM/EVALUATE deve avere la corrispondente chiusura END-"
+        },
+        "cobolLens.linter.rules.end-structure.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola end-structure"
+        },
+        "cobolLens.linter.rules.undefined-variable.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che le variabili usate siano definite nel programma o nelle copy"
+        },
+        "cobolLens.linter.rules.undefined-variable.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola undefined-variable"
+        },
+        "cobolLens.linter.rules.undefined-paragraph.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che ogni PERFORM faccia riferimento a un paragrafo definito"
+        },
+        "cobolLens.linter.rules.undefined-paragraph.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola undefined-paragraph"
+        },
+        "cobolLens.linter.rules.unused-paragraph.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Segnala paragrafi definiti ma mai richiamati"
+        },
+        "cobolLens.linter.rules.unused-paragraph.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola unused-paragraph"
+        },
+        "cobolLens.linter.rules.unused-variable.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Segnala variabili definite in WORKING-STORAGE ma mai utilizzate"
+        },
+        "cobolLens.linter.rules.unused-variable.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola unused-variable"
+        },
+        "cobolLens.linter.rules.duplicate-variable.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che non esistano variabili definite piu' volte"
+        },
+        "cobolLens.linter.rules.duplicate-variable.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola duplicate-variable"
+        },
+        "cobolLens.linter.rules.missing-period.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che le definizioni di variabile terminino con un punto"
+        },
+        "cobolLens.linter.rules.missing-period.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola missing-period"
+        },
+        "cobolLens.linter.rules.pic-missing.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che le variabili elementari abbiano la clausola PIC"
+        },
+        "cobolLens.linter.rules.pic-missing.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola pic-missing"
+        },
+        "cobolLens.linter.rules.mismatched-copy.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che le istruzioni COPY facciano riferimento a file esistenti"
+        },
+        "cobolLens.linter.rules.mismatched-copy.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola mismatched-copy"
+        },
+        "cobolLens.linter.rules.perform-thru-order.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che in PERFORM X THRU Y, Y sia definito dopo X"
+        },
+        "cobolLens.linter.rules.perform-thru-order.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola perform-thru-order"
+        },
+        "cobolLens.linter.rules.section-order.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che le DIVISION siano nell'ordine obbligatorio"
+        },
+        "cobolLens.linter.rules.section-order.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola section-order"
+        },
+        "cobolLens.linter.rules.empty-paragraph.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Segnala paragrafi vuoti o che contengono solo EXIT/CONTINUE"
+        },
+        "cobolLens.linter.rules.empty-paragraph.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola empty-paragraph"
+        },
+        "cobolLens.linter.rules.consecutive-perform-spacing.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Verifica che tra due PERFORM consecutivi ci sia una riga vuota"
+        },
+        "cobolLens.linter.rules.consecutive-perform-spacing.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola consecutive-perform-spacing"
+        },
+        "cobolLens.linter.rules.missing-file-status.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che ogni SELECT abbia una clausola STATUS"
+        },
+        "cobolLens.linter.rules.missing-file-status.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola missing-file-status"
+        },
+        "cobolLens.linter.rules.missing-stop-run.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che il programma contenga STOP RUN o GOBACK"
+        },
+        "cobolLens.linter.rules.missing-stop-run.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola missing-stop-run"
+        },
+        "cobolLens.linter.rules.and-or-if.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Segnala IF spurio dopo AND/OR in condizione composta"
+        },
+        "cobolLens.linter.rules.and-or-if.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola and-or-if"
+        },
+        "cobolLens.linter.rules.redefines-size.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che REDEFINES abbia la stessa dimensione dell'elemento originale"
+        },
+        "cobolLens.linter.rules.redefines-size.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola redefines-size"
+        },
+        "cobolLens.linter.rules.invalid-column-7.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Verifica che la colonna 7 contenga solo caratteri indicatore validi (spazio, *, /, D, -, $)"
+        },
+        "cobolLens.linter.rules.invalid-column-7.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola invalid-column-7"
+        },
+        "cobolLens.linter.rules.unsubscripted-occurs.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Segnala variabili con OCCURS usate senza indice o subscript"
+        },
+        "cobolLens.linter.rules.unsubscripted-occurs.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola unsubscripted-occurs"
+        },
+        "cobolLens.linter.rules.orphan-scope-delimiter.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Segnala END-IF/END-PERFORM/END-EVALUATE senza l'istruzione di apertura corrispondente"
+        },
+        "cobolLens.linter.rules.orphan-scope-delimiter.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola orphan-scope-delimiter"
+        },
+        "cobolLens.linter.rules.variable-name-length.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Il nome della variabile non deve superare 30 caratteri (limite Micro Focus COBOL)"
+        },
+        "cobolLens.linter.rules.variable-name-length.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola variable-name-length"
+        },
+        "cobolLens.linter.rules.missing-level.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Variabile nella DATA DIVISION dichiarata senza numero di livello"
+        },
+        "cobolLens.linter.rules.missing-level.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola missing-level"
+        },
+        "cobolLens.linter.rules.chars-after-period.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Contenuto non valido dopo il punto terminatore di un'istruzione COBOL"
+        },
+        "cobolLens.linter.rules.chars-after-period.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola chars-after-period"
+        },
+        "cobolLens.linter.rules.compute-multiline-asterisk.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "COMPUTE su piu' righe con riga che termina con '*': il precompilatore CICS potrebbe generare errori"
+        },
+        "cobolLens.linter.rules.compute-multiline-asterisk.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola compute-multiline-asterisk"
+        },
+        "cobolLens.linter.rules.alphanumeric-in-compute.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Variabile alfanumerica usata in un'istruzione matematica (COMPUTE/ADD/SUBTRACT/MULTIPLY/DIVIDE)"
+        },
+        "cobolLens.linter.rules.alphanumeric-in-compute.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "Severita' per la regola alphanumeric-in-compute"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "npx @vscode/vsce package --no-dependencies",
+    "test": "node tests/test-linter-regression.js",
+    "test:linter": "node tests/test-linter-regression.js",
+    "test:linter:ps": "powershell -ExecutionPolicy Bypass -File tests/test-linter-regression.ps1"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^2.22.0"
+  }
+}

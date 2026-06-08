@@ -1,0 +1,7 @@
+node_modules/
+*.vsix
+.vscode-test/
+
+# File interni/personali - non pubblicare
+storico-conversazioni.md
+parse-sessions.ps1
