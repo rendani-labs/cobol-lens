@@ -288,7 +288,8 @@ function getRuleConfig(ruleId) {
         'missing-level': 'error',
         'chars-after-period': 'error',
         'compute-multiline-asterisk': 'warning',
-        'alphanumeric-in-compute': 'error'
+        'alphanumeric-in-compute': 'error',
+        'move-alphanumeric-to-numeric': 'error'
     };
 
     return {
@@ -989,6 +990,47 @@ function checkMissingPeriod(lines) {
             }
             break;
         }
+    }
+
+    // PROCEDURE DIVISION: l'ultima frase di un paragrafo/sezione deve terminare
+    // con un punto prima dell'header del paragrafo/sezione successivo.
+    const pctx = new AnalysisContext();
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        pctx.update(raw, code);
+        if (!pctx.inProcedure || pctx.inExecBlock) continue;
+
+        // Un header di paragrafo/sezione deve iniziare in Area A (nessun rientro)
+        if (/^\s/.test(code)) continue;
+        const upper = code.trim().toUpperCase();
+        const isSection = /^[A-Z0-9][\w-]*\s+SECTION\s*\.?\s*$/.test(upper);
+        const isParagraph = /^[A-Z0-9][\w-]*\.\s*$/.test(upper);
+        if (!isSection && !isParagraph) continue;
+
+        // Trova la precedente riga di codice non ignorabile
+        let prevIdx = -1;
+        for (let j = i - 1; j >= 0; j--) {
+            if (isSkippable(lines[j])) continue;
+            if (!getCodeContent(lines[j]).trim()) continue;
+            prevIdx = j;
+            break;
+        }
+        if (prevIdx < 0) continue;
+
+        const prevUpper = getCodeContent(lines[prevIdx]).trim().toUpperCase();
+        // La riga precedente e' gia' un header (division/section/paragrafo): ok
+        if (prevUpper.includes('DIVISION')) continue;
+        // Direttive del compilatore non richiedono punto
+        if (/^(EJECT|SKIP[123]?|TITLE)\b/.test(prevUpper)) continue;
+
+        const prevWithoutLit = stripLiterals(prevUpper);
+        if (prevWithoutLit.trimEnd().endsWith('.')) continue;
+
+        diags.push(makeDiag(prevIdx, cfg.severity, 'missing-period',
+            msg('missingPeriodStatement')));
     }
     return diags;
 }
@@ -2701,15 +2743,11 @@ function checkComputeMultilineAsterisk(lines) {
 }
 
 // ---------------------------------------------------------------------------
-// alphanumeric-in-compute (variabili alfanumeriche in operazioni matematiche)
+// Helper: raccoglie i tipi delle variabili dichiarate nella DATA DIVISION.
+// Restituisce due insiemi (nomi in maiuscolo): variabili alfanumeriche (PIC X/A)
+// e variabili numeriche (PIC 9/S/V/P, numeric-edited).
 // ---------------------------------------------------------------------------
-function checkAlphanumericInCompute(lines) {
-    const cfg = getRuleConfig('alphanumeric-in-compute');
-    if (!cfg.enabled) return [];
-    const diags = [];
-    const ctx = new AnalysisContext();
-
-    // Raccogli i tipi delle variabili (PIC X = alfanumerico)
+function collectDataItemTypes(lines) {
     const alphanumericVars = new Set();
     const numericVars = new Set();
     const dataCtx = new AnalysisContext();
@@ -2760,6 +2798,21 @@ function checkAlphanumericInCompute(lines) {
             numericVars.add(name);
         }
     }
+
+    return { alphanumericVars, numericVars };
+}
+
+// ---------------------------------------------------------------------------
+// alphanumeric-in-compute (variabili alfanumeriche in operazioni matematiche)
+// ---------------------------------------------------------------------------
+function checkAlphanumericInCompute(lines) {
+    const cfg = getRuleConfig('alphanumeric-in-compute');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const ctx = new AnalysisContext();
+
+    // Raccogli i tipi delle variabili (PIC X = alfanumerico)
+    const { alphanumericVars } = collectDataItemTypes(lines);
 
     if (alphanumericVars.size === 0) return diags;
 
@@ -2865,6 +2918,165 @@ function _checkMathStatement(stmt, verb, lineNum, alphanumericVars, diags, cfg) 
     }
 }
 
+// ---------------------------------------------------------------------------
+// move-alphanumeric-to-numeric (MOVE di un valore alfanumerico in var numerica)
+// ---------------------------------------------------------------------------
+
+// Costanti figurative di tipo alfanumerico (spostarle in una variabile numerica
+// e' un errore di tipo). ZERO/ZEROS/ZEROES sono compatibili col numerico e quindi
+// NON sono incluse.
+const FIGURATIVE_ALPHA = new Set([
+    'SPACE', 'SPACES', 'HIGH-VALUE', 'HIGH-VALUES',
+    'LOW-VALUE', 'LOW-VALUES', 'QUOTE', 'QUOTES',
+]);
+
+function checkMoveAlphaToNumeric(lines) {
+    const cfg = getRuleConfig('move-alphanumeric-to-numeric');
+    if (!cfg.enabled) return [];
+    const diags = [];
+
+    const { alphanumericVars, numericVars } = collectDataItemTypes(lines);
+    if (numericVars.size === 0) return diags;
+
+    const ctx = new AnalysisContext();
+    let inMove = false;
+    let moveStartLine = -1;
+    let moveStmt = '';
+
+    const flush = () => {
+        if (inMove && moveStmt) {
+            _checkMoveStatement(moveStmt, moveStartLine, alphanumericVars, numericVars, diags, cfg);
+        }
+        inMove = false;
+        moveStmt = '';
+    };
+
+    // Un nuovo verbo COBOL o uno scope terminator termina l'istruzione MOVE corrente
+    const newVerbOrTerminator = /^\s*(MOVE|DISPLAY|SET|PERFORM|IF|EVALUATE|READ|WRITE|OPEN|CLOSE|CALL|GO|STOP|EXIT|STRING|UNSTRING|INSPECT|ACCEPT|INITIALIZE|SEARCH|DELETE|REWRITE|START|RETURN|RELEASE|SORT|MERGE|ALTER|CANCEL|CONTINUE|GOBACK|EXEC|COPY|WHEN|ELSE|COMPUTE|ADD|SUBTRACT|MULTIPLY|DIVIDE|END-IF|END-EVALUATE|END-PERFORM|END-READ|END-WRITE|END-CALL|END-STRING|END-UNSTRING|END-SEARCH|END-RETURN|END-START|END-DELETE|END-REWRITE|END-ACCEPT|END-DISPLAY|END-EXEC|END-MOVE)\b/;
+
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure || ctx.inExecBlock) { flush(); continue; }
+
+        const upper = code.trim().toUpperCase();
+        const withoutLit = stripLiterals(upper);
+
+        if (!inMove) {
+            if (/^\s*MOVE\b/.test(upper)) {
+                inMove = true;
+                moveStartLine = i;
+                moveStmt = upper;
+                if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+            }
+        } else if (newVerbOrTerminator.test(upper)) {
+            // Termina l'istruzione MOVE corrente senza includere questa riga
+            flush();
+            // Ri-processa la riga corrente come potenziale nuova MOVE
+            if (/^\s*MOVE\b/.test(upper)) {
+                inMove = true;
+                moveStartLine = i;
+                moveStmt = upper;
+                if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+            }
+        } else {
+            moveStmt += ' ' + upper;
+            if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+        }
+    }
+    flush();
+    return diags;
+}
+
+/**
+ * Verifica se una literal alfanumerica contiene solo cifre (eventualmente con
+ * segno e separatore decimale): in tal caso il MOVE verso un campo numerico
+ * e' lecito e non viene segnalato.
+ * @param {string} content - contenuto della literal (senza apici)
+ * @returns {boolean}
+ */
+function _isNumericLiteralContent(content) {
+    return /^[+-]?\d+([.,]\d+)?$/.test(content.trim());
+}
+
+/**
+ * Analizza una singola istruzione MOVE per individuare lo spostamento di un
+ * valore alfanumerico in una o piu' variabili numeriche.
+ */
+function _checkMoveStatement(stmt, lineNum, alphanumericVars, numericVars, diags, cfg) {
+    // Eccezione: FUNCTION NUMVAL / NUMVAL-C converte l'alfanumerico in numerico,
+    // quindi l'uso e' legittimo.
+    if (/\bFUNCTION\s+NUMVAL(?:-C)?\b/.test(stmt)) return;
+
+    // Rimuovi il verbo MOVE iniziale, eventuale END-MOVE e il punto finale.
+    let body = stmt.replace(/^\s*MOVE\s+/, '').replace(/\bEND-MOVE\b/g, '').trim();
+    body = body.replace(/\.\s*$/, '').trim();
+
+    // Salta MOVE CORRESPONDING/CORR (spostamento per nome di gruppo).
+    if (/^(CORRESPONDING|CORR)\b/.test(body)) return;
+
+    // Maschera le literal per individuare correttamente il separatore TO
+    // (una literal potrebbe contenere la parola TO).
+    const literals = [];
+    const masked = body.replace(/'[^']*'|"[^"]*"/g, (m) => {
+        literals.push(m);
+        return `@LIT${literals.length - 1}@`;
+    });
+
+    // Divide su " TO " (sorgente prima, destinazioni dopo).
+    const toMatch = masked.match(/^([\s\S]*?)\s+TO\s+([\s\S]+)$/);
+    if (!toMatch) return;
+    let srcPart = toMatch[1].trim();
+    const destMasked = toMatch[2].trim();
+
+    // Rimuovi un eventuale 'ALL' iniziale dalla sorgente.
+    srcPart = srcPart.replace(/^ALL\s+/, '').trim();
+
+    // Determina se la sorgente e' un valore alfanumerico e la sua etichetta.
+    let isAlpha = false;
+    let srcLabel = srcPart;
+
+    const litRef = srcPart.match(/^@LIT(\d+)@$/);
+    if (litRef) {
+        const literal = literals[parseInt(litRef[1], 10)];
+        srcLabel = literal;
+        const inner = literal.slice(1, -1);
+        // Literal non numerica (contiene lettere/simboli) -> alfanumerica.
+        if (!_isNumericLiteralContent(inner)) isAlpha = true;
+    } else if (FIGURATIVE_ALPHA.has(srcPart)) {
+        isAlpha = true;
+        srcLabel = srcPart;
+    } else {
+        // Identificatore: prendi il nome base (prima di subscript/reference mod).
+        const idMatch = srcPart.match(/^([A-Z][A-Z0-9-]*[A-Z0-9]|[A-Z])/);
+        if (idMatch && alphanumericVars.has(idMatch[1])) {
+            isAlpha = true;
+            srcLabel = idMatch[1];
+        }
+    }
+
+    if (!isAlpha) return;
+
+    // Estrai le variabili di destinazione (ignorando le maschere literal).
+    const destClean = destMasked.replace(/@LIT\d+@/g, '');
+    const destTokens = destClean.match(/(?<![A-Z0-9-])([A-Z][A-Z0-9-]*[A-Z0-9]|[A-Z])(?![A-Z0-9-])/g) || [];
+
+    const reported = new Set();
+    for (const dest of destTokens) {
+        if (COBOL_RESERVED_EXTENDED.has(dest)) continue;
+        if (reported.has(dest)) continue;
+        if (numericVars.has(dest)) {
+            diags.push(makeDiag(lineNum, cfg.severity, 'move-alphanumeric-to-numeric',
+                msg('moveAlphaToNumeric', srcLabel, dest),
+                undefined, undefined, dest));
+            reported.add(dest);
+        }
+    }
+}
+
 // ============================================================================
 // Esecuzione linter
 // ============================================================================
@@ -2909,6 +3121,7 @@ function runLinter(text, workspaceRoot) {
         checkCharsAfterPeriod,
         checkComputeMultilineAsterisk,
         checkAlphanumericInCompute,
+        checkMoveAlphaToNumeric,
     ];
 
     // Controlli validi solo in formato fixed

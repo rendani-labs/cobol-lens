@@ -135,6 +135,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `chars-after-period` | on | error | Non-whitespace content after a statement period |
 | `compute-multiline-asterisk` | on | warning | Multi-line COMPUTE where a line ends with `*` (breaks CICS precompiler) |
 | `alphanumeric-in-compute` | on | error | Alphanumeric variable used in COMPUTE/ADD/SUBTRACT/MULTIPLY/DIVIDE |
+| `move-alphanumeric-to-numeric` | on | error | Alphanumeric value (literal, figurative constant or alphanumeric variable) moved into a numeric variable; `FUNCTION NUMVAL` is excluded |
 
 ## Compatibility
 

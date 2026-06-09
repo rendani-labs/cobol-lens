@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.0] - 2026-06-09
+
+### Added
+- New linter rule `move-alphanumeric-to-numeric`: flags a `MOVE` of an alphanumeric value into a numeric variable
+- Detects alphanumeric literals (e.g. `'ABC'`), alphanumeric figurative constants (`SPACES`, `HIGH-VALUES`, `LOW-VALUES`, `QUOTES`) and alphanumeric variables (PIC X/A) moved into numeric fields (PIC 9)
+- `FUNCTION NUMVAL` / `NUMVAL-C` conversions are excluded (treated as legitimate)
+- Purely numeric literals (e.g. `'123'`), `ZERO`/`ZEROS` and `MOVE CORRESPONDING` are not reported to avoid false positives
+
+### Changed
+- The `missing-period` rule now also checks the PROCEDURE DIVISION: it flags a statement that is missing its terminating period before the next paragraph or section header
+
 ## [1.1.0] - 2026-06-08
 
 ### Added

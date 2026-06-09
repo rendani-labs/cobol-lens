@@ -112,6 +112,10 @@ const MESSAGES = {
         it: () => 'Manca il punto alla fine della definizione di variabile',
         en: () => 'Missing period at end of variable definition',
     },
+    missingPeriodStatement: {
+        it: () => 'Manca il punto alla fine della frase prima del paragrafo/sezione successivo',
+        en: () => 'Missing period at end of statement before the next paragraph/section',
+    },
     picMissing: {
         it: (name, lvl) => `Variabile '${name}' senza clausola PIC (livello ${lvl} elementare richiede PIC)`,
         en: (name, lvl) => `Variable '${name}' has no PIC clause (level ${lvl} elementary item requires PIC)`,
@@ -215,6 +219,10 @@ const MESSAGES = {
     alphanumericInCompute: {
         it: (name, verb) => `Variabile alfanumerica '${name}' utilizzata in istruzione ${verb}. Le operazioni matematiche richiedono variabili numeriche.`,
         en: (name, verb) => `Alphanumeric variable '${name}' used in ${verb} statement. Arithmetic operations require numeric variables.`,
+    },
+    moveAlphaToNumeric: {
+        it: (src, dest) => `Valore alfanumerico ${src} spostato (MOVE) nella variabile numerica '${dest}'. Possibile errore di tipo a runtime (usare FUNCTION NUMVAL per la conversione).`,
+        en: (src, dest) => `Alphanumeric value ${src} moved (MOVE) into numeric variable '${dest}'. Possible runtime type error (use FUNCTION NUMVAL to convert).`,
     },
 };
 

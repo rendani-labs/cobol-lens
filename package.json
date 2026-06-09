@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "Navigate COBOL copybooks and symbols with Go to Definition, Peek, Find All References, autocomplete, code folding, integrated linter, and more (no compiler required)",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -540,6 +540,17 @@
           "default": "error",
           "enum": ["error", "warning", "info"],
           "description": "%cobolLens.linter.rules.alphanumeric-in-compute.severity.description%"
+        },
+        "cobolLens.linter.rules.move-alphanumeric-to-numeric.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.move-alphanumeric-to-numeric.enabled.description%"
+        },
+        "cobolLens.linter.rules.move-alphanumeric-to-numeric.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.move-alphanumeric-to-numeric.severity.description%"
         }
       }
     }

@@ -88,5 +88,7 @@
   "cobolLens.linter.rules.compute-multiline-asterisk.enabled.description": "COMPUTE su piu' righe con riga che termina con '*': il precompilatore CICS potrebbe generare errori",
   "cobolLens.linter.rules.compute-multiline-asterisk.severity.description": "Severita' per la regola compute-multiline-asterisk",
   "cobolLens.linter.rules.alphanumeric-in-compute.enabled.description": "Variabile alfanumerica usata in un'istruzione matematica (COMPUTE/ADD/SUBTRACT/MULTIPLY/DIVIDE)",
-  "cobolLens.linter.rules.alphanumeric-in-compute.severity.description": "Severita' per la regola alphanumeric-in-compute"
+  "cobolLens.linter.rules.alphanumeric-in-compute.severity.description": "Severita' per la regola alphanumeric-in-compute",
+  "cobolLens.linter.rules.move-alphanumeric-to-numeric.enabled.description": "Valore alfanumerico (literal, costante figurativa o variabile alfanumerica) spostato in una variabile numerica; FUNCTION NUMVAL e' escluso",
+  "cobolLens.linter.rules.move-alphanumeric-to-numeric.severity.description": "Severita' per la regola move-alphanumeric-to-numeric"
 }
