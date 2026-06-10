@@ -2747,7 +2747,7 @@ function checkComputeMultilineAsterisk(lines) {
 // Restituisce due insiemi (nomi in maiuscolo): variabili alfanumeriche (PIC X/A)
 // e variabili numeriche (PIC 9/S/V/P, numeric-edited).
 // ---------------------------------------------------------------------------
-function collectDataItemTypes(lines) {
+function collectDataItemTypes(lines, isCopy) {
     const alphanumericVars = new Set();
     const numericVars = new Set();
     const dataCtx = new AnalysisContext();
@@ -2757,8 +2757,8 @@ function collectDataItemTypes(lines) {
         if (isSkippable(raw)) { di++; continue; }
         const code = getCodeContent(raw);
         if (!code.trim()) { di++; continue; }
-        dataCtx.update(raw, code);
-        if (!(dataCtx.inWorkingStorage || dataCtx.inLinkage || dataCtx.inFileSection)) { di++; continue; }
+        if (!isCopy) dataCtx.update(raw, code);
+        if (!isCopy && !(dataCtx.inWorkingStorage || dataCtx.inLinkage || dataCtx.inFileSection)) { di++; continue; }
 
         const upper = code.trim().toUpperCase();
         const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
@@ -2802,17 +2802,48 @@ function collectDataItemTypes(lines) {
     return { alphanumericVars, numericVars };
 }
 
+/**
+ * Come collectDataItemTypes, ma espande anche le COPY (con REPLACING) per
+ * classificare le variabili definite nelle copybook.
+ * @param {string[]} lines
+ * @param {string} [workspaceRoot]
+ * @returns {{alphanumericVars: Set<string>, numericVars: Set<string>}}
+ */
+function collectDataItemTypesWithCopy(lines, workspaceRoot) {
+    const { alphanumericVars, numericVars } = collectDataItemTypes(lines, false);
+    if (!workspaceRoot) return { alphanumericVars, numericVars };
+
+    const copyStmts = collectCopyStatements(lines);
+    for (const cs of copyStmts) {
+        const resolved = resolveCopybookPath(cs.name, workspaceRoot);
+        if (!resolved) continue;
+        try {
+            const content = fs.readFileSync(resolved, 'utf-8');
+            const copyTypes = collectDataItemTypes(content.split(/\r?\n/), true);
+            const applyRepl = (name) => {
+                for (const repl of cs.replacements) {
+                    if (name.includes(repl.from)) name = name.replace(repl.from, repl.to);
+                }
+                return name;
+            };
+            for (const n of copyTypes.alphanumericVars) alphanumericVars.add(applyRepl(n));
+            for (const n of copyTypes.numericVars) numericVars.add(applyRepl(n));
+        } catch (e) { /* ignore */ }
+    }
+    return { alphanumericVars, numericVars };
+}
+
 // ---------------------------------------------------------------------------
 // alphanumeric-in-compute (variabili alfanumeriche in operazioni matematiche)
 // ---------------------------------------------------------------------------
-function checkAlphanumericInCompute(lines) {
+function checkAlphanumericInCompute(lines, workspaceRoot) {
     const cfg = getRuleConfig('alphanumeric-in-compute');
     if (!cfg.enabled) return [];
     const diags = [];
     const ctx = new AnalysisContext();
 
-    // Raccogli i tipi delle variabili (PIC X = alfanumerico)
-    const { alphanumericVars } = collectDataItemTypes(lines);
+    // Raccogli i tipi delle variabili (PIC X = alfanumerico), copybook incluse
+    const { alphanumericVars } = collectDataItemTypesWithCopy(lines, workspaceRoot);
 
     if (alphanumericVars.size === 0) return diags;
 
@@ -2930,12 +2961,12 @@ const FIGURATIVE_ALPHA = new Set([
     'LOW-VALUE', 'LOW-VALUES', 'QUOTE', 'QUOTES',
 ]);
 
-function checkMoveAlphaToNumeric(lines) {
+function checkMoveAlphaToNumeric(lines, workspaceRoot) {
     const cfg = getRuleConfig('move-alphanumeric-to-numeric');
     if (!cfg.enabled) return [];
     const diags = [];
 
-    const { alphanumericVars, numericVars } = collectDataItemTypes(lines);
+    const { alphanumericVars, numericVars } = collectDataItemTypesWithCopy(lines, workspaceRoot);
     if (numericVars.size === 0) return diags;
 
     const ctx = new AnalysisContext();
@@ -3120,8 +3151,6 @@ function runLinter(text, workspaceRoot) {
         checkVariableNameLength, checkMissingLevel,
         checkCharsAfterPeriod,
         checkComputeMultilineAsterisk,
-        checkAlphanumericInCompute,
-        checkMoveAlphaToNumeric,
     ];
 
     // Controlli validi solo in formato fixed
@@ -3145,6 +3174,8 @@ function runLinter(text, workspaceRoot) {
     allDiags.push(...checkUnusedVariable(lines, workspaceRoot));
     allDiags.push(...checkDuplicateVariable(lines, workspaceRoot));
     allDiags.push(...checkUnsubscriptedOccurs(lines, workspaceRoot));
+    allDiags.push(...checkAlphanumericInCompute(lines, workspaceRoot));
+    allDiags.push(...checkMoveAlphaToNumeric(lines, workspaceRoot));
 
     // Ordina per riga
     allDiags.sort((a, b) => a.range.start.line - b.range.start.line);

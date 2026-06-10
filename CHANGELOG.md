@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1] - 2026-06-10
+
+### Fixed
+- Rule `move-alphanumeric-to-numeric` now also classifies variables defined in copybooks: a `MOVE` of an alphanumeric value into a numeric field declared via `COPY` (e.g. `MOVE 'TEST' TO WS-NUM` where `WS-NUM PIC 9(n)` lives in a copybook) is now correctly reported
+- Rule `alphanumeric-in-compute` benefits from the same fix: alphanumeric variables declared in copybooks are now recognized in arithmetic statements
+- `REPLACING` clauses on the `COPY` are applied when classifying copybook variables
+
 ## [1.2.0] - 2026-06-09
 
 ### Added
