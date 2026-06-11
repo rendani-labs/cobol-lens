@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.2] - 2026-06-11
+
+### Fixed
+- Rule `move-alphanumeric-to-numeric`: table subscript/index in destination (e.g. `MOVE ALFA TO TABLE-FIELD (I2)`) was incorrectly flagged -- `I2` is an index, not the destination variable. Parenthesized subscripts and reference modifications are now stripped before checking destination types.
+
 ## [1.2.1] - 2026-06-10
 
 ### Fixed

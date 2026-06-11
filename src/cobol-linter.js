@@ -3091,8 +3091,10 @@ function _checkMoveStatement(stmt, lineNum, alphanumericVars, numericVars, diags
 
     if (!isAlpha) return;
 
-    // Estrai le variabili di destinazione (ignorando le maschere literal).
-    const destClean = destMasked.replace(/@LIT\d+@/g, '');
+    // Estrai le variabili di destinazione (ignorando le maschere literal e i subscript/indici).
+    // I subscript/indici di tabella sono tra parentesi: MOVE X TO TAB(I2) -> I2 e' l'indice,
+    // non la destinazione. Stessa cosa per la reference modification (VAR(1:5)).
+    const destClean = destMasked.replace(/@LIT\d+@/g, '').replace(/\([^)]*\)/g, '');
     const destTokens = destClean.match(/(?<![A-Z0-9-])([A-Z][A-Z0-9-]*[A-Z0-9]|[A-Z])(?![A-Z0-9-])/g) || [];
 
     const reported = new Set();
