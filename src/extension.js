@@ -7,6 +7,7 @@ const fs = require('fs');
 const { resolveCopybookPath, COPY_REGEX, isComment } = require('./cobol-parser');
 const { SymbolIndex } = require('./symbol-index');
 const { runLinter } = require('./cobol-linter');
+const { computeFieldSize } = require('./cobol-layout');
 
 /** Indice simboli condiviso tra tutti i provider */
 const symbolIndex = new SymbolIndex();
@@ -81,6 +82,24 @@ function getWordAtPosition(document, position) {
 
     const range = new vscode.Range(position.line, start, position.line, end);
     return { word, range };
+}
+
+/**
+ * Ottiene le righe del file dove e' definito un simbolo.
+ * Usa il documento aperto se coincide, altrimenti legge da disco (copybook).
+ * @param {vscode.TextDocument} document
+ * @param {string} filePath
+ * @returns {string[] | undefined}
+ */
+function getFileLines(document, filePath) {
+    if (document.uri.fsPath === filePath) {
+        return document.getText().split(/\r?\n/);
+    }
+    try {
+        return fs.readFileSync(filePath, 'utf-8').split(/\r?\n/);
+    } catch (e) {
+        return undefined;
+    }
 }
 
 /**
@@ -218,6 +237,19 @@ class CobolHoverProvider {
 
             content.appendMarkdown(`**${typeLabel}:** \`${sym.originalName}\`\n\n`);
             content.appendMarkdown(`File: \`${relPath}\` riga ${sym.line + 1}\n\n`);
+
+            // Dimensione in byte del campo/gruppo (solo per le variabili)
+            if (sym.type === 'variable') {
+                const fileLines = getFileLines(document, sym.filePath);
+                if (fileLines) {
+                    const sizeInfo = computeFieldSize(fileLines, sym.line, wsRoot);
+                    if (sizeInfo) {
+                        const label = sizeInfo.isGroup ? 'Dimensione area' : 'Dimensione';
+                        content.appendMarkdown(`**${label}:** ${sizeInfo.size} byte\n\n`);
+                    }
+                }
+            }
+
             if (sym.lineText) {
                 content.appendCodeblock(sym.lineText.trimStart(), 'cobol');
             }

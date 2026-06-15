@@ -11,7 +11,7 @@ A lightweight VS Code extension for navigating COBOL copybooks and symbols -- no
 | **Go to Definition** | `F12` / `Ctrl+Click` | Jump to copybook files, variable definitions, paragraphs, and sections |
 | **Peek Definition** | `Alt+F12` | Inline preview of definitions without leaving your current file |
 | **Find All References** | `Shift+F12` | Locate every usage of a variable, paragraph, or section |
-| **Hover Information** | Mouse hover | See type, level, source file, and definition line for any symbol |
+| **Hover Information** | Mouse hover | See type, level, source file, definition line, and the size in bytes (for groups, the total area size = sum of sub-fields) for any symbol |
 | **Copybook Autocomplete** | Type `COPY ` | Auto-suggest copybook names from configured folders |
 | **Code Folding** | `Ctrl+Shift+[` | Collapse DIVISIONs, SECTIONs, and paragraphs |
 | **Outline View** | Sidebar | Browse the full structure of your program: variables, paragraphs, sections |
@@ -26,7 +26,7 @@ Can be controlled via `cobolLens.ifBlockHighlight.enabled` and `cobolLens.ifBloc
 
 ### Integrated Linter
 
-A built-in COBOL linter with **25+ configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
+A built-in COBOL linter with **40 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
 
 Categories of rules:
 
@@ -84,6 +84,7 @@ Add these settings to your workspace `.vscode/settings.json`:
 | `cobolLens.copyFolders` | `["Copy", "Copy_DR", "Copy_Prod"]` | Folders to search for copybooks (relative to workspace root) |
 | `cobolLens.copyExtensions` | `["", ".cpy", ".CPY", ".COPY", ".copy"]` | File extensions to try when resolving copybook names |
 | `cobolLens.ignoredCopybooks` | `["DFHBMSCA", "DFHAID"]` | Copybooks excluded from unresolved COPY diagnostics |
+| `cobolLens.language` | `"auto"` | Language of linter diagnostic messages: `auto` (follow VS Code), `it`, or `en` |
 | `cobolLens.ifBlockHighlight.enabled` | `true` | Highlight IF/ELSE/END-IF blocks with per-nesting-level colors |
 | `cobolLens.ifBlockHighlight.scopeBars` | `true` | Show colored side bars to visualize the scope of each IF block |
 | `cobolLens.linter.enabled` | `true` | Enable/disable the integrated linter |
@@ -92,24 +93,24 @@ Add these settings to your workspace `.vscode/settings.json`:
 
 ## Linter Rules
 
-Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `"info"`) settings under `cobolLens.linter.rules.<rule-name>`.
+Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `"info"`) settings under `cobolLens.linter.rules.<rule-name>`. The **Default** column shows whether the rule is enabled out of the box (`on`) or disabled and opt-in (`off`).
 
 | Rule | Default | Severity | Description |
 |------|---------|----------|-------------|
 | `col72` | on | error | Code must not exceed column 72 |
 | `no-goto` | on | error | No GOTO -- use PERFORM and IF instead |
-| `no-at-end` | on | error | No AT END / NOT AT END -- use FILE STATUS with EVALUATE |
-| `no-level-77-78` | on | error | No level 77/78 in WORKING-STORAGE |
+| `no-at-end` | off | error | No AT END / NOT AT END -- use FILE STATUS with EVALUATE |
+| `no-level-77-78` | off | error | No level 77/78 in WORKING-STORAGE |
 | `uppercase` | on | warning | COBOL code must be uppercase |
-| `division-separator` | on | warning | A separator line is required before each DIVISION/SECTION |
-| `pic-alignment` | on | warning | PIC clause must start at position 45 |
-| `select-col12` | on | warning | SELECT in FILE-CONTROL must start at column 12 |
-| `assign-col29` | on | warning | ASSIGN TO, ORGANIZATION, etc. must start at column 29 |
-| `ws-levels` | on | warning | WORKING-STORAGE levels must be 01, 05, 10, 15... or 66, 88 |
-| `paragraph-naming` | on | warning | Paragraphs must follow naming convention (I0001-/E0001-/F0001-/V0000-/S0000-) |
-| `no-else-if` | on | warning | No ELSE IF -- nest IF inside ELSE instead |
-| `move-to-alignment` | on | warning | In MOVE...TO, the word TO must start at position 45 |
-| `ws-level-spacing` | on | warning | Exactly 1 space between level number and variable name |
+| `division-separator` | off | warning | A separator line is required before each DIVISION/SECTION |
+| `pic-alignment` | off | warning | PIC clause must start at position 45 |
+| `select-col12` | off | warning | SELECT in FILE-CONTROL must start at column 12 |
+| `assign-col29` | off | warning | ASSIGN TO, ORGANIZATION, etc. must start at column 29 |
+| `ws-levels` | off | warning | WORKING-STORAGE levels must be 01, 05, 10, 15... or 66, 88 |
+| `paragraph-naming` | off | warning | Paragraphs must follow naming convention (I0001-/E0001-/F0001-/V0000-/S0000-) |
+| `no-else-if` | off | warning | No ELSE IF -- nest IF inside ELSE instead |
+| `move-to-alignment` | off | warning | In MOVE...TO, the word TO must start at position 45 |
+| `ws-level-spacing` | off | warning | Exactly 1 space between level number and variable name |
 | `end-structure` | on | warning | Every IF/PERFORM/EVALUATE must have its END- counterpart |
 | `undefined-variable` | on | error | Variables used must be defined in program or copybooks |
 | `undefined-paragraph` | on | error | Every PERFORM must reference a defined paragraph |
@@ -122,7 +123,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `perform-thru-order` | on | error | In PERFORM X THRU Y, Y must be defined after X |
 | `section-order` | on | error | DIVISIONs must be in the mandatory order |
 | `empty-paragraph` | on | warning | Flags paragraphs containing only EXIT/CONTINUE |
-| `consecutive-perform-spacing` | on | warning | A blank line is required between consecutive PERFORMs |
+| `consecutive-perform-spacing` | off | warning | A blank line is required between consecutive PERFORMs |
 | `missing-file-status` | on | warning | Every SELECT must have a STATUS clause |
 | `missing-stop-run` | on | warning | Program must contain STOP RUN or GOBACK |
 | `and-or-if` | on | error | Flags spurious IF after AND/OR in compound conditions |
@@ -146,7 +147,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 
 ## Known Limitations
 
-- Free-format COBOL is not supported (fixed-format only, columns 7-72)
+- Fixed and variable source formats are fully supported. Free-format COBOL (`$SET SOURCEFORMAT(FREE)`) is recognized by the linter but not by navigation: symbols, hover, and Go to Definition assume the fixed/variable column layout (sequence area in columns 1-6, indicator in column 7, code from column 8)
 - The linter is not a compiler -- it catches common issues but does not validate full COBOL semantics
 - Copybook resolution requires the files to be present locally in the workspace
 

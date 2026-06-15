@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0] - 2026-06-15
+
+### Added
+- Hover now shows the size in bytes of a field or group. Hovering over a group item without a PIC (e.g. `01 WS-SAVE-CHIAVE` with `02` sub-fields) displays the total area size as the sum of its sub-fields (e.g. `Dimensione area: 22 byte`); hovering over an elementary item shows its own size (e.g. `Dimensione: 4 byte`).
+- Size computation handles `DISPLAY`, `COMP-3`/`PACKED-DECIMAL`, `COMP`/`COMP-4`/`COMP-5`/`BINARY`, `COMP-1`, `COMP-2`, `INDEX` and `POINTER` usages, `OCCURS n` multiplication, nested sub-groups, and `FILLER` fields. `REDEFINES` items and levels 66/88 are excluded from the total.
+- Size computation also supports data items defined across multiple physical lines (continuation lines are joined) and groups that include a nested `COPY` (the copybook fields are expanded inline and counted in the group total).
+
 ## [1.2.2] - 2026-06-11
 
 ### Fixed
