@@ -118,7 +118,13 @@ function getCodeContent(line) {
  * @returns {string}
  */
 function stripLiterals(text) {
-    return text.replace(/'[^']*'/g, '').replace(/"[^"]*"/g, '');
+    let result = text.replace(/'[^']*'/g, '').replace(/"[^"]*"/g, '');
+    // Stringa non terminata (es. apice di chiusura troncato oltre la col 72):
+    // rimuove dal primo apice rimasto fino a fine riga, cosi' il contenuto
+    // della stringa non viene scambiato per codice/variabili.
+    const q = result.search(/['"]/);
+    if (q >= 0) result = result.substring(0, q);
+    return result;
 }
 
 // ============================================================================

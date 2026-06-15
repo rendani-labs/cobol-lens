@@ -1,5 +1,12 @@
 # COBOL Lens
 
+[![Version](https://img.shields.io/visual-studio-marketplace/v/rendani-labs.cobol-lens?label=Marketplace&color=1e7e34)](https://marketplace.visualstudio.com/items?itemName=rendani-labs.cobol-lens)
+[![Installs](https://img.shields.io/visual-studio-marketplace/i/rendani-labs.cobol-lens?label=Installs)](https://marketplace.visualstudio.com/items?itemName=rendani-labs.cobol-lens)
+[![Downloads](https://img.shields.io/visual-studio-marketplace/d/rendani-labs.cobol-lens?label=Downloads)](https://marketplace.visualstudio.com/items?itemName=rendani-labs.cobol-lens)
+[![Rating](https://img.shields.io/visual-studio-marketplace/r/rendani-labs.cobol-lens?label=Rating)](https://marketplace.visualstudio.com/items?itemName=rendani-labs.cobol-lens&ssr=false#review-details)
+[![Issues](https://img.shields.io/github/issues/rendani-labs/cobol-lens?label=Issues)](https://github.com/rendani-labs/cobol-lens/issues)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A lightweight VS Code extension for navigating COBOL copybooks and symbols -- no compiler or language server required.
 
 ## Features
@@ -150,6 +157,17 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 - Fixed and variable source formats are fully supported. Free-format COBOL (`$SET SOURCEFORMAT(FREE)`) is recognized by the linter but not by navigation: symbols, hover, and Go to Definition assume the fixed/variable column layout (sequence area in columns 1-6, indicator in column 7, code from column 8)
 - The linter is not a compiler -- it catches common issues but does not validate full COBOL semantics
 - Copybook resolution requires the files to be present locally in the workspace
+
+## Feedback and Community
+
+This extension grows with feedback from real COBOL developers. Your input is welcome.
+
+- **Found a bug?** Open a [bug report](https://github.com/rendani-labs/cobol-lens/issues/new?labels=bug) and include a minimal COBOL snippet, the expected vs actual behavior, and your source format (fixed/variable).
+- **Have an idea or a new linter rule in mind?** Open a [feature request](https://github.com/rendani-labs/cobol-lens/issues/new?labels=enhancement).
+- **Questions, tips, or general discussion?** Use [GitHub Discussions](https://github.com/rendani-labs/cobol-lens/discussions).
+- **Enjoying the extension?** A [rating or review](https://marketplace.visualstudio.com/items?itemName=rendani-labs.cobol-lens&ssr=false#review-details) on the Marketplace helps others discover it.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report issues effectively and propose changes.
 
 ## License
 

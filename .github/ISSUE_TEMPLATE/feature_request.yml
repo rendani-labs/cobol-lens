@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest a new feature or a new linter rule
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your idea. Concrete COBOL examples make a proposal much
+        easier to evaluate and implement.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or convention
+      description: What problem do you want to solve, or which coding convention should be enforced?
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: COBOL example
+      description: Show correct and incorrect code, if applicable.
+      render: cobol
+    validations:
+      required: false
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type of request
+      options:
+        - New linter rule
+        - Navigation / IntelliSense improvement
+        - Hover improvement
+        - Configuration option
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: For a linter rule, suggested default severity
+      options:
+        - error
+        - warning
+        - info
+        - not applicable
+    validations:
+      required: false

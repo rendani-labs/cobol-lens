@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and discussion
+    url: https://github.com/rendani-labs/cobol-lens/discussions
+    about: Ask questions, share tips, or discuss ideas that are not yet a concrete bug or feature request.
+  - name: Marketplace page
+    url: https://marketplace.visualstudio.com/items?itemName=rendani-labs.cobol-lens
+    about: Rate or review the extension to help other COBOL developers find it.

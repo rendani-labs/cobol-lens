@@ -224,6 +224,44 @@ const MESSAGES = {
         it: (src, dest) => `Valore alfanumerico ${src} spostato (MOVE) nella variabile numerica '${dest}'. Possibile errore di tipo a runtime (usare FUNCTION NUMVAL per la conversione).`,
         en: (src, dest) => `Alphanumeric value ${src} moved (MOVE) into numeric variable '${dest}'. Possible runtime type error (use FUNCTION NUMVAL to convert).`,
     },
+
+    // --- Hover (provider) ---
+    hoverVariable: {
+        it: (level) => `Variabile (livello ${level})`,
+        en: (level) => `Variable (level ${level})`,
+    },
+    hoverParagraph: {
+        it: () => 'Paragrafo',
+        en: () => 'Paragraph',
+    },
+    hoverSection: {
+        it: () => 'Sezione',
+        en: () => 'Section',
+    },
+    hoverLineWord: {
+        it: () => 'riga',
+        en: () => 'line',
+    },
+    hoverSize: {
+        it: () => 'Dimensione',
+        en: () => 'Size',
+    },
+    hoverAreaSize: {
+        it: () => 'Dimensione area',
+        en: () => 'Area size',
+    },
+    hoverOpenCopybook: {
+        it: () => 'Apri copybook',
+        en: () => 'Open copybook',
+    },
+    hoverContinued: {
+        it: () => '... (continua)',
+        en: () => '... (continued)',
+    },
+    hoverCopybookNotFound: {
+        it: () => 'Copybook non trovata nelle cartelle configurate',
+        en: () => 'Copybook not found in the configured folders',
+    },
 };
 
 /**

@@ -8,6 +8,7 @@ const { resolveCopybookPath, COPY_REGEX, isComment } = require('./cobol-parser')
 const { SymbolIndex } = require('./symbol-index');
 const { runLinter } = require('./cobol-linter');
 const { computeFieldSize } = require('./cobol-layout');
+const { msg, getLang, setLang } = require('./messages');
 
 /** Indice simboli condiviso tra tutti i provider */
 const symbolIndex = new SymbolIndex();
@@ -177,6 +178,9 @@ class CobolHoverProvider {
         const line = document.lineAt(position.line).text;
         if (isComment(line)) return undefined;
 
+        // Allinea la lingua dei messaggi hover al setting cobolLens.language
+        setLang(getLang());
+
         const { folder: workspaceFolder, fsPath: wsRoot } = getWorkspaceRoot(document);
 
         // 1. COPY hover
@@ -196,7 +200,7 @@ class CobolHoverProvider {
                         const relPath = path.relative(wsRoot, resolved);
                         content.appendMarkdown(`**Copybook:** \`${copyInfo.copyName}\`\n\n`);
                         content.appendMarkdown(`**Path:** \`${relPath}\`\n\n`);
-                        content.appendMarkdown(`[Apri copybook](${vscode.Uri.file(resolved)})`);
+                        content.appendMarkdown(`[${msg('hoverOpenCopybook')}](${vscode.Uri.file(resolved)})`);
                         content.isTrusted = true;
                         // Mostra anteprima contenuto (max 30 righe)
                         try {
@@ -204,14 +208,14 @@ class CobolHoverProvider {
                             const previewLines = fileContent.split(/\r?\n/).slice(0, 30);
                             let preview = previewLines.join('\n');
                             if (fileContent.split(/\r?\n/).length > 30) {
-                                preview += '\n      * ... (continua)';
+                                preview += `\n      * ${msg('hoverContinued')}`;
                             }
                             content.appendMarkdown('\n\n---\n\n');
                             content.appendCodeblock(preview, 'cobol');
                         } catch (e) { /* ignore */ }
                     } else {
                         content.appendMarkdown(`**Copybook:** \`${copyInfo.copyName}\`\n\n`);
-                        content.appendMarkdown(`**Warning:** *Copybook non trovata nelle cartelle configurate*`);
+                        content.appendMarkdown(`**Warning:** *${msg('hoverCopybookNotFound')}*`);
                     }
                     return new vscode.Hover(content, range);
                 }
@@ -227,16 +231,16 @@ class CobolHoverProvider {
 
         const content = new vscode.MarkdownString();
         for (const sym of symbols) {
-            const typeLabel = sym.type === 'variable' ? `Variabile (livello ${sym.level})`
-                : sym.type === 'paragraph' ? 'Paragrafo'
-                : sym.type === 'section' ? 'Sezione' : sym.type;
+            const typeLabel = sym.type === 'variable' ? msg('hoverVariable', sym.level)
+                : sym.type === 'paragraph' ? msg('hoverParagraph')
+                : sym.type === 'section' ? msg('hoverSection') : sym.type;
 
             const relPath = wsRoot
                 ? path.relative(wsRoot, sym.filePath)
                 : path.basename(sym.filePath);
 
             content.appendMarkdown(`**${typeLabel}:** \`${sym.originalName}\`\n\n`);
-            content.appendMarkdown(`File: \`${relPath}\` riga ${sym.line + 1}\n\n`);
+            content.appendMarkdown(`File: \`${relPath}\` ${msg('hoverLineWord')} ${sym.line + 1}\n\n`);
 
             // Dimensione in byte del campo/gruppo (solo per le variabili)
             if (sym.type === 'variable') {
@@ -244,7 +248,7 @@ class CobolHoverProvider {
                 if (fileLines) {
                     const sizeInfo = computeFieldSize(fileLines, sym.line, wsRoot);
                     if (sizeInfo) {
-                        const label = sizeInfo.isGroup ? 'Dimensione area' : 'Dimensione';
+                        const label = sizeInfo.isGroup ? msg('hoverAreaSize') : msg('hoverSize');
                         content.appendMarkdown(`**${label}:** ${sizeInfo.size} byte\n\n`);
                     }
                 }

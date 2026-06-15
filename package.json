@@ -1,8 +1,8 @@
 {
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
-  "description": "Navigate COBOL copybooks and symbols with Go to Definition, Peek, Find All References, autocomplete, code folding, integrated linter, and more (no compiler required)",
-  "version": "1.3.0",
+  "description": "COBOL copybook and symbol navigation for Micro Focus / Rocket COBOL: Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 40-rule integrated linter. No compiler required.",
+  "version": "1.3.1",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -17,12 +17,20 @@
   "keywords": [
     "cobol",
     "copybook",
+    "copybooks",
     "linter",
     "mainframe",
     "ibm",
     "cbl",
-    "definition",
-    "references"
+    "micro focus",
+    "rocket cobol",
+    "enterprise developer",
+    "go to definition",
+    "references",
+    "navigation",
+    "intellisense",
+    "fixed format",
+    "variable format"
   ],
   "galleryBanner": {
     "color": "#1e1e1e",

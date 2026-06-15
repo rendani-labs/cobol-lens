@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.3.1] - 2026-06-15
+
+### Changed
+- Marketplace discoverability: refreshed the extension `description` and `keywords` (added `micro focus`, `rocket cobol`, `enterprise developer`, `go to definition`, `navigation`, `intellisense`, `fixed format`, `variable format`).
+- Hover tooltips are now localized and follow the `cobolLens.language` setting (`auto`/`it`/`en`), matching the linter behavior. Labels such as variable/group type, line, size, and the copybook hover text are shown in Italian or English accordingly.
+
+### Added
+- README: Marketplace badges (version, installs, downloads, rating) and a `Feedback and Community` section linking to bug reports, feature requests, and GitHub Discussions.
+- `CONTRIBUTING.md` with guidance on reporting bugs, proposing features and linter rules, and running the tests.
+- GitHub issue templates for bug reports and feature requests, plus a discussions/marketplace contact-links config.
+- `SECURITY.md` with a security policy pointing to GitHub private vulnerability reporting.
+
+### Fixed
+- Go to Definition, Find All References and hover now work when a single `.CBL` file is opened without an open workspace folder: the file folder is used as the root instead of returning no symbols.
+- `undefined-variable`: no longer reports false positives for words inside an unterminated string literal (for example when the closing quote falls beyond column 72 in fixed format). The literal content is now stripped up to the end of the line.
+
 ## [1.3.0] - 2026-06-15
 
 ### Added

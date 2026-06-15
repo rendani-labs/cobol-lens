@@ -1,0 +1,68 @@
+name: Bug report
+description: Report something that does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. A minimal COBOL snippet that
+        reproduces the issue is the single most helpful thing you can provide.
+  - type: textarea
+    id: snippet
+    attributes:
+      label: COBOL snippet
+      description: A minimal piece of COBOL that reproduces the problem.
+      render: cobol
+      placeholder: |
+        01 WS-SAVE-CHIAVE.
+           02 WS-SAVE-CODSOC   PIC X(004).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Source format
+      options:
+        - fixed
+        - variable
+        - not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature involved
+      options:
+        - Navigation (Go to Definition / References)
+        - Hover
+        - Copybook autocomplete
+        - Code folding
+        - Linter rule
+        - IF block highlight
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: rule
+    attributes:
+      label: Linter rule id (if applicable)
+      placeholder: e.g. redefines-size
+  - type: input
+    id: versions
+    attributes:
+      label: Extension and VS Code versions
+      placeholder: COBOL Lens 1.3.1, VS Code 1.95.0
+    validations:
+      required: true

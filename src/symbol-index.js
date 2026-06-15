@@ -3,6 +3,7 @@
 
 const vscode = require('vscode');
 const fs = require('fs');
+const path = require('path');
 const { parseCobolSymbols } = require('./cobol-parser');
 
 /**
@@ -39,7 +40,9 @@ class SymbolIndex {
             if (folders && folders.length > 0) {
                 workspaceRoot = folders[0].uri.fsPath;
             } else {
-                return [];
+                // Nessuna cartella aperta (file singolo): usa la cartella del file
+                // come root. La risoluzione delle copybook usera i fallback.
+                workspaceRoot = path.dirname(document.uri.fsPath);
             }
         }
 
