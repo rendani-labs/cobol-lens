@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.2] - 2026-06-19
+
+### Changed
+- `ifBlockHighlight.scopeBars`: the scope bars are now rendered as thin (1px) vertical guide lines anchored to the indentation column of each `IF` block (like bracket-pair guides), instead of stacked flush against the left margin. Nested blocks now get their own colored line, staggered to the right, which makes each block's scope much easier to follow.
+- `ifBlockHighlight.scopeBars`: the bars are now drawn as an absolutely-positioned overlay so they always stay on top of the editor's native indentation guides (including the white active-indent guide), which previously hid the bar when both fell on the same column.
+- `ifBlockHighlight.scopeBars`: the bars are now shown only for the IF blocks that contain the cursor line (matching the behavior of the IF/ELSE/END-IF keyword boxes), reducing visual noise on files with many IF statements. When the cursor is nested deep, all enclosing blocks' bars are shown.
+
+### Fixed
+- `ifBlockHighlight.scopeBars`: the colored scope bars are now actually rendered. They were never drawn because the decoration used the unsupported `borderLeft` shorthand, which the VS Code decoration API ignores.
+- IF block scope detection now correctly closes nested blocks when an `END-IF` is missing: an `ELSE` is paired with the innermost `IF` that does not yet have one (COBOL semantics), implicitly closing already-complete inner blocks. Previously the outer block was left open until the terminating period, so the scope bar overshot to the end of the paragraph.
+
 ## [1.3.1] - 2026-06-15
 
 ### Changed

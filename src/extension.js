@@ -578,11 +578,22 @@ const ifKeywordDecoTypes = IF_BLOCK_COLORS.map(c =>
     })
 );
 
-/** Decoration types per la barra laterale di scope per livello */
+/** Decoration types per la barra di scope per livello.
+ *  La barra e' una linea verticale ancorata alla colonna della keyword IF
+ *  del blocco (come una guida di indentazione "a parentesi"), cosi' ogni
+ *  livello di nesting ha la propria linea sfalsata verso destra.
+ *  E' disegnata come elemento ::before posizionato in modo assoluto (non come
+ *  semplice bordo della cella) cosi' resta SEMPRE sopra le guide di
+ *  indentazione native, compresa la guida attiva evidenziata in bianco: un
+ *  border-left verrebbe invece coperto quando cade sulla stessa colonna. */
 const ifScopeBarDecoTypes = IF_BLOCK_COLORS.map(c =>
     vscode.window.createTextEditorDecorationType({
-        borderLeft: `2px solid ${c.border}`,
-        isWholeLine: true
+        before: {
+            contentText: '\u00a0',
+            // CSS iniettato via `textDecoration`: posiziona la barra in assoluto
+            // e la porta in primo piano con z-index.
+            textDecoration: `none; position: absolute; z-index: 1; height: 100%; border-left: 1px solid ${c.color}; pointer-events: none;`
+        }
     })
 );
 
@@ -598,7 +609,7 @@ const ifScopeBarDecoTypes = IF_BLOCK_COLORS.map(c =>
  * @property {number} endCol - Colonna iniziale della keyword END-IF (-1 se chiuso da punto/EOF)
  * @property {number} endLen - Lunghezza della keyword END-IF
  * @property {number} level - Livello di nesting (0-based)
- * @property {'end-if'|'period'|'eof'} [closedBy] - Come il blocco e' stato chiuso
+ * @property {'end-if'|'period'|'eof'|'implicit'} [closedBy] - Come il blocco e' stato chiuso
  */
 
 /**
@@ -611,7 +622,6 @@ function parseIfBlocks(document) {
     const blocks = [];
     /** @type {{ line: number, col: number, len: number, level: number }[]} */
     const stack = [];
-    let nestLevel = 0;
 
     for (let i = 0; i < document.lineCount; i++) {
         const lineText = document.lineAt(i).text;
@@ -633,7 +643,6 @@ function parseIfBlocks(document) {
             // Chiudi il blocco IF piu' recente sullo stack
             if (stack.length > 0) {
                 const opened = stack.pop();
-                nestLevel--;
                 // Cerca la entry nel blocks per questo IF
                 const block = blocks.find(b => b.ifLine === opened.line && b.ifCol === opened.col);
                 if (block) {
@@ -651,6 +660,23 @@ function parseIfBlocks(document) {
         while ((elseMatch = elseRegex.exec(masked)) !== null) {
             // Ignora se fa parte di un END-xxx
             if (masked.substring(Math.max(0, elseMatch.index - 4), elseMatch.index) === 'END-') continue;
+            // In COBOL un ELSE si appaia con l'IF piu' interno che non ha ancora un ELSE.
+            // Se il blocco in cima allo stack ha gia' un ELSE significa che e' completo
+            // (manca un END-IF esplicito): lo chiudiamo implicitamente alla riga precedente
+            // e risaliamo verso il blocco esterno.
+            while (stack.length > 0) {
+                const top = stack[stack.length - 1];
+                const topBlock = blocks.find(b => b.ifLine === top.line && b.ifCol === top.col);
+                if (topBlock && topBlock.elseLine !== undefined) {
+                    stack.pop();
+                    topBlock.endLine = Math.max(topBlock.elseLine, i - 1);
+                    topBlock.endCol = -1;
+                    topBlock.endLen = 0;
+                    topBlock.closedBy = 'implicit';
+                } else {
+                    break;
+                }
+            }
             // Associa al blocco IF corrente sullo stack
             if (stack.length > 0) {
                 const current = stack[stack.length - 1];
@@ -675,7 +701,7 @@ function parseIfBlocks(document) {
             const beforeStart = ifMatch.index - 1;
             if (beforeStart >= 0 && /[A-Z0-9-]/.test(masked.charAt(beforeStart))) continue;
 
-            const level = nestLevel;
+            const level = stack.length;
             stack.push({ line: i, col: ifMatch.index, len: 2, level });
             blocks.push({
                 ifLine: i,
@@ -686,7 +712,6 @@ function parseIfBlocks(document) {
                 endLen: 6,
                 level
             });
-            nestLevel++;
         }
 
         // Un punto chiude tutti gli scope aperti (come nel linter)
@@ -694,7 +719,6 @@ function parseIfBlocks(document) {
             // Chiudi tutti i blocchi rimasti aperti
             while (stack.length > 0) {
                 const opened = stack.pop();
-                nestLevel--;
                 const block = blocks.find(b => b.ifLine === opened.line && b.ifCol === opened.col);
                 if (block) {
                     block.endLine = i;
@@ -718,8 +742,8 @@ function parseIfBlocks(document) {
         }
     }
 
-    // Includi blocchi chiusi da END-IF e da punto (escludi solo quelli non chiusi / EOF)
-    return blocks.filter(b => b.closedBy === 'end-if' || b.closedBy === 'period');
+    // Includi blocchi chiusi da END-IF, da punto e implicitamente (escludi solo EOF)
+    return blocks.filter(b => b.closedBy === 'end-if' || b.closedBy === 'period' || b.closedBy === 'implicit');
 }
 
 /**
@@ -745,19 +769,25 @@ function applyIfBlockDecorations(editor) {
     const cursorLine = editor.selection.active.line;
     const showScopeBars = config.get('ifBlockHighlight.scopeBars', true);
 
-    // Scope bars ? sempre visibili, raggruppate per livello
+    // Scope bars: linea verticale ancorata alla colonna della keyword IF,
+    // visibile SOLO per i blocchi che contengono la riga del cursore (cosi'
+    // come i riquadri delle keyword). Se il cursore e' annidato in profondita',
+    // vengono mostrate le barre di tutti i blocchi che lo contengono.
     /** @type {vscode.DecorationOptions[][]} */
     const scopeBarsByLevel = Array.from({ length: numColors }, () => []);
-    for (const block of blocks) {
-        if (!showScopeBars) break;
-        const colorIdx = block.level % numColors;
-        // Per blocchi chiusi da punto, includi anche endLine (la riga col punto e' parte del body)
-        const endBound = block.closedBy === 'period' ? block.endLine + 1 : block.endLine;
-        for (let line = block.ifLine + 1; line < endBound; line++) {
-            if (block.elseLine !== undefined && line === block.elseLine) continue;
-            scopeBarsByLevel[colorIdx].push({
-                range: new vscode.Range(line, 0, line, 0)
-            });
+    if (showScopeBars) {
+        for (const block of blocks) {
+            if (cursorLine < block.ifLine || cursorLine > block.endLine) continue;
+            const colorIdx = block.level % numColors;
+            const col = block.ifCol;
+            for (let line = block.ifLine; line <= block.endLine; line++) {
+                // La barra si appoggia alla colonna `col`: se la riga e' piu'
+                // corta la salto per evitare disallineamenti.
+                if (editor.document.lineAt(line).text.length < col) continue;
+                scopeBarsByLevel[colorIdx].push({
+                    range: new vscode.Range(line, col, line, col)
+                });
+            }
         }
     }
     for (let i = 0; i < numColors; i++) {
