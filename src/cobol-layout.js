@@ -310,10 +310,15 @@ function sizeOfEntryAt(entries, idx) {
         return { size, isGroup: false, next: idx + 1 };
     }
 
-    // Gruppo: somma i figli diretti (livello maggiore)
+    // Gruppo: somma i figli diretti (livello subordinato)
     let total = 0;
     let j = idx + 1;
-    while (j < entries.length && entries[j].level > e.level) {
+    // Appartengono al gruppo solo i livelli subordinati normali (02-49) e gli 88
+    // (condizioni). I livelli 66/77 e un nuovo 01 chiudono il gruppo, anche se
+    // numericamente maggiori (es. 77 dopo un 01).
+    while (j < entries.length
+        && (entries[j].level === 88
+            || (entries[j].level > e.level && entries[j].level <= 49))) {
         const child = entries[j];
         // 66 (RENAMES) non si somma e non ha sottostruttura propria
         if (child.level === 66) { j++; continue; }
@@ -346,8 +351,123 @@ function computeFieldSize(lines, defLine, workspaceRoot) {
     return { size: r.size, isGroup: r.isGroup };
 }
 
+/**
+ * @typedef {Object} LayoutItem
+ * @property {number} startLine - Riga 0-based della definizione
+ * @property {number} level - Livello
+ * @property {string} name - Nome del campo
+ * @property {number} offset - Scostamento (0-based) dall'inizio del record 01
+ * @property {number} size - Dimensione in byte (0 per 88/66 o sconosciuta)
+ * @property {boolean} isGroup - true se gruppo
+ * @property {boolean} fromCopy - true se proveniente da una copybook
+ * @property {number} depth - Profondita' di annidamento (0 = record 01/77)
+ * @property {boolean} redefines - true se l'entry ha clausola REDEFINES
+ * @property {number} occurs - Numero di occorrenze (1 se assente)
+ */
+
+/**
+ * Assegna ricorsivamente offset e dimensione all'entry idx e alla sua
+ * sottostruttura, accodando un LayoutItem per ciascuna entry incontrata.
+ * @param {DataEntry[]} entries
+ * @param {number} idx
+ * @param {number} base - offset 0-based dell'entry corrente nel record
+ * @param {LayoutItem[]} out
+ * @param {number} [depth] - profondita' di annidamento (0 = record radice)
+ * @returns {number} indice della prossima entry non appartenente alla sottostruttura
+ */
+function layoutEntryAt(entries, idx, base, out, depth) {
+    const e = entries[idx];
+    const d = depth || 0;
+
+    /** @param {number} size @param {boolean} isGroup */
+    const push = (size, isGroup) => out.push({
+        startLine: e.startLine, level: e.level, name: e.name,
+        offset: base, size, isGroup, fromCopy: !!e.fromCopy,
+        depth: d, redefines: !!e.redefines, occurs: e.occurs
+    });
+
+    // Livelli 88/66: nessuno storage.
+    if (e.level === 88 || e.level === 66) {
+        push(0, false);
+        return idx + 1;
+    }
+
+    // Campo elementare.
+    const hasImplicitSize = ['COMP-1', 'COMP-2', 'INDEX', 'POINTER'].includes(e.usage);
+    if (e.pic || hasImplicitSize) {
+        push(elementarySize(e) * e.occurs, false);
+        return idx + 1;
+    }
+
+    // Gruppo: registra prima il gruppo (dimensione aggiornata dopo i figli).
+    const groupPos = out.length;
+    push(0, true);
+
+    let j = idx + 1;
+    let cursor = base;          // offset corrente del prossimo figlio
+    let lastSiblingStart = base; // inizio dell'ultimo figlio (per REDEFINES)
+    let total = 0;
+    // Appartengono al gruppo solo i livelli subordinati normali (02-49) e gli 88
+    // (condizioni, storage 0). I livelli 66/77 e un nuovo 01 chiudono il gruppo,
+    // anche se numericamente maggiori.
+    while (j < entries.length
+        && (entries[j].level === 88
+            || (entries[j].level > e.level && entries[j].level <= 49))) {
+        const child = entries[j];
+        // I REDEFINES sovrappongono il campo precedente: stesso offset, non sommano.
+        const childBase = child.redefines ? lastSiblingStart : cursor;
+        const before = out.length;
+        j = layoutEntryAt(entries, j, childBase, out, d + 1);
+        const childSize = out[before].size;
+        if (!child.redefines && child.level !== 88 && child.level !== 66) {
+            cursor += childSize;
+            total += childSize;
+        }
+        if (child.level !== 88 && child.level !== 66) lastSiblingStart = childBase;
+    }
+
+    out[groupPos].size = total * e.occurs;
+    return j;
+}
+
+/**
+ * Calcola offset e dimensione di tutte le entry della DATA DIVISION.
+ * Ogni record 01 (o livello 77) riparte da offset 0.
+ * @param {string[]} lines
+ * @param {string} [workspaceRoot]
+ * @returns {LayoutItem[]}
+ */
+function collectLayout(lines, workspaceRoot) {
+    const entries = collectDataEntries(lines, workspaceRoot);
+    /** @type {LayoutItem[]} */
+    const out = [];
+    let i = 0;
+    while (i < entries.length) {
+        // Ogni 01/77 (o entry di livello superiore) riparte da offset 0.
+        i = layoutEntryAt(entries, i, 0, out);
+    }
+    return out;
+}
+
+/**
+ * Calcola posizione (offset 0-based dall'inizio del record 01) e dimensione del
+ * campo/gruppo definito alla riga indicata, nel file principale (no copybook).
+ * @param {string[]} lines
+ * @param {number} defLine - Riga 0-based della definizione
+ * @param {string} [workspaceRoot]
+ * @returns {{ offset: number, size: number, isGroup: boolean } | undefined}
+ */
+function computeFieldInfoAt(lines, defLine, workspaceRoot) {
+    const layout = collectLayout(lines, workspaceRoot);
+    const item = layout.find(it => !it.fromCopy && it.startLine === defLine);
+    if (!item || item.size <= 0) return undefined;
+    return { offset: item.offset, size: item.size, isGroup: item.isGroup };
+}
+
 module.exports = {
     computeFieldSize,
+    collectLayout,
+    computeFieldInfoAt,
     collectDataEntries,
     sizeOfEntryAt,
     elementarySize,

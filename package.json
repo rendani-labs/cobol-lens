@@ -1,8 +1,8 @@
 {
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
-  "description": "COBOL copybook and symbol navigation for Micro Focus / Rocket COBOL: Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 40-rule integrated linter. No compiler required.",
-  "version": "1.3.2",
+  "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 40-rule integrated linter. No compiler required.",
+  "version": "1.4.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -44,13 +44,74 @@
     "Linters"
   ],
   "activationEvents": [
-    "onLanguage:cobol",
     "onLanguage:COBOL",
     "workspaceContains:**/*.CBL",
     "workspaceContains:**/*.clt"
   ],
   "main": "./src/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "cobol",
+        "aliases": [
+          "COBOL",
+          "cobol"
+        ],
+        "extensions": [
+          ".cbl",
+          ".CBL",
+          ".cob",
+          ".COB",
+          ".cobol",
+          ".COBOL",
+          ".cpy",
+          ".CPY",
+          ".copy",
+          ".COPY",
+          ".clt",
+          ".CLT",
+          ".pco",
+          ".PCO"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cobol",
+        "scopeName": "source.cobol.lens",
+        "path": "./syntaxes/cobol.tmLanguage.json"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "editor.showCallHierarchy",
+        "key": "ctrl+alt+h",
+        "when": "editorTextFocus && editorLangId == cobol"
+      }
+    ],
+    "commands": [
+      {
+        "command": "cobolLens.showRecordLayout",
+        "title": "%cobolLens.command.showRecordLayout.title%",
+        "category": "COBOL Lens"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "cobolLens.showRecordLayout",
+          "when": "editorLangId == cobol"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "cobolLens.showRecordLayout",
+          "when": "editorLangId == cobol",
+          "group": "navigation@9"
+        }
+      ]
+    },
     "configuration": {
       "title": "COBOL Lens",
       "properties": {
@@ -102,6 +163,102 @@
           "type": "boolean",
           "default": true,
           "description": "%cobolLens.ifBlockHighlight.scopeBars.description%"
+        },
+        "cobolLens.syntaxHighlighting.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.syntaxHighlighting.enabled.description%"
+        },
+        "cobolLens.sourceFormat": {
+          "type": "string",
+          "default": "fixed",
+          "enum": ["fixed", "variable", "free"],
+          "enumDescriptions": [
+            "%cobolLens.sourceFormat.fixed%",
+            "%cobolLens.sourceFormat.variable%",
+            "%cobolLens.sourceFormat.free%"
+          ],
+          "description": "%cobolLens.sourceFormat.description%"
+        },
+        "cobolLens.codeActions.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.codeActions.enabled.description%"
+        },
+        "cobolLens.rename.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.rename.enabled.description%"
+        },
+        "cobolLens.rename.includeCopybooks": {
+          "type": "boolean",
+          "default": false,
+          "description": "%cobolLens.rename.includeCopybooks.description%"
+        },
+        "cobolLens.completion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.completion.enabled.description%"
+        },
+        "cobolLens.completion.variables": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.completion.variables.description%"
+        },
+        "cobolLens.completion.paragraphs": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.completion.paragraphs.description%"
+        },
+        "cobolLens.completion.keywords": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.completion.keywords.description%"
+        },
+        "cobolLens.workspaceSymbols.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.workspaceSymbols.enabled.description%"
+        },
+        "cobolLens.codeLens.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "%cobolLens.codeLens.enabled.description%"
+        },
+        "cobolLens.callHierarchy.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.callHierarchy.enabled.description%"
+        },
+        "cobolLens.format.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "%cobolLens.format.enabled.description%"
+        },
+        "cobolLens.inlayHints.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.inlayHints.enabled.description%"
+        },
+        "cobolLens.inlayHints.display": {
+          "type": "string",
+          "enum": ["inline", "hover"],
+          "enumDescriptions": [
+            "%cobolLens.inlayHints.display.inline.description%",
+            "%cobolLens.inlayHints.display.hover.description%"
+          ],
+          "default": "inline",
+          "description": "%cobolLens.inlayHints.display.description%"
+        },
+        "cobolLens.recordLayout.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "%cobolLens.recordLayout.enabled.description%"
+        },
+        "cobolLens.snippets.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.snippets.enabled.description%"
         },
         "cobolLens.linter.enabled": {
           "type": "boolean",
@@ -560,6 +717,12 @@
           "enum": ["error", "warning", "info"],
           "description": "%cobolLens.linter.rules.move-alphanumeric-to-numeric.severity.description%"
         }
+      }
+    },
+    "configurationDefaults": {
+      "[cobol]": {
+        "editor.rulers": [6, 7],
+        "editor.guides.indentation": false
       }
     }
   },

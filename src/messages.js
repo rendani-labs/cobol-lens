@@ -250,6 +250,10 @@ const MESSAGES = {
         it: () => 'Dimensione area',
         en: () => 'Area size',
     },
+    hoverPosition: {
+        it: () => 'Posizione (byte)',
+        en: () => 'Position (byte)',
+    },
     hoverOpenCopybook: {
         it: () => 'Apri copybook',
         en: () => 'Open copybook',
@@ -261,6 +265,143 @@ const MESSAGES = {
     hoverCopybookNotFound: {
         it: () => 'Copybook non trovata nelle cartelle configurate',
         en: () => 'Copybook not found in the configured folders',
+    },
+    // --- Titoli Quick Fix (Code Actions) ---
+    fixUppercase: {
+        it: () => 'Converti in MAIUSCOLO',
+        en: () => 'Convert to UPPERCASE',
+    },
+    fixMissingPeriod: {
+        it: () => 'Aggiungi il punto finale',
+        en: () => 'Add trailing period',
+    },
+    fixMissingStopRun: {
+        it: () => 'Aggiungi GOBACK',
+        en: () => 'Add GOBACK',
+    },
+    fixMissingLevel: {
+        it: (level) => `Aggiungi livello ${level}`,
+        en: (level) => `Add level ${level}`,
+    },
+    fixEndStructure: {
+        it: (type) => `Aggiungi END-${type}`,
+        en: (type) => `Add END-${type}`,
+    },
+    fixMissingFileStatus: {
+        it: (name) => `Aggiungi STATUS ${name}`,
+        en: (name) => `Add STATUS ${name}`,
+    },
+    fixPicAlignment: {
+        it: (col) => `Allinea PIC alla colonna ${col}`,
+        en: (col) => `Align PIC to column ${col}`,
+    },
+    fixMoveToAlignment: {
+        it: (col) => `Allinea TO alla colonna ${col}`,
+        en: (col) => `Align TO to column ${col}`,
+    },
+    fixSelectCol12: {
+        it: (col) => `Allinea SELECT alla colonna ${col}`,
+        en: (col) => `Align SELECT to column ${col}`,
+    },
+    fixAssignCol29: {
+        it: (kw, col) => `Allinea ${kw} alla colonna ${col}`,
+        en: (kw, col) => `Align ${kw} to column ${col}`,
+    },
+    // --- CodeLens ---
+    codeLensReference: {
+        it: (n) => `${n} riferimento`,
+        en: (n) => `${n} reference`,
+    },
+    codeLensReferences: {
+        it: (n) => `${n} riferimenti`,
+        en: (n) => `${n} references`,
+    },
+    // --- Inlay hints (offset/dimensione campi) ---
+    inlayPosSize: {
+        it: (pos, size) => `pos ${pos}, ${size} byte`,
+        en: (pos, size) => `pos ${pos}, ${size} bytes`,
+    },
+    // --- Record layout view ---
+    recordLayoutTitle: {
+        it: () => 'Layout record COBOL',
+        en: () => 'COBOL Record Layout',
+    },
+    recordLayoutDisabled: {
+        it: () => 'La vista layout record e\' disabilitata. Abilita cobolLens.recordLayout.enabled per usarla.',
+        en: () => 'The record layout view is disabled. Enable cobolLens.recordLayout.enabled to use it.',
+    },
+    recordLayoutNoCobol: {
+        it: () => 'Apri un file COBOL per visualizzarne il layout dei record.',
+        en: () => 'Open a COBOL file to view its record layout.',
+    },
+    recordLayoutEmpty: {
+        it: () => 'Nessun record dati trovato nella DATA DIVISION.',
+        en: () => 'No data records found in the DATA DIVISION.',
+    },
+    recordLayoutColLevel: {
+        it: () => 'Liv.',
+        en: () => 'Lvl',
+    },
+    recordLayoutColName: {
+        it: () => 'Nome',
+        en: () => 'Name',
+    },
+    recordLayoutColStart: {
+        it: () => 'Inizio',
+        en: () => 'Start',
+    },
+    recordLayoutColEnd: {
+        it: () => 'Fine',
+        en: () => 'End',
+    },
+    recordLayoutColSize: {
+        it: () => 'Dim.',
+        en: () => 'Size',
+    },
+    recordLayoutColNotes: {
+        it: () => 'Note',
+        en: () => 'Notes',
+    },
+    recordLayoutByteUnit: {
+        it: () => 'byte',
+        en: () => 'bytes',
+    },
+    recordLayoutNoteGroup: {
+        it: () => 'gruppo',
+        en: () => 'group',
+    },
+    recordLayoutNoteRedefines: {
+        it: () => 'REDEFINES',
+        en: () => 'REDEFINES',
+    },
+    recordLayoutNoteCopy: {
+        it: () => 'da copybook',
+        en: () => 'from copybook',
+    },
+    recordLayoutNoteNoStorage: {
+        it: () => 'nessuno storage',
+        en: () => 'no storage',
+    },
+    // --- Rename (F2) ---
+    renameNotRenamable: {
+        it: () => 'Questo elemento non puo\' essere rinominato (solo variabili, paragrafi e sezioni definiti).',
+        en: () => 'This element cannot be renamed (only defined variables, paragraphs and sections).',
+    },
+    renameInvalidName: {
+        it: (name) => `Nome non valido: '${name}'. Usa lettere, cifre e trattini (deve iniziare con una lettera).`,
+        en: (name) => `Invalid name: '${name}'. Use letters, digits and hyphens (must start with a letter).`,
+    },
+    renameTooLong: {
+        it: () => 'Il nome supera i 30 caratteri (limite Micro Focus).',
+        en: () => 'The name exceeds 30 characters (Micro Focus limit).',
+    },
+    renameReserved: {
+        it: (name) => `'${name}' e' una parola riservata COBOL e non puo' essere usata come nome.`,
+        en: (name) => `'${name}' is a COBOL reserved word and cannot be used as a name.`,
+    },
+    renameCopybookDisabled: {
+        it: () => 'Il simbolo e\' definito in una copybook (condivisa tra piu\' programmi). Abilita cobolLens.rename.includeCopybooks per rinominarlo anche nella copybook.',
+        en: () => 'The symbol is defined in a copybook (shared across programs). Enable cobolLens.rename.includeCopybooks to also rename it inside the copybook.',
     },
 };
 

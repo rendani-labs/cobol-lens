@@ -127,6 +127,24 @@ function stripLiterals(text) {
     return result;
 }
 
+/**
+ * Trova l'indice del primo punto TERMINATORE di frase in una stringa.
+ * In COBOL un punto e' un separatore solo se seguito da uno spazio o dalla fine
+ * della riga. I punti seguiti da una cifra (punto decimale di un letterale
+ * numerico come 12.50, oppure carattere di edit in una PICTURE come ZZ9.99)
+ * NON sono terminatori e vengono ignorati.
+ * @param {string} text - testo gia' privato dei letterali stringa
+ * @returns {number} indice 0-based del punto terminatore, oppure -1
+ */
+function findTerminatorPeriod(text) {
+    for (let k = 0; k < text.length; k++) {
+        if (text[k] !== '.') continue;
+        const next = k + 1 < text.length ? text[k + 1] : '';
+        if (next === '' || /\s/.test(next)) return k;
+    }
+    return -1;
+}
+
 // ============================================================================
 // Contesto di analisi
 // ============================================================================
@@ -1091,8 +1109,10 @@ function checkPicMissing(lines) {
         const hasRedefines = /\bREDEFINES\b/.test(fullUpper);
         const hasRenames = /\bRENAMES\b/.test(fullUpper);
         const hasIndex = /\bINDEX\b/.test(fullUpper);
+        // Tipi USAGE che non richiedono la clausola PIC.
+        const hasNoPicUsage = /(?<![A-Z0-9-])(POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|COMP-1|COMPUTATIONAL-1|COMP-2|COMPUTATIONAL-2|OBJECT\s+REFERENCE)(?![A-Z0-9-])/.test(fullUpper);
 
-        dataItems.push({ line: lineNum, level, name, hasPic, hasRedefines, hasRenames, hasIndex });
+        dataItems.push({ line: lineNum, level, name, hasPic, hasRedefines, hasRenames, hasIndex, hasNoPicUsage });
         i = j > i + 1 ? j : i + 1;
     }
 
@@ -1118,7 +1138,7 @@ function checkPicMissing(lines) {
         const item = dataItems[idx];
         if (item.name === 'FILLER') continue;
         if (item.level === 88 || item.level === 66) continue;
-        if (item.hasRenames || item.hasIndex || item.hasPic) continue;
+        if (item.hasRenames || item.hasIndex || item.hasPic || item.hasNoPicUsage) continue;
 
         // Se seguito da COPY, e' un gruppo la cui struttura e' nella copybook
         if (linesFollowedByCopy.has(item.line)) continue;
@@ -1609,12 +1629,12 @@ function parseDataItems(lines) {
 
         // USAGE (cercare solo DOPO il nome variabile per evitare match in nomi come WS-COMP-AREA)
         let usage = 'DISPLAY';
-        const usageKw = upper.match(/\bUSAGE\s+(?:IS\s+)?(COMP(?:-[0-9])?|BINARY|PACKED-DECIMAL|DISPLAY(?:-1)?)/);
+        const usageKw = upper.match(/\bUSAGE\s+(?:IS\s+)?(COMP(?:-[0-9])?|BINARY|PACKED-DECIMAL|POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|INDEX|DISPLAY(?:-1)?)/);
         if (usageKw) {
             usage = usageKw[1];
         } else {
-            // Cerca COMP/BINARY/PACKED-DECIMAL solo dopo il nome (non dentro nomi iphenati)
-            const inlineUsage = upper.match(/(?<![-A-Z])\b(COMP(?:-[0-9])?|BINARY|PACKED-DECIMAL)\b(?![-A-Z])/);
+            // Cerca COMP/BINARY/PACKED-DECIMAL/POINTER/INDEX solo dopo il nome (non dentro nomi iphenati)
+            const inlineUsage = upper.match(/(?<![-A-Z])\b(COMP(?:-[0-9])?|BINARY|PACKED-DECIMAL|POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|INDEX)\b(?![-A-Z])/);
             if (inlineUsage) usage = inlineUsage[1];
         }
 
@@ -1632,6 +1652,33 @@ function parseDataItems(lines) {
 }
 
 /**
+ * Restituisce la dimensione in byte di un item elementare con USAGE a
+ * dimensione fissa che non richiede la clausola PIC (POINTER, INDEX,
+ * COMP-1, COMP-2). Restituisce 0 se l'usage non e' di questo tipo.
+ * @param {string} usage
+ * @returns {number}
+ */
+function noPicUsageSize(usage) {
+    const u = (usage || '').toUpperCase().replace(/\s+/g, '-');
+    switch (u) {
+        case 'COMP-1':
+        case 'COMPUTATIONAL-1':
+            return 4;
+        case 'COMP-2':
+        case 'COMPUTATIONAL-2':
+            return 8;
+        case 'INDEX':
+            return 4;
+        case 'POINTER':
+        case 'PROCEDURE-POINTER':
+        case 'FUNCTION-POINTER':
+            return 4;
+        default:
+            return 0;
+    }
+}
+
+/**
  * Calcola la dimensione in byte di un item (elementare o gruppo).
  * @param {Array} items
  * @param {number} idx
@@ -1641,6 +1688,11 @@ function computeItemSize(items, idx) {
     const item = items[idx];
     if (item.pic) {
         return computePicSize(item.pic, item.usage) * item.occurs;
+    }
+    // Item elementari con USAGE a dimensione fissa che non richiedono PIC.
+    const fixedUsageSize = noPicUsageSize(item.usage);
+    if (fixedUsageSize > 0) {
+        return fixedUsageSize * item.occurs;
     }
     // Gruppo: somma i figli diretti (ricorsivamente) per gestire OCCURS annidati,
     // saltando quelli con REDEFINES perche' sovrappongono spazio gia' contato.
@@ -1660,6 +1712,10 @@ function computeItemSize(items, idx) {
         }
         if (items[k].pic) {
             size += computePicSize(items[k].pic, items[k].usage) * items[k].occurs;
+            k++;
+        } else if (noPicUsageSize(items[k].usage) > 0) {
+            // Item elementare con USAGE a dimensione fissa (POINTER, INDEX, COMP-1/2).
+            size += noPicUsageSize(items[k].usage) * items[k].occurs;
             k++;
         } else {
             // Sotto-gruppo: calcola ricorsivamente (tiene conto di OCCURS annidati)
@@ -2648,6 +2704,14 @@ function checkCharsAfterPeriod(lines) {
         'DATE-COMPILED', 'SECURITY', 'REMARKS'
     ]);
 
+    // Paragrafi della ENVIRONMENT DIVISION (CONFIGURATION SECTION) il cui
+    // formato standard ha l'entry sulla stessa riga dopo il punto dell'header:
+    //   SOURCE-COMPUTER. IBM-370.
+    //   OBJECT-COMPUTER. IBM-370.
+    const envDivisionClauses = new Set([
+        'SOURCE-COMPUTER', 'OBJECT-COMPUTER'
+    ]);
+
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
@@ -2662,14 +2726,21 @@ function checkCharsAfterPeriod(lines) {
         // AUTHOR. COGNOME.
         const idClauseMatch = upperCode.trim().match(/^([A-Z-]+)\./);
         const isValidIdClauseLine =
-            ctx.currentDivision === 'IDENTIFICATION' &&
-            !!idClauseMatch &&
-            idDivisionClauses.has(idClauseMatch[1]);
+            !!idClauseMatch && (
+                (ctx.currentDivision === 'IDENTIFICATION' &&
+                    idDivisionClauses.has(idClauseMatch[1])) ||
+                (ctx.currentDivision === 'ENVIRONMENT' &&
+                    envDivisionClauses.has(idClauseMatch[1]))
+            );
 
-        // 1) Se c'e' un punto nella parte di codice, dopo il punto devono esserci solo spazi.
+        // 1) Se c'e' un punto TERMINATORE (seguito da spazio o fine riga) nella
+        // parte di codice, dopo di esso devono esserci solo spazi. I punti
+        // interni ai letterali numerici (es. VALUE 12.50) e quelli usati come
+        // carattere di edit nelle PICTURE (es. ZZ,ZZ9.99) NON sono terminatori
+        // perche' seguiti da una cifra, quindi vengono ignorati.
         if (!isValidIdClauseLine) {
             const codeNoLit = stripLiterals(upperCode);
-            const periodIdx = codeNoLit.indexOf('.');
+            const periodIdx = findTerminatorPeriod(codeNoLit);
             if (periodIdx >= 0) {
                 const afterPeriodRaw = codeNoLit.substring(periodIdx + 1);
                 if (/\S/.test(afterPeriodRaw)) {

@@ -9,7 +9,15 @@
 
 A lightweight VS Code extension for navigating COBOL copybooks and symbols -- no compiler or language server required.
 
+This extension is tailored for the **Micro Focus / Rocket COBOL** dialect (Enterprise Developer / Visual COBOL).
+
 ## Features
+
+### Syntax Highlighting
+
+Built-in syntax highlighting for the Micro Focus / Rocket COBOL dialect, styled similarly to the Rocket COBOL extension. It works standalone (no other COBOL extension required) and covers DIVISION/SECTION headers, level numbers, PICTURE clauses, USAGE types, statements and verbs, conditionals, figurative constants, intrinsic functions, `COPY`/`REPLACING`, embedded `EXEC SQL`/`EXEC CICS` blocks, compiler directives, fixed-format (column 7) and inline `*>` comments, and numeric/string literals.
+
+An optional **semantic coloring** layer additionally highlights variables, paragraphs/sections and copybooks using the extension's own symbol index. It can be toggled with `cobolLens.syntaxHighlighting.enabled` (default `on`); turning it off keeps the base highlighting, linter and navigation fully active.
 
 ### Navigation & IntelliSense
 
@@ -18,8 +26,17 @@ A lightweight VS Code extension for navigating COBOL copybooks and symbols -- no
 | **Go to Definition** | `F12` / `Ctrl+Click` | Jump to copybook files, variable definitions, paragraphs, and sections |
 | **Peek Definition** | `Alt+F12` | Inline preview of definitions without leaving your current file |
 | **Find All References** | `Shift+F12` | Locate every usage of a variable, paragraph, or section |
+| **Rename Symbol** | `F2` | Rename a variable, paragraph, or section across the whole program (and optionally inside copybooks) |
 | **Hover Information** | Mouse hover | See type, level, source file, definition line, and the size in bytes (for groups, the total area size = sum of sub-fields) for any symbol |
 | **Copybook Autocomplete** | Type `COPY ` | Auto-suggest copybook names from configured folders |
+| **Code Completion** | Type / `Ctrl+Space` | Suggest variables, paragraphs/sections (prioritized after `PERFORM`/`GO TO`) and common COBOL keywords |
+| **Go to Symbol in Workspace** | `Ctrl+T` | Fuzzy-search variables, paragraphs and sections across all COBOL files in the workspace |
+| **Reference CodeLens** | Above paragraphs | Show how many times a paragraph or section is used; click to peek the references (off by default) |
+| **Call Hierarchy** | `Ctrl+Alt+H` | Show incoming/outgoing `PERFORM` calls for a paragraph or section |
+| **Format Document** | `Shift+Alt+F` | Reindent fixed-format code (Area A/B, 3-space hierarchy, PIC/TO/VALUE aligned to col 45, col 72 overflow handling, trailing trim); also Format Selection (off by default) |
+| **Field Inlay Hints** | Automatic | Show the byte position and size of each DATA DIVISION field at end of line (computed from PIC/USAGE/OCCURS; on by default) |
+| **Record Layout** | Context menu / Command Palette | Show a panel with the byte start/end offset and size of every field in each DATA DIVISION record (off by default) |
+| **Code Snippets** | IntelliSense | Templates for IF/EVALUATE/PERFORM/CALL, parametric PIC clauses, FD/SELECT and a full program skeleton (on by default) |
 | **Code Folding** | `Ctrl+Shift+[` | Collapse DIVISIONs, SECTIONs, and paragraphs |
 | **Outline View** | Sidebar | Browse the full structure of your program: variables, paragraphs, sections |
 | **Missing Copybook Warning** | Automatic | Flags unresolved COPY statements in the Problems panel |
@@ -44,6 +61,35 @@ Categories of rules:
 - **File handling** -- missing FILE STATUS, COPY resolution, PERFORM THRU order
 
 See [Linter Rules](#linter-rules) below for the full list.
+
+### Quick Fixes
+
+When the linter reports certain issues, a **light bulb** (Code Action) offers a one-click fix. Most fixes only add text or normalize case; a few realign a single keyword to its standard column by adjusting whitespace only (no content is deleted):
+
+| Diagnostic | Quick Fix |
+|------------|-----------|
+| `end-structure` | Insert the matching `END-IF` / `END-PERFORM` / `END-EVALUATE` / `END-CALL`... on its own line, aligned to the opening statement (the closing period moves after it) |
+| `missing-period` | Add the trailing period |
+| `uppercase` | Convert the code to UPPERCASE (string literals are preserved) |
+| `missing-stop-run` | Append a `GOBACK.` line |
+| `missing-level` | Insert a level number (inferred from the previous data item) |
+| `missing-file-status` | Add a `STATUS FS-<file>` clause to the `SELECT` (the variable is named after the file and must then be defined in WORKING-STORAGE) |
+| `pic-alignment` | Realign the `PIC` keyword to column 45 (adjusts the spaces before it) |
+| `move-to-alignment` | Realign the `TO` of a `MOVE` to column 45 (adjusts the spaces before it) |
+| `select-col12` | Realign `SELECT` to column 12 (adjusts the leading indentation) |
+| `assign-col29` | Realign the clause (`ASSIGN`/`ORGANIZATION`/`ACCESS`/`STATUS`/`RECORD KEY`) to column 29 |
+
+Can be turned off with `cobolLens.codeActions.enabled` (default `on`).
+
+### Code Completion
+
+As you type (or with `Ctrl+Space`), IntelliSense suggests symbols from the current program and common COBOL keywords:
+
+- **Variables** -- data item names defined in WORKING-STORAGE, LINKAGE, FILE SECTION, etc.
+- **Paragraphs and sections** -- after `PERFORM`, `GO TO`, `THRU`/`THROUGH` only these are offered (and sorted first)
+- **Keywords** -- a curated list of common COBOL verbs and clauses (`MOVE`, `EVALUATE`, `END-IF`, `PIC`, `OCCURS`...)
+
+The existing `COPY ` copybook completion is unaffected. Controlled by `cobolLens.completion.enabled` (default `on`), with per-category toggles `cobolLens.completion.variables`, `cobolLens.completion.paragraphs` and `cobolLens.completion.keywords`.
 
 ## Supported File Types
 
@@ -94,6 +140,21 @@ Add these settings to your workspace `.vscode/settings.json`:
 | `cobolLens.language` | `"auto"` | Language of linter diagnostic messages: `auto` (follow VS Code), `it`, or `en` |
 | `cobolLens.ifBlockHighlight.enabled` | `true` | Highlight IF/ELSE/END-IF blocks with per-nesting-level colors |
 | `cobolLens.ifBlockHighlight.scopeBars` | `true` | Show colored side bars to visualize the scope of each IF block |
+| `cobolLens.codeActions.enabled` | `true` | Enable Quick Fixes (light bulb) for linter diagnostics |
+| `cobolLens.rename.enabled` | `true` | Enable symbol rename (F2) for variables, paragraphs and sections |
+| `cobolLens.rename.includeCopybooks` | `false` | Also rename inside copybook files (shared across programs -- use with care) |
+| `cobolLens.completion.enabled` | `true` | Enable code completion (IntelliSense) for COBOL symbols and keywords |
+| `cobolLens.completion.variables` | `true` | Suggest variable (data item) names from the current program |
+| `cobolLens.completion.paragraphs` | `true` | Suggest paragraph and section names (prioritized after PERFORM / GO TO) |
+| `cobolLens.completion.keywords` | `true` | Suggest common COBOL verbs and keywords |
+| `cobolLens.workspaceSymbols.enabled` | `true` | Enable Go to Symbol in Workspace (Ctrl+T) across all COBOL files |
+| `cobolLens.codeLens.enabled` | `false` | Show reference-count CodeLens above paragraphs and sections |
+| `cobolLens.callHierarchy.enabled` | `true` | Enable Call Hierarchy (PERFORM/GO TO) for paragraphs and sections |
+| `cobolLens.format.enabled` | `false` | Enable the fixed-format formatter (Format Document / Format Selection) |
+| `cobolLens.inlayHints.enabled` | `true` | Show inlay hints with byte position and size of DATA DIVISION fields |
+| `cobolLens.inlayHints.display` | `inline` | Where to show field position/size: `inline` (inlay hints) or `hover` (symbol tooltip, less intrusive) |
+| `cobolLens.recordLayout.enabled` | `false` | Enable the "Show Record Layout" command (byte offsets/size of each record field) |
+| `cobolLens.snippets.enabled` | `true` | Provide COBOL code snippets (IF/EVALUATE/PERFORM, parametric PIC, program skeleton) |
 | `cobolLens.linter.enabled` | `true` | Enable/disable the integrated linter |
 | `cobolLens.linter.onType` | `true` | Lint in real-time while typing (if false, only on save) |
 | `cobolLens.linter.delay` | `500` | Delay in ms before linting after a change (100-5000) |

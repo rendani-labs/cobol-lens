@@ -4,12 +4,14 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
-const { resolveCopybookPath, COPY_REGEX, isComment } = require('./cobol-parser');
+const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED } = require('./cobol-parser');
 const { SymbolIndex } = require('./symbol-index');
 const { runLinter } = require('./cobol-linter');
-const { computeFieldSize } = require('./cobol-layout');
+const { computeFieldSize, collectLayout, computeFieldInfoAt } = require('./cobol-layout');
 const { msg, getLang, setLang } = require('./messages');
-
+const { CobolSemanticTokensProvider, SEMANTIC_LEGEND } = require('./cobol-semantic');
+const { CobolCodeActionProvider } = require('./cobol-code-actions');
+const { CobolFormattingProvider } = require('./cobol-formatter');
 /** Indice simboli condiviso tra tutti i provider */
 const symbolIndex = new SymbolIndex();
 
@@ -116,6 +118,46 @@ function parseCopyFromLine(line) {
         line.toUpperCase().indexOf('COPY') + 4);
     if (nameStart < 0) return undefined;
     return { copyName, nameStart };
+}
+
+/**
+ * Trova le occorrenze "whole word" di un nome (case-insensitive) in un array
+ * di righe, saltando i commenti e il contenuto dei letterali stringa.
+ * Usato dal rename per non toccare keyword/sottostringhe o testo tra apici.
+ * @param {string[]} lines
+ * @param {string} searchUpper - nome del simbolo in MAIUSCOLO
+ * @returns {{ line: number, start: number }[]}
+ */
+function findWordOccurrences(lines, searchUpper) {
+    /** @type {{ line: number, start: number }[]} */
+    const results = [];
+    for (let i = 0; i < lines.length; i++) {
+        const lineText = lines[i];
+        if (isComment(lineText)) continue;
+        const upper = lineText.toUpperCase();
+
+        // Maschera delle posizioni dentro letterali stringa ('...' o "...")
+        const litMask = new Array(lineText.length).fill(false);
+        let quote = null;
+        for (let k = 0; k < lineText.length; k++) {
+            const ch = lineText[k];
+            if (quote) { litMask[k] = true; if (ch === quote) quote = null; }
+            else if (ch === '"' || ch === "'") { quote = ch; litMask[k] = true; }
+        }
+
+        let from = 0;
+        while (true) {
+            const idx = upper.indexOf(searchUpper, from);
+            if (idx < 0) break;
+            const end = idx + searchUpper.length;
+            const before = idx > 0 ? upper.charAt(idx - 1) : ' ';
+            const after = end < upper.length ? upper.charAt(end) : ' ';
+            const boundary = !/[A-Z0-9-]/.test(before) && !/[A-Z0-9-]/.test(after);
+            if (boundary && !litMask[idx]) results.push({ line: i, start: idx });
+            from = end;
+        }
+    }
+    return results;
 }
 
 // ============================================================================
@@ -251,11 +293,23 @@ class CobolHoverProvider {
                         const label = sizeInfo.isGroup ? msg('hoverAreaSize') : msg('hoverSize');
                         content.appendMarkdown(`**${label}:** ${sizeInfo.size} byte\n\n`);
                     }
+                    // Posizione in byte (solo se gli inlay hint sono in modalita' 'hover')
+                    const cfg = vscode.workspace.getConfiguration('cobolLens');
+                    if (cfg.get('inlayHints.enabled', true)
+                        && cfg.get('inlayHints.display', 'inline') === 'hover') {
+                        const info = computeFieldInfoAt(fileLines, sym.line, wsRoot);
+                        if (info) {
+                            content.appendMarkdown(`**${msg('hoverPosition')}:** ${info.offset + 1}\n\n`);
+                        }
+                    }
                 }
             }
 
             if (sym.lineText) {
-                content.appendCodeblock(sym.lineText.trimStart(), 'cobol');
+                // Allinea il codice alla colonna 8 (Area A): le prime 7 colonne
+                // restano vuote (area margine) cosi' nel codeblock la grammatica
+                // non colora di verde il livello/nome come fosse l'area sequenza.
+                content.appendCodeblock('       ' + sym.lineText.trim(), 'cobol');
             }
             if (symbols.length > 1) {
                 content.appendMarkdown('---\n\n');
@@ -340,6 +394,79 @@ class CobolDocumentSymbolProvider {
 }
 
 // ============================================================================
+// WorkspaceSymbolProvider ? Go to Symbol in Workspace (Ctrl+T)
+// ============================================================================
+
+/**
+ * Esegue un match fuzzy (sottosequenza) case-insensitive tra query e testo.
+ * Tutti i caratteri della query devono comparire, nell'ordine, dentro il testo.
+ * @param {string} query - gia' in maiuscolo
+ * @param {string} text - gia' in maiuscolo
+ * @returns {boolean}
+ */
+function fuzzyMatch(query, text) {
+    if (!query) return true;
+    let q = 0;
+    for (let t = 0; t < text.length && q < query.length; t++) {
+        if (text[t] === query[q]) q++;
+    }
+    return q === query.length;
+}
+
+class CobolWorkspaceSymbolProvider {
+    /**
+     * @param {string} query
+     * @param {vscode.CancellationToken} token
+     * @returns {Promise<vscode.SymbolInformation[]>}
+     */
+    async provideWorkspaceSymbols(query, token) {
+        const cfg = vscode.workspace.getConfiguration('cobolLens');
+        if (!cfg.get('workspaceSymbols.enabled', true)) return [];
+
+        const files = await vscode.workspace.findFiles(
+            '**/*.{CBL,cbl,clt,CLT}', '**/node_modules/**', 5000);
+        if (token.isCancellationRequested) return [];
+
+        const upperQuery = (query || '').toUpperCase();
+        /** @type {vscode.SymbolInformation[]} */
+        const result = [];
+        const MAX_RESULTS = 2000;
+
+        for (const uri of files) {
+            if (token.isCancellationRequested) break;
+            const folder = vscode.workspace.getWorkspaceFolder(uri);
+            const wsRoot = folder ? folder.uri.fsPath : path.dirname(uri.fsPath);
+            const symbols = symbolIndex.getSymbolsFromFile(uri.fsPath, wsRoot);
+
+            for (const sym of symbols) {
+                // Solo simboli definiti nel file stesso (no espansioni copybook,
+                // no riferimenti COPY) per evitare duplicati tra file.
+                if (sym.type === 'copy') continue;
+                if (sym.filePath !== uri.fsPath) continue;
+                if (!fuzzyMatch(upperQuery, sym.name)) continue;
+
+                const kind = sym.type === 'variable' ? vscode.SymbolKind.Variable
+                    : sym.type === 'paragraph' ? vscode.SymbolKind.Function
+                    : sym.type === 'section' ? vscode.SymbolKind.Module
+                    : vscode.SymbolKind.Null;
+
+                const selRange = new vscode.Range(
+                    sym.line, sym.column,
+                    sym.line, sym.column + sym.originalName.length);
+                const containerName = path.basename(uri.fsPath);
+                result.push(new vscode.SymbolInformation(
+                    sym.originalName, kind, containerName,
+                    new vscode.Location(uri, selRange)));
+
+                if (result.length >= MAX_RESULTS) return result;
+            }
+        }
+
+        return result;
+    }
+}
+
+// ============================================================================
 // ReferenceProvider ? Find All References (Shift+F12)
 // ============================================================================
 
@@ -412,6 +539,320 @@ class CobolReferenceProvider {
 }
 
 // ============================================================================
+// CodeLensProvider ? Conteggio reference sopra paragrafi e sezioni
+// ============================================================================
+
+class CobolCodeLensProvider {
+    /**
+     * @param {vscode.TextDocument} document
+     * @returns {vscode.CodeLens[]}
+     */
+    provideCodeLenses(document) {
+        const cfg = vscode.workspace.getConfiguration('cobolLens');
+        if (!cfg.get('codeLens.enabled', false)) return [];
+
+        setLang(getLang());
+        const symbols = symbolIndex.getSymbols(document);
+        const lines = document.getText().split(/\r?\n/);
+
+        /** @type {vscode.CodeLens[]} */
+        const lenses = [];
+        for (const sym of symbols) {
+            if (sym.type !== 'paragraph' && sym.type !== 'section') continue;
+            // Solo simboli definiti nel file corrente
+            if (sym.filePath !== document.uri.fsPath) continue;
+
+            const occurrences = findWordOccurrences(lines, sym.name);
+            // Le reference sono le occorrenze diverse dalla riga di definizione
+            const refs = occurrences.filter(o => o.line !== sym.line);
+            const locations = refs.map(o => new vscode.Location(
+                document.uri,
+                new vscode.Range(o.line, o.start, o.line, o.start + sym.originalName.length)));
+
+            const count = locations.length;
+            const range = new vscode.Range(sym.line, 0, sym.line, 0);
+            const title = count === 1 ? msg('codeLensReference', count) : msg('codeLensReferences', count);
+            const position = new vscode.Position(sym.line, sym.column);
+            lenses.push(new vscode.CodeLens(range, {
+                title,
+                command: count > 0 ? 'editor.action.showReferences' : '',
+                arguments: count > 0 ? [document.uri, position, locations] : undefined,
+            }));
+        }
+        return lenses;
+    }
+}
+
+// ============================================================================
+// CallHierarchyProvider ? Gerarchia delle chiamate PERFORM tra paragrafi
+// ============================================================================
+
+/**
+ * Restituisce i simboli di tipo paragrafo/sezione definiti nel documento,
+ * ordinati per riga, con il range del corpo (dalla definizione fino alla
+ * successiva definizione di paragrafo/sezione).
+ * @param {vscode.TextDocument} document
+ * @returns {{ sym: import('./cobol-parser').CobolSymbol, bodyStart: number, bodyEnd: number }[]}
+ */
+function getProcedureRanges(document) {
+    const symbols = symbolIndex.getSymbols(document)
+        .filter(s => (s.type === 'paragraph' || s.type === 'section')
+            && s.filePath === document.uri.fsPath)
+        .sort((a, b) => a.line - b.line);
+
+    const result = [];
+    for (let k = 0; k < symbols.length; k++) {
+        const bodyStart = symbols[k].line;
+        const bodyEnd = (k + 1 < symbols.length)
+            ? symbols[k + 1].line - 1
+            : document.lineCount - 1;
+        result.push({ sym: symbols[k], bodyStart, bodyEnd });
+    }
+    return result;
+}
+
+/**
+ * Estrae i nomi paragrafo/sezione invocati da una riga via PERFORM / GO TO,
+ * inclusi gli estremi di un eventuale THRU/THROUGH.
+ * @param {string} lineText
+ * @returns {string[]} nomi in MAIUSCOLO
+ */
+function extractPerformTargets(lineText) {
+    if (isComment(lineText)) return [];
+    const upper = lineText.toUpperCase();
+    /** @type {string[]} */
+    const targets = [];
+    const perfRe = /\bPERFORM\s+([A-Z0-9][\w-]*)(?:\s+(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*))?/g;
+    let m;
+    while ((m = perfRe.exec(upper)) !== null) {
+        targets.push(m[1]);
+        if (m[2]) targets.push(m[2]);
+    }
+    const gotoRe = /\bGO\s+TO\s+([A-Z0-9][\w-]*)/g;
+    while ((m = gotoRe.exec(upper)) !== null) {
+        targets.push(m[1]);
+    }
+    return targets;
+}
+
+/**
+ * Crea un CallHierarchyItem da un simbolo procedura.
+ * @param {import('./cobol-parser').CobolSymbol} sym
+ * @param {vscode.Uri} uri
+ * @returns {vscode.CallHierarchyItem}
+ */
+function makeHierarchyItem(sym, uri) {
+    const kind = sym.type === 'section'
+        ? vscode.SymbolKind.Module
+        : vscode.SymbolKind.Function;
+    const selRange = new vscode.Range(
+        sym.line, sym.column, sym.line, sym.column + sym.originalName.length);
+    const range = new vscode.Range(sym.line, 0, sym.line, (sym.lineText || '').length);
+    const detail = sym.type === 'section' ? 'Section' : 'Paragraph';
+    return new vscode.CallHierarchyItem(kind, sym.originalName, detail, uri, range, selRange);
+}
+
+class CobolCallHierarchyProvider {
+    /**
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Position} position
+     * @returns {vscode.CallHierarchyItem | undefined}
+     */
+    prepareCallHierarchy(document, position) {
+        const cfg = vscode.workspace.getConfiguration('cobolLens');
+        if (!cfg.get('callHierarchy.enabled', true)) return undefined;
+
+        const line = document.lineAt(position.line).text;
+        if (isComment(line)) return undefined;
+        const wordInfo = getWordAtPosition(document, position);
+        if (!wordInfo) return undefined;
+
+        const upperName = wordInfo.word.toUpperCase();
+        const proc = getProcedureRanges(document)
+            .find(p => p.sym.name === upperName);
+        if (!proc) return undefined;
+        return makeHierarchyItem(proc.sym, document.uri);
+    }
+
+    /**
+     * Chiamate entranti: i paragrafi che eseguono un PERFORM verso questo.
+     * @param {vscode.CallHierarchyItem} item
+     * @returns {Promise<vscode.CallHierarchyIncomingCall[]>}
+     */
+    async provideCallHierarchyIncomingCalls(item) {
+        const document = await vscode.workspace.openTextDocument(item.uri);
+        const procs = getProcedureRanges(document);
+        const targetName = (item.name || '').toUpperCase();
+
+        /** @type {Map<string, { item: vscode.CallHierarchyItem, ranges: vscode.Range[] }>} */
+        const callers = new Map();
+
+        for (const proc of procs) {
+            for (let i = proc.bodyStart; i <= proc.bodyEnd; i++) {
+                const text = document.lineAt(i).text;
+                const targets = extractPerformTargets(text);
+                if (!targets.includes(targetName)) continue;
+
+                // Posizione del nome chiamato sulla riga
+                const idx = text.toUpperCase().indexOf(targetName);
+                const range = new vscode.Range(i, idx >= 0 ? idx : 0,
+                    i, idx >= 0 ? idx + targetName.length : 0);
+                const key = proc.sym.name;
+                if (!callers.has(key)) {
+                    callers.set(key, { item: makeHierarchyItem(proc.sym, item.uri), ranges: [] });
+                }
+                callers.get(key).ranges.push(range);
+            }
+        }
+
+        return [...callers.values()].map(c =>
+            new vscode.CallHierarchyIncomingCall(c.item, c.ranges));
+    }
+
+    /**
+     * Chiamate uscenti: i paragrafi eseguiti via PERFORM da questo.
+     * @param {vscode.CallHierarchyItem} item
+     * @returns {Promise<vscode.CallHierarchyOutgoingCall[]>}
+     */
+    async provideCallHierarchyOutgoingCalls(item) {
+        const document = await vscode.workspace.openTextDocument(item.uri);
+        const procs = getProcedureRanges(document);
+        const self = procs.find(p => p.sym.name === (item.name || '').toUpperCase());
+        if (!self) return [];
+
+        const byName = new Map(procs.map(p => [p.sym.name, p]));
+
+        /** @type {Map<string, { item: vscode.CallHierarchyItem, ranges: vscode.Range[] }>} */
+        const callees = new Map();
+
+        for (let i = self.bodyStart; i <= self.bodyEnd; i++) {
+            const text = document.lineAt(i).text;
+            const targets = extractPerformTargets(text);
+            for (const name of targets) {
+                const targetProc = byName.get(name);
+                if (!targetProc) continue; // nome non definito nel file
+                const idx = text.toUpperCase().indexOf(name);
+                const range = new vscode.Range(i, idx >= 0 ? idx : 0,
+                    i, idx >= 0 ? idx + name.length : 0);
+                if (!callees.has(name)) {
+                    callees.set(name, { item: makeHierarchyItem(targetProc.sym, item.uri), ranges: [] });
+                }
+                callees.get(name).ranges.push(range);
+            }
+        }
+
+        return [...callees.values()].map(c =>
+            new vscode.CallHierarchyOutgoingCall(c.item, c.ranges));
+    }
+}
+
+// ============================================================================
+// RenameProvider ? Rinomina simbolo (F2) su programma + copybook
+// ============================================================================
+
+class CobolRenameProvider {
+    /**
+     * Valida la posizione e restituisce il range del simbolo rinominabile.
+     * Lancia un errore (mostrato da VS Code) se l'elemento non e' rinominabile.
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Position} position
+     * @returns {vscode.Range}
+     */
+    prepareRename(document, position) {
+        setLang(getLang());
+        const cfg = vscode.workspace.getConfiguration('cobolLens');
+        if (!cfg.get('rename.enabled', true)) {
+            throw new Error(msg('renameNotRenamable'));
+        }
+        const line = document.lineAt(position.line).text;
+        if (isComment(line)) throw new Error(msg('renameNotRenamable'));
+
+        // Non rinominare il nome di una copybook in un'istruzione COPY
+        const copyInfo = parseCopyFromLine(line);
+        if (copyInfo) {
+            const nameEnd = copyInfo.nameStart + copyInfo.copyName.length;
+            if (position.character >= copyInfo.nameStart && position.character <= nameEnd) {
+                throw new Error(msg('renameNotRenamable'));
+            }
+        }
+
+        const wordInfo = getWordAtPosition(document, position);
+        if (!wordInfo) throw new Error(msg('renameNotRenamable'));
+
+        const symbol = symbolIndex.findSymbol(document, wordInfo.word);
+        if (!symbol) throw new Error(msg('renameNotRenamable'));
+
+        // Simbolo definito in copybook: serve l'opt-in per modificarla
+        if (symbol.filePath !== document.uri.fsPath &&
+            !cfg.get('rename.includeCopybooks', false)) {
+            throw new Error(msg('renameCopybookDisabled'));
+        }
+
+        return wordInfo.range;
+    }
+
+    /**
+     * Costruisce le modifiche di rinomina.
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Position} position
+     * @param {string} newName
+     * @returns {vscode.WorkspaceEdit | undefined}
+     */
+    provideRenameEdits(document, position, newName) {
+        setLang(getLang());
+        const cfg = vscode.workspace.getConfiguration('cobolLens');
+        if (!cfg.get('rename.enabled', true)) return undefined;
+
+        const wordInfo = getWordAtPosition(document, position);
+        if (!wordInfo) return undefined;
+
+        const symbol = symbolIndex.findSymbol(document, wordInfo.word);
+        if (!symbol) return undefined;
+
+        // Valida il nuovo nome (identificatore COBOL valido)
+        const trimmed = newName.trim();
+        if (!/^[A-Za-z][A-Za-z0-9]*(-[A-Za-z0-9]+)*$/.test(trimmed)) {
+            throw new Error(msg('renameInvalidName', newName));
+        }
+        if (trimmed.length > 30) {
+            throw new Error(msg('renameTooLong'));
+        }
+        if (COBOL_RESERVED.has(trimmed.toUpperCase())) {
+            throw new Error(msg('renameReserved', trimmed));
+        }
+
+        const searchUpper = wordInfo.word.toUpperCase();
+        const edit = new vscode.WorkspaceEdit();
+
+        // 1. Occorrenze nel documento corrente
+        const docLines = document.getText().split(/\r?\n/);
+        for (const occ of findWordOccurrences(docLines, searchUpper)) {
+            edit.replace(document.uri,
+                new vscode.Range(occ.line, occ.start, occ.line, occ.start + searchUpper.length),
+                trimmed);
+        }
+
+        // 2. Se definito in copybook (e opt-in attivo), rinomina anche li'
+        if (symbol.filePath !== document.uri.fsPath) {
+            if (!cfg.get('rename.includeCopybooks', false)) {
+                throw new Error(msg('renameCopybookDisabled'));
+            }
+            const copyLines = getFileLines(document, symbol.filePath);
+            if (copyLines) {
+                const copyUri = vscode.Uri.file(symbol.filePath);
+                for (const occ of findWordOccurrences(copyLines, searchUpper)) {
+                    edit.replace(copyUri,
+                        new vscode.Range(occ.line, occ.start, occ.line, occ.start + searchUpper.length),
+                        trimmed);
+                }
+            }
+        }
+
+        return edit;
+    }
+}
+
+// ============================================================================
 // CompletionProvider ? Completamento nomi copybook
 // ============================================================================
 
@@ -463,6 +904,346 @@ class CobolCopyCompletionProvider {
             }
         }
 
+        return items;
+    }
+}
+
+// ============================================================================
+// CompletionProvider ? Completamento simboli (variabili, paragrafi) e keyword
+// ============================================================================
+
+/**
+ * Verbi e parole chiave COBOL piu' comuni, suggeriti dal completamento.
+ * @type {string[]}
+ */
+const COBOL_KEYWORDS = [
+    'ACCEPT', 'ADD', 'CALL', 'CANCEL', 'CLOSE', 'COMPUTE', 'CONTINUE',
+    'DELETE', 'DISPLAY', 'DIVIDE', 'ELSE', 'END-CALL', 'END-EVALUATE',
+    'END-IF', 'END-PERFORM', 'END-READ', 'END-SEARCH', 'END-STRING',
+    'END-UNSTRING', 'EVALUATE', 'EXIT', 'GIVING', 'GOBACK', 'GO TO', 'IF',
+    'INITIALIZE', 'INSPECT', 'MOVE', 'MULTIPLY', 'OPEN', 'PERFORM', 'READ',
+    'REWRITE', 'SEARCH', 'SET', 'START', 'STOP RUN', 'STRING', 'SUBTRACT',
+    'UNSTRING', 'WRITE', 'WHEN', 'UNTIL', 'VARYING', 'THRU', 'THROUGH',
+    'FROM', 'TO', 'USING', 'GREATER', 'LESS', 'EQUAL', 'NOT', 'AND', 'OR',
+    'PIC', 'PICTURE', 'VALUE', 'OCCURS', 'REDEFINES', 'USAGE', 'COMP',
+    'COMP-3', 'BINARY', 'PACKED-DECIMAL', 'FILLER', 'COPY', 'REPLACING'
+];
+
+/**
+ * Calcola il prefisso (identificatore COBOL) immediatamente prima del cursore
+ * e il range da sostituire.
+ * @param {vscode.TextDocument} document
+ * @param {vscode.Position} position
+ * @returns {{ prefix: string, range: vscode.Range }}
+ */
+function getCompletionPrefix(document, position) {
+    const line = document.lineAt(position.line).text;
+    let start = position.character;
+    while (start > 0 && /[A-Za-z0-9-]/.test(line.charAt(start - 1))) start--;
+    const prefix = line.substring(start, position.character);
+    const range = new vscode.Range(position.line, start, position.line, position.character);
+    return { prefix, range };
+}
+
+class CobolCompletionProvider {
+    /**
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Position} position
+     * @returns {vscode.CompletionItem[] | undefined}
+     */
+    provideCompletionItems(document, position) {
+        const config = vscode.workspace.getConfiguration('cobolLens');
+        if (!config.get('completion.enabled', true)) return undefined;
+
+        const line = document.lineAt(position.line).text;
+        if (isComment(line)) return undefined;
+
+        const textBefore = line.substring(0, position.character);
+        const upperBefore = textBefore.toUpperCase();
+
+        // Non interferire con il completamento COPY (gestito dall'altro provider)
+        if (/\bCOPY\s+\S*$/.test(upperBefore)) return undefined;
+
+        const { range } = getCompletionPrefix(document, position);
+
+        const wantVars = config.get('completion.variables', true);
+        const wantParas = config.get('completion.paragraphs', true);
+        const wantKw = config.get('completion.keywords', true);
+
+        // Contesto: dopo PERFORM / GO TO / THRU si suggeriscono paragrafi e sezioni
+        const afterPerform =
+            /\b(PERFORM|THRU|THROUGH)\s+[A-Za-z0-9-]*$/.test(upperBefore) ||
+            /\bGO\s+TO\s+[A-Za-z0-9-]*$/.test(upperBefore);
+
+        /** @type {vscode.CompletionItem[]} */
+        const items = [];
+        const seen = new Set();
+        const symbols = symbolIndex.getSymbols(document);
+
+        // Paragrafi e sezioni
+        if (wantParas) {
+            for (const sym of symbols) {
+                if (sym.type !== 'paragraph' && sym.type !== 'section') continue;
+                const key = 'P:' + sym.name;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                const kind = sym.type === 'section'
+                    ? vscode.CompletionItemKind.Module
+                    : vscode.CompletionItemKind.Function;
+                const item = new vscode.CompletionItem(sym.originalName, kind);
+                item.detail = sym.type === 'section' ? 'Section' : 'Paragraph';
+                item.range = range;
+                if (afterPerform) item.sortText = '0_' + sym.originalName;
+                items.push(item);
+            }
+        }
+
+        // Variabili e keyword: non pertinenti subito dopo PERFORM/GO TO
+        if (!afterPerform) {
+            if (wantVars) {
+                for (const sym of symbols) {
+                    if (sym.type !== 'variable') continue;
+                    if (sym.originalName.toUpperCase() === 'FILLER') continue;
+                    const key = 'V:' + sym.name;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    const item = new vscode.CompletionItem(sym.originalName, vscode.CompletionItemKind.Variable);
+                    item.detail = (sym.level != null)
+                        ? `Level ${String(sym.level).padStart(2, '0')}`
+                        : 'Variable';
+                    item.range = range;
+                    item.sortText = '1_' + sym.originalName;
+                    items.push(item);
+                }
+            }
+
+            if (wantKw) {
+                for (const kw of COBOL_KEYWORDS) {
+                    const item = new vscode.CompletionItem(kw, vscode.CompletionItemKind.Keyword);
+                    item.range = range;
+                    item.sortText = 'z_' + kw; // keyword dopo i simboli
+                    items.push(item);
+                }
+            }
+        }
+
+        return items;
+    }
+}
+
+// ============================================================================
+// Snippet COBOL ? completamenti a template (gated da cobolLens.snippets.enabled)
+// ============================================================================
+
+/**
+ * Definizioni degli snippet COBOL (dialetto Micro Focus, formato fixed).
+ * Il corpo usa la sintassi degli snippet di VS Code: ${1:placeholder}, $0 = cursore finale.
+ * Le righe successive alla prima ereditano l'indentazione della riga di inserimento,
+ * quindi il corpo usa indentazione RELATIVA (3 spazi per livello di annidamento).
+ * @type {{ prefix: string, description: string, body: string[] }[]}
+ */
+const COBOL_SNIPPETS = [
+    // --- Blocchi PROCEDURE DIVISION ---
+    {
+        prefix: 'if',
+        description: 'IF ... END-IF',
+        body: ['IF ${1:condition}', '   ${0}', 'END-IF']
+    },
+    {
+        prefix: 'ifelse',
+        description: 'IF ... ELSE ... END-IF',
+        body: ['IF ${1:condition}', '   ${2}', 'ELSE', '   ${0}', 'END-IF']
+    },
+    {
+        prefix: 'evaluate',
+        description: 'EVALUATE ... WHEN ... END-EVALUATE',
+        body: [
+            'EVALUATE ${1:subject}',
+            'WHEN ${2:value}',
+            '   ${3}',
+            'WHEN OTHER',
+            '   ${0}',
+            'END-EVALUATE'
+        ]
+    },
+    {
+        prefix: 'performuntil',
+        description: 'PERFORM UNTIL ... END-PERFORM',
+        body: ['PERFORM UNTIL ${1:condition}', '   ${0}', 'END-PERFORM']
+    },
+    {
+        prefix: 'performvarying',
+        description: 'PERFORM VARYING ... UNTIL ... END-PERFORM',
+        body: [
+            'PERFORM VARYING ${1:WS-I} FROM ${2:1} BY ${3:1}',
+            '        UNTIL ${1:WS-I} > ${4:WS-MAX}',
+            '   ${0}',
+            'END-PERFORM'
+        ]
+    },
+    {
+        prefix: 'performtimes',
+        description: 'PERFORM n TIMES ... END-PERFORM',
+        body: ['PERFORM ${1:WS-N} TIMES', '   ${0}', 'END-PERFORM']
+    },
+    {
+        prefix: 'performthru',
+        description: 'PERFORM paragraph THRU paragraph',
+        body: ['PERFORM ${1:FIRST-PARA} THRU ${2:LAST-PARA}${0}']
+    },
+    {
+        prefix: 'call',
+        description: 'CALL "program" USING ... END-CALL',
+        body: ['CALL "${1:PROGRAM}" USING ${2:WS-PARM}', 'END-CALL${0}']
+    },
+    {
+        prefix: 'read',
+        description: 'READ file ... END-READ',
+        body: [
+            'READ ${1:FILE-NAME}',
+            '   AT END',
+            '      ${2}',
+            '   NOT AT END',
+            '      ${0}',
+            'END-READ'
+        ]
+    },
+    {
+        prefix: 'string',
+        description: 'STRING ... END-STRING',
+        body: [
+            'STRING ${1:WS-A} DELIMITED BY ${2:SPACE}',
+            '   INTO ${3:WS-RESULT}',
+            'END-STRING${0}'
+        ]
+    },
+    {
+        prefix: 'unstring',
+        description: 'UNSTRING ... END-UNSTRING',
+        body: [
+            'UNSTRING ${1:WS-SOURCE} DELIMITED BY ${2:SPACE}',
+            '   INTO ${3:WS-A} ${4:WS-B}',
+            'END-UNSTRING${0}'
+        ]
+    },
+    // --- Voci DATA DIVISION e PICTURE parametriche ---
+    {
+        prefix: 'group',
+        description: 'Group item: 01 name.',
+        body: ['01  ${1:WS-GROUP}.', '    05  ${0}']
+    },
+    {
+        prefix: 'picx',
+        description: 'PIC X(n) alphanumeric',
+        body: ['${1:05}  ${2:WS-FIELD}            PIC X(${3:10}).${0}']
+    },
+    {
+        prefix: 'pic9',
+        description: 'PIC 9(n) numeric',
+        body: ['${1:05}  ${2:WS-FIELD}            PIC 9(${3:5}).${0}']
+    },
+    {
+        prefix: 'pics9',
+        description: 'PIC S9(n) signed numeric',
+        body: ['${1:05}  ${2:WS-FIELD}            PIC S9(${3:5}).${0}']
+    },
+    {
+        prefix: 'comp3',
+        description: 'PIC S9(n) COMP-3 (packed-decimal)',
+        body: ['${1:05}  ${2:WS-FIELD}            PIC S9(${3:7})V9(${4:2}) COMP-3.${0}']
+    },
+    {
+        prefix: 'comp',
+        description: 'PIC S9(n) COMP (binary)',
+        body: ['${1:05}  ${2:WS-FIELD}            PIC S9(${3:4}) COMP.${0}']
+    },
+    {
+        prefix: 'value',
+        description: 'Item with VALUE clause',
+        body: ['${1:05}  ${2:WS-FIELD}            PIC ${3:X(10)} VALUE ${4:SPACES}.${0}']
+    },
+    {
+        prefix: 'level88',
+        description: '88 condition-name VALUE',
+        body: ['88  ${1:CN-NAME}             VALUE ${2:"Y"}.${0}']
+    },
+    {
+        prefix: 'occurs',
+        description: 'Table item with OCCURS',
+        body: ['${1:05}  ${2:WS-ITEM}             PIC ${3:X(10)} OCCURS ${4:10} TIMES.${0}']
+    },
+    // --- Strutture e scheletro programma ---
+    {
+        prefix: 'select',
+        description: 'SELECT ... ASSIGN ... (FILE-CONTROL)',
+        body: [
+            'SELECT ${1:FILE-NAME} ASSIGN TO ${2:EXTERNAL-NAME}',
+            '   ORGANIZATION IS ${3:SEQUENTIAL}',
+            '   FILE STATUS IS ${4:FS-FILE}.${0}'
+        ]
+    },
+    {
+        prefix: 'fd',
+        description: 'FD file description',
+        body: ['FD  ${1:FILE-NAME}.', '01  ${2:FILE-REC}.', '    05  ${0}']
+    },
+    {
+        prefix: 'paragraph',
+        description: 'Paragraph with EXIT',
+        body: ['${1:PARA-NAME}.', '    ${0}', '    .']
+    },
+    {
+        prefix: 'program',
+        description: 'Full program skeleton (invoke at column 1)',
+        body: [
+            'IDENTIFICATION DIVISION.',
+            'PROGRAM-ID. ${1:PROGNAME}.',
+            'ENVIRONMENT DIVISION.',
+            'DATA DIVISION.',
+            'WORKING-STORAGE SECTION.',
+            '01  WS-VARS.',
+            '    05  ${2:WS-FIELD}            PIC X(10).',
+            'PROCEDURE DIVISION.',
+            'MAIN-PARA.',
+            '    ${0}',
+            '    GOBACK.'
+        ]
+    }
+];
+
+class CobolSnippetCompletionProvider {
+    /**
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Position} position
+     * @returns {vscode.CompletionItem[] | undefined}
+     */
+    provideCompletionItems(document, position) {
+        const config = vscode.workspace.getConfiguration('cobolLens');
+        if (!config.get('snippets.enabled', true)) return undefined;
+
+        const line = document.lineAt(position.line).text;
+        if (isComment(line)) return undefined;
+
+        const textBefore = line.substring(0, position.character);
+        // Non interferire con il completamento COPY
+        if (/\bCOPY\s+\S*$/i.test(textBefore)) return undefined;
+
+        const { range } = getCompletionPrefix(document, position);
+
+        /** @type {vscode.CompletionItem[]} */
+        const items = [];
+        for (const sn of COBOL_SNIPPETS) {
+            const item = new vscode.CompletionItem(sn.prefix, vscode.CompletionItemKind.Snippet);
+            item.detail = sn.description;
+            item.documentation = new vscode.MarkdownString(
+                '```cobol\n' + sn.body.join('\n').replace(/\$\{\d+:?([^}]*)\}/g, '$1').replace(/\$0/g, '') + '\n```'
+            );
+            item.insertText = new vscode.SnippetString(sn.body.join('\n'));
+            item.range = range;
+            item.filterText = sn.prefix;
+            item.sortText = 's_' + sn.prefix;
+            items.push(item);
+        }
         return items;
     }
 }
@@ -545,6 +1326,224 @@ class CobolFoldingProvider {
 
         return ranges;
     }
+}
+
+// ============================================================================
+// InlayHintsProvider - offset e dimensione dei campi della DATA DIVISION
+// ============================================================================
+
+class CobolInlayHintsProvider {
+    constructor() {
+        /** @type {vscode.EventEmitter<void>} */
+        this._onDidChangeInlayHints = new vscode.EventEmitter();
+        /** Evento per richiedere a VS Code di rigenerare gli inlay hint. */
+        this.onDidChangeInlayHints = this._onDidChangeInlayHints.event;
+    }
+
+    /** Notifica VS Code che gli inlay hint vanno ricalcolati (es. cambio setting). */
+    refresh() {
+        this._onDidChangeInlayHints.fire();
+    }
+
+    /**
+     * Posizione 0-based del carattere dove agganciare l'inlay hint: subito dopo
+     * il codice (entro la colonna 72), prima dell'eventuale area sequenza (73+).
+     * @param {vscode.TextDocument} document
+     * @param {number} line
+     * @returns {vscode.Position}
+     */
+    _anchor(document, line) {
+        const text = document.lineAt(line).text;
+        const codeArea = text.length > 72 ? text.substring(0, 72) : text;
+        const ch = codeArea.replace(/\s+$/, '').length;
+        return new vscode.Position(line, ch);
+    }
+
+    /**
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Range} range
+     * @returns {vscode.InlayHint[]}
+     */
+    provideInlayHints(document, range) {
+        const cfg = vscode.workspace.getConfiguration('cobolLens');
+        if (!cfg.get('inlayHints.enabled', true)) return [];
+        if (cfg.get('inlayHints.display', 'inline') !== 'inline') return [];
+
+        setLang(getLang());
+        const lines = document.getText().split(/\r?\n/);
+        const { fsPath: wsRoot } = getWorkspaceRoot(document);
+
+        /** @type {vscode.InlayHint[]} */
+        const hints = [];
+        const layout = collectLayout(lines, wsRoot);
+        for (const item of layout) {
+            if (item.fromCopy) continue;          // solo il file principale
+            if (item.size <= 0) continue;         // salta 88/66 e dimensioni ignote
+            if (item.startLine < range.start.line || item.startLine > range.end.line) continue;
+
+            const label = msg('inlayPosSize', item.offset + 1, item.size);
+            const hint = new vscode.InlayHint(this._anchor(document, item.startLine), label);
+            hint.paddingLeft = true;
+            hints.push(hint);
+        }
+        return hints;
+    }
+}
+
+// ============================================================================
+// Record Layout view (tabella offset/dimensione dei record della DATA DIVISION)
+// ============================================================================
+
+/** @type {vscode.WebviewPanel | undefined} Pannello singleton riutilizzato. */
+let recordLayoutPanel;
+
+/**
+ * Esegue l'escape dei caratteri speciali HTML.
+ * @param {string} s
+ * @returns {string}
+ */
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+/**
+ * Costruisce il corpo HTML della tabella di layout a partire dagli item.
+ * Raggruppa per record radice (depth 0: livelli 01/77).
+ * @param {import('./cobol-layout').LayoutItem[]} layout
+ * @returns {string}
+ */
+function buildRecordLayoutHtml(layout) {
+    // Considera solo gli item del file principale (no copybook espanse a parte:
+    // gli item fromCopy hanno comunque offset/size validi, quindi li includiamo
+    // per dare il quadro completo del record).
+    const items = layout;
+    if (items.length === 0) {
+        return `<p class="empty">${escapeHtml(msg('recordLayoutEmpty'))}</p>`;
+    }
+
+    let html = '';
+    let i = 0;
+    while (i < items.length) {
+        const root = items[i];
+        // Un record inizia a depth 0; raccoglie tutti gli item fino al prossimo depth 0.
+        let j = i + 1;
+        while (j < items.length && items[j].depth > 0) j++;
+        const group = items.slice(i, j);
+        i = j;
+
+        const totalSize = root.size;
+        html += `<h2>${escapeHtml(root.name)} `
+            + `<span class="recsize">(${escapeHtml(String(root.level).padStart(2, '0'))}, `
+            + `${totalSize} ${escapeHtml(msg('recordLayoutByteUnit'))})</span></h2>`;
+        html += '<table>'
+            + '<thead><tr>'
+            + `<th>${escapeHtml(msg('recordLayoutColLevel'))}</th>`
+            + `<th>${escapeHtml(msg('recordLayoutColName'))}</th>`
+            + `<th class="num">${escapeHtml(msg('recordLayoutColStart'))}</th>`
+            + `<th class="num">${escapeHtml(msg('recordLayoutColEnd'))}</th>`
+            + `<th class="num">${escapeHtml(msg('recordLayoutColSize'))}</th>`
+            + `<th>${escapeHtml(msg('recordLayoutColNotes'))}</th>`
+            + '</tr></thead><tbody>';
+
+        for (const it of group) {
+            const indent = '&nbsp;'.repeat(it.depth * 4);
+            const start = it.offset + 1;
+            const end = it.size > 0 ? it.offset + it.size : start;
+            const notes = [];
+            if (it.isGroup) notes.push(msg('recordLayoutNoteGroup'));
+            if (it.redefines) notes.push(msg('recordLayoutNoteRedefines'));
+            if (it.occurs > 1) notes.push(`OCCURS ${it.occurs}`);
+            if (it.fromCopy) notes.push(msg('recordLayoutNoteCopy'));
+            if (it.size <= 0) notes.push(msg('recordLayoutNoteNoStorage'));
+
+            const rowClass = it.isGroup ? ' class="group"' : '';
+            html += `<tr${rowClass}>`
+                + `<td>${escapeHtml(String(it.level).padStart(2, '0'))}</td>`
+                + `<td>${indent}${escapeHtml(it.name)}</td>`
+                + `<td class="num">${it.size > 0 ? start : ''}</td>`
+                + `<td class="num">${it.size > 0 ? end : ''}</td>`
+                + `<td class="num">${it.size > 0 ? it.size : ''}</td>`
+                + `<td class="notes">${escapeHtml(notes.join(', '))}</td>`
+                + '</tr>';
+        }
+        html += '</tbody></table>';
+    }
+    return html;
+}
+
+/**
+ * Genera l'HTML completo della webview del record layout.
+ * @param {string} title
+ * @param {string} body
+ * @returns {string}
+ */
+function recordLayoutWebviewHtml(title, body) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+    body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0 12px; }
+    h1 { font-size: 1.2em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 6px; }
+    h2 { font-size: 1.05em; margin-top: 20px; }
+    .recsize { font-weight: normal; color: var(--vscode-descriptionForeground); }
+    table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+    th, td { text-align: left; padding: 3px 10px; border-bottom: 1px solid var(--vscode-panel-border); }
+    th { color: var(--vscode-descriptionForeground); font-weight: 600; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.notes { color: var(--vscode-descriptionForeground); }
+    tr.group td { font-weight: 600; }
+    .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
+    code { font-family: var(--vscode-editor-font-family); }
+</style>
+</head>
+<body>
+<h1>${escapeHtml(title)}</h1>
+${body}
+</body>
+</html>`;
+}
+
+/**
+ * Comando: mostra la tabella di layout (offset/dimensione) dei record della
+ * DATA DIVISION del documento COBOL attivo in una webview.
+ */
+function showRecordLayout() {
+    setLang(getLang());
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || !isCobolDocument(editor.document)) {
+        vscode.window.showInformationMessage(msg('recordLayoutNoCobol'));
+        return;
+    }
+
+    const document = editor.document;
+    const lines = document.getText().split(/\r?\n/);
+    const { fsPath: wsRoot } = getWorkspaceRoot(document);
+    const layout = collectLayout(lines, wsRoot);
+
+    const title = `${msg('recordLayoutTitle')} - ${path.basename(document.fileName)}`;
+    const body = buildRecordLayoutHtml(layout);
+
+    if (recordLayoutPanel) {
+        recordLayoutPanel.title = msg('recordLayoutTitle');
+        recordLayoutPanel.webview.html = recordLayoutWebviewHtml(title, body);
+        recordLayoutPanel.reveal(vscode.ViewColumn.Beside, true);
+        return;
+    }
+
+    recordLayoutPanel = vscode.window.createWebviewPanel(
+        'cobolLensRecordLayout',
+        msg('recordLayoutTitle'),
+        { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+        { enableScripts: false }
+    );
+    recordLayoutPanel.webview.html = recordLayoutWebviewHtml(title, body);
+    recordLayoutPanel.onDidDispose(() => { recordLayoutPanel = undefined; });
 }
 
 // ============================================================================
@@ -914,6 +1913,56 @@ const COBOL_SELECTOR = [
 ];
 
 /**
+ * Registrazione corrente del provider di semantic token (se attivo).
+ * @type {vscode.Disposable | undefined}
+ */
+let semanticTokensRegistration;
+
+/**
+ * Registra o rimuove il provider di colorazione semantica in base al setting
+ * 'cobolLens.syntaxHighlighting.enabled'. La grammatica TextMate di base resta
+ * sempre attiva; questo controlla solo il layer semantico aggiuntivo.
+ */
+function updateSemanticTokensRegistration() {
+    const enabled = vscode.workspace
+        .getConfiguration('cobolLens')
+        .get('syntaxHighlighting.enabled', true);
+
+    if (enabled && !semanticTokensRegistration) {
+        semanticTokensRegistration = vscode.languages.registerDocumentSemanticTokensProvider(
+            COBOL_SELECTOR,
+            new CobolSemanticTokensProvider(symbolIndex),
+            SEMANTIC_LEGEND
+        );
+    } else if (!enabled && semanticTokensRegistration) {
+        semanticTokensRegistration.dispose();
+        semanticTokensRegistration = undefined;
+    }
+}
+
+/**
+ * Aggiorna i righelli di colonna per il linguaggio COBOL in base al setting
+ * 'cobolLens.sourceFormat'. I righelli a colonna 6 e 7 sono forniti dai
+ * configurationDefaults (sempre attivi); qui aggiungiamo il righello a colonna
+ * 72/73 solo quando il formato sorgente e' 'fixed' (dove la colonna 72 e' il
+ * confine dell'area codice), altrimenti rimuoviamo l'override e torniamo al
+ * default [6, 7].
+ */
+function updateSourceFormatRulers() {
+    const fmt = vscode.workspace
+        .getConfiguration('cobolLens')
+        .get('sourceFormat', 'fixed');
+    const editorCfg = vscode.workspace.getConfiguration('editor', { languageId: 'cobol' });
+    const target = vscode.ConfigurationTarget.Global;
+    if (fmt === 'fixed') {
+        editorCfg.update('rulers', [6, 7, 72], target, true);
+    } else {
+        // Variable / free: rimuovi l'override e torna ai righelli di default [6, 7].
+        editorCfg.update('rulers', undefined, target, true);
+    }
+}
+
+/**
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
@@ -927,12 +1976,52 @@ function activate(context) {
     context.subscriptions.push(
         vscode.languages.registerDefinitionProvider(COBOL_SELECTOR, new CobolDefinitionProvider()),
         vscode.languages.registerReferenceProvider(COBOL_SELECTOR, new CobolReferenceProvider()),
+        vscode.languages.registerCodeLensProvider(COBOL_SELECTOR, new CobolCodeLensProvider()),
+        vscode.languages.registerCallHierarchyProvider(COBOL_SELECTOR, new CobolCallHierarchyProvider()),
+        vscode.languages.registerRenameProvider(COBOL_SELECTOR, new CobolRenameProvider()),
         vscode.languages.registerHoverProvider(COBOL_SELECTOR, new CobolHoverProvider()),
         vscode.languages.registerDocumentLinkProvider(COBOL_SELECTOR, new CobolCopyLinkProvider()),
         vscode.languages.registerDocumentSymbolProvider(COBOL_SELECTOR, new CobolDocumentSymbolProvider()),
+        vscode.languages.registerWorkspaceSymbolProvider(new CobolWorkspaceSymbolProvider()),
         vscode.languages.registerCompletionItemProvider(COBOL_SELECTOR, new CobolCopyCompletionProvider(), ' '),
-        vscode.languages.registerFoldingRangeProvider(COBOL_SELECTOR, new CobolFoldingProvider())
+        vscode.languages.registerCompletionItemProvider(COBOL_SELECTOR, new CobolCompletionProvider(), ' ', '-'),
+        vscode.languages.registerCompletionItemProvider(COBOL_SELECTOR, new CobolSnippetCompletionProvider()),
+        vscode.languages.registerFoldingRangeProvider(COBOL_SELECTOR, new CobolFoldingProvider()),
+        vscode.languages.registerCodeActionsProvider(COBOL_SELECTOR, new CobolCodeActionProvider(), {
+            providedCodeActionKinds: [vscode.CodeActionKind.QuickFix]
+        })
     );
+
+    // Formattatore (formato fixed) - documento intero e selezione
+    const formattingProvider = new CobolFormattingProvider(symbolIndex);
+    context.subscriptions.push(
+        vscode.languages.registerDocumentFormattingEditProvider(COBOL_SELECTOR, formattingProvider),
+        vscode.languages.registerDocumentRangeFormattingEditProvider(COBOL_SELECTOR, formattingProvider)
+    );
+
+    // Inlay hints: offset e dimensione dei campi della DATA DIVISION
+    const inlayHintsProvider = new CobolInlayHintsProvider();
+    context.subscriptions.push(
+        vscode.languages.registerInlayHintsProvider(COBOL_SELECTOR, inlayHintsProvider)
+    );
+
+    // Comando: vista layout record (offset/dimensione) della DATA DIVISION
+    context.subscriptions.push(
+        vscode.commands.registerCommand('cobolLens.showRecordLayout', () => {
+            const cfg = vscode.workspace.getConfiguration('cobolLens');
+            if (!cfg.get('recordLayout.enabled', false)) {
+                vscode.window.showInformationMessage(msg('recordLayoutDisabled'));
+                return;
+            }
+            showRecordLayout();
+        })
+    );
+
+    // Colorazione semantica (layer opzionale, attivabile dal setting)
+    updateSemanticTokensRegistration();
+
+    // Righelli di colonna in base al formato sorgente
+    updateSourceFormatRulers();
 
     // Linter in tempo reale (debounced) durante la modifica
     context.subscriptions.push(
@@ -980,6 +2069,15 @@ function activate(context) {
                 const editor = vscode.window.activeTextEditor;
                 if (editor) applyIfBlockDecorations(editor);
             }
+            if (e.affectsConfiguration('cobolLens.syntaxHighlighting')) {
+                updateSemanticTokensRegistration();
+            }
+            if (e.affectsConfiguration('cobolLens.sourceFormat')) {
+                updateSourceFormatRulers();
+            }
+            if (e.affectsConfiguration('cobolLens.inlayHints')) {
+                inlayHintsProvider.refresh();
+            }
         })
     );
 
@@ -1011,6 +2109,10 @@ function activate(context) {
 
 function deactivate() {
     symbolIndex.clear();
+    if (semanticTokensRegistration) {
+        semanticTokensRegistration.dispose();
+        semanticTokensRegistration = undefined;
+    }
 }
 
 module.exports = { activate, deactivate };

@@ -1,0 +1,281 @@
+{
+  "name": "COBOL (Micro Focus / Rocket dialect)",
+  "scopeName": "source.cobol.lens",
+  "patterns": [
+    { "include": "#full-line-comment" },
+    { "include": "#debug-line" },
+    { "include": "#directive-line" },
+    { "include": "#fixed-line-long" },
+    { "include": "#fixed-line-short" },
+    { "include": "#margin-only" }
+  ],
+  "repository": {
+    "full-line-comment": {
+      "comment": "Fixed-format comment line: indicator area (column 7) is '*' or '/'.",
+      "match": "^(.{6})([*/].*)$",
+      "captures": {
+        "1": { "name": "comment.margin.cobol" },
+        "2": { "name": "comment.line.fixed.cobol" }
+      }
+    },
+    "debug-line": {
+      "comment": "Fixed-format debugging line: column 7 holds 'D' or 'd'.",
+      "match": "^(.{6})([Dd])(\\s.*)$",
+      "captures": {
+        "1": { "name": "comment.margin.cobol" },
+        "2": { "name": "keyword.control.cobol" },
+        "3": { "patterns": [ { "include": "#code" } ] }
+      }
+    },
+    "directive-line": {
+      "comment": "Compiler directive lines: '$SET ...' / '$IF ...' with '$' in the indicator area (column 7).",
+      "match": "^(.{6})(\\$[ \\t]*[A-Za-z][A-Za-z0-9-]*.*)$",
+      "captures": {
+        "1": { "name": "comment.margin.cobol" },
+        "2": { "name": "keyword.control.directive.cobol" }
+      }
+    },
+    "fixed-line-long": {
+      "comment": "Fixed-format line (>= 72 chars): cols 1-6 = sequence/indicator margin (always rendered like a comment), cols 7-72 = code, cols 73+ = identification area.",
+      "match": "^(.{6})(.{66})(.*)$",
+      "captures": {
+        "1": { "name": "comment.margin.cobol" },
+        "2": { "patterns": [ { "include": "#code" } ] },
+        "3": { "name": "comment.line.identification.cobol" }
+      }
+    },
+    "fixed-line-short": {
+      "comment": "Fixed-format line (7-71 chars): cols 1-6 = margin, col 7+ = code.",
+      "match": "^(.{6})(.*)$",
+      "captures": {
+        "1": { "name": "comment.margin.cobol" },
+        "2": { "patterns": [ { "include": "#code" } ] }
+      }
+    },
+    "margin-only": {
+      "comment": "Short line (<= 6 chars): everything stays in the sequence/indicator margin.",
+      "match": "^(.{0,6})$",
+      "name": "comment.margin.cobol"
+    },
+    "code": {
+      "patterns": [
+        { "include": "#inline-comment" },
+        { "include": "#directive-inline" },
+        { "include": "#strings" },
+        { "include": "#exec-keywords" },
+        { "include": "#copy-statement" },
+        { "include": "#divisions" },
+        { "include": "#sections" },
+        { "include": "#headers" },
+        { "include": "#oo-headers" },
+        { "include": "#paragraph" },
+        { "include": "#picture" },
+        { "include": "#usage-types" },
+        { "include": "#functions" },
+        { "include": "#figurative-constants" },
+        { "include": "#keywords-control" },
+        { "include": "#keywords-statements" },
+        { "include": "#keywords-conditional" },
+        { "include": "#keywords-data" },
+        { "include": "#keywords-environment" },
+        { "include": "#keywords-phrases" },
+        { "include": "#keywords-reserved" },
+        { "include": "#operators" },
+        { "include": "#numbers" },
+        { "include": "#identifier" }
+      ]
+    },
+    "inline-comment": {
+      "comment": "Free-format / inline comment introduced by '*>'.",
+      "match": "\\*>.*$",
+      "name": "comment.line.inline.cobol"
+    },
+    "directive-inline": {
+      "comment": "Free-format compiler directive introduced by '>>'.",
+      "match": "(?i)(>>)\\s*([A-Z][A-Z0-9-]*)",
+      "name": "keyword.control.directive.cobol"
+    },
+    "strings": {
+      "patterns": [
+        {
+          "comment": "Prefixed literals: X'..' N'..' Z'..' G'..' etc.",
+          "match": "(?i)\\b([BGHNOUXZ])(\"[^\"]*\"|'[^']*')",
+          "name": "string.quoted.other.cobol"
+        },
+        {
+          "name": "string.quoted.double.cobol",
+          "begin": "\"",
+          "end": "\"|$",
+          "patterns": [
+            { "match": "\"\"", "name": "constant.character.escape.cobol" }
+          ]
+        },
+        {
+          "name": "string.quoted.single.cobol",
+          "begin": "'",
+          "end": "'|$",
+          "patterns": [
+            { "match": "''", "name": "constant.character.escape.cobol" }
+          ]
+        }
+      ]
+    },
+    "exec-keywords": {
+      "comment": "EXEC SQL/CICS/DLI markers, END-EXEC and embedded SQL/CICS keywords. Colored line-by-line because the fixed-format line split prevents a multi-line begin/end block.",
+      "patterns": [
+        {
+          "match": "(?i)(?<![A-Za-z0-9-])(EXEC)\\s+(SQL|CICS|DLI|SQLIMS)(?![A-Za-z0-9-])",
+          "captures": {
+            "1": { "name": "keyword.control.cobol" },
+            "2": { "name": "keyword.control.cobol" }
+          }
+        },
+        {
+          "match": "(?i)(?<![A-Za-z0-9-])(END-EXEC)(?![A-Za-z0-9-])",
+          "name": "keyword.control.cobol"
+        },
+        {
+          "match": "(?i)(?<![A-Za-z0-9-])(WHERE|HAVING|JOIN|INNER|OUTER|CURSOR|FETCH|DECLARE|WHENEVER|DISTINCT|UNION|LIKE|BETWEEN|EXISTS|ASC|DESC|INSERT|UPDATE|INCLUDE|BEGIN|CONNECT|PREPARE|IMMEDIATE|LINK|XCTL|HANDLE|CONDITION|RESP|RESP2|SQLCODE|SQLSTATE)(?![A-Za-z0-9-])",
+          "name": "keyword.control.cobol"
+        }
+      ]
+    },
+    "copy-statement": {
+      "comment": "COPY / COPY ... REPLACING.",
+      "patterns": [
+        {
+          "match": "(?i)(?<![A-Za-z0-9-])(COPY)\\s+([A-Z0-9][A-Z0-9_$-]*)",
+          "captures": {
+            "1": { "name": "keyword.control.cobol" },
+            "2": { "name": "entity.name.class.cobol" }
+          }
+        },
+        {
+          "match": "(?i)(?<![A-Za-z0-9-])(REPLACING|REPLACE|OFF|SUPPRESS|LEADING|TRAILING|IN|OF)(?![A-Za-z0-9-])",
+          "name": "keyword.control.cobol"
+        }
+      ]
+    },
+    "divisions": {
+      "match": "(?i)(?<![A-Za-z0-9-])(IDENTIFICATION|ID|ENVIRONMENT|DATA|PROCEDURE)\\s+(DIVISION)(?![A-Za-z0-9-])",
+      "captures": {
+        "1": { "name": "keyword.control.cobol" },
+        "2": { "name": "keyword.control.cobol" }
+      }
+    },
+    "sections": {
+      "patterns": [
+        {
+          "match": "(?i)(?<![A-Za-z0-9-])(CONFIGURATION|INPUT-OUTPUT|FILE|WORKING-STORAGE|LOCAL-STORAGE|LINKAGE|REPORT|SCREEN|COMMUNICATION|THREAD-LOCAL-STORAGE)\\s+(SECTION)(?![A-Za-z0-9-])",
+          "captures": {
+            "1": { "name": "keyword.control.cobol" },
+            "2": { "name": "keyword.control.cobol" }
+          }
+        },
+        {
+          "comment": "User-defined SECTION header in PROCEDURE DIVISION.",
+          "match": "(?i)^([ ]{0,6}[ ]?)(?!(?:CONFIGURATION|INPUT-OUTPUT|FILE|WORKING-STORAGE|LOCAL-STORAGE|LINKAGE|REPORT|SCREEN|COMMUNICATION|THREAD-LOCAL-STORAGE)\\s+SECTION\\b)([A-Z0-9][A-Z0-9-]*)\\s+(SECTION)(?![A-Za-z0-9-])",
+          "captures": {
+            "2": { "name": "variable.other.cobol" },
+            "3": { "name": "keyword.control.cobol" }
+          }
+        }
+      ]
+    },
+    "headers": {
+      "comment": "Paragraph headers in IDENTIFICATION/ENVIRONMENT divisions.",
+      "match": "(?i)(?<![A-Za-z0-9-])(PROGRAM-ID|AUTHOR|INSTALLATION|DATE-WRITTEN|DATE-COMPILED|SECURITY|REMARKS|SOURCE-COMPUTER|OBJECT-COMPUTER|SPECIAL-NAMES|REPOSITORY|FILE-CONTROL|I-O-CONTROL|MEMORY|END\\s+PROGRAM|END\\s+METHOD|END\\s+CLASS|END\\s+FACTORY|END\\s+OBJECT|END\\s+INTERFACE)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "oo-headers": {
+      "comment": "Object-oriented COBOL headers and the user-defined name that follows.",
+      "match": "(?i)(?<![A-Za-z0-9-])(CLASS-ID|METHOD-ID|INTERFACE-ID|FACTORY|OBJECT|ENUM-ID|VALUETYPE-ID|FUNCTION-ID)(?![A-Za-z0-9-])(\\.?)\\s*([A-Z][A-Z0-9-]*)?",
+      "captures": {
+        "1": { "name": "keyword.control.cobol" },
+        "3": { "name": "entity.name.class.cobol" }
+      }
+    },
+    "paragraph": {
+      "comment": "Paragraph header: a name alone on the line ending with a period.",
+      "match": "(?i)^[ ]{0,11}([A-Z0-9][A-Z0-9-]*)\\s*\\.\\s*(\\*>.*)?$",
+      "captures": {
+        "1": { "name": "variable.other.cobol" },
+        "2": { "name": "comment.line.inline.cobol" }
+      }
+    },
+    "picture": {
+      "comment": "PICTURE clause: the PIC keyword plus the picture string token.",
+      "begin": "(?i)\\b(PIC(?:TURE)?)\\b(\\s+IS)?\\s+",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.cobol" },
+        "2": { "name": "keyword.control.cobol" }
+      },
+      "end": "(?=\\s)|(?=\\.[\\s]|\\.$)|(?=,)|$",
+      "name": "meta.picture.cobol",
+      "patterns": [
+        { "match": "(?i)[-+*/$,.()SVXAZ9BPGNEUWCRD0-9]+", "name": "constant.numeric.cobol" }
+      ]
+    },
+    "usage-types": {
+      "match": "(?i)(?<![A-Za-z0-9-])(COMP-[0-9XN]|COMPUTATIONAL-[0-9XN]|COMP|COMPUTATIONAL|BINARY|BINARY-CHAR|BINARY-SHORT|BINARY-LONG|BINARY-DOUBLE|PACKED-DECIMAL|DISPLAY-1|DISPLAY|INDEX|POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|FLOAT-SHORT|FLOAT-LONG|FLOAT-EXTENDED|FLOAT-DECIMAL|FLOAT-BINARY|NATIONAL|NATIONAL-EDITED|OBJECT\\s+REFERENCE)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "functions": {
+      "match": "(?i)(?<![A-Za-z0-9-])(FUNCTION)\\s+([A-Z][A-Z0-9-]*)",
+      "captures": {
+        "1": { "name": "keyword.control.cobol" },
+        "2": { "name": "support.function.cobol" }
+      }
+    },
+    "figurative-constants": {
+      "match": "(?i)(?<![A-Za-z0-9-])(ZEROS|ZEROES|ZERO|SPACES|SPACE|HIGH-VALUES|HIGH-VALUE|LOW-VALUES|LOW-VALUE|QUOTES|QUOTE|NULLS|NULL)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "keywords-control": {
+      "match": "(?i)(?<![A-Za-z0-9-])(IF|ELSE|END-IF|EVALUATE|END-EVALUATE|WHEN|PERFORM|END-PERFORM|UNTIL|VARYING|GO\\s+TO|GOTO|GOBACK|STOP\\s+RUN|EXIT\\s+PROGRAM|EXIT\\s+PERFORM\\s+CYCLE|EXIT\\s+PERFORM|EXIT\\s+PARAGRAPH|EXIT\\s+SECTION|EXIT\\s+METHOD|EXIT\\s+CYCLE|EXIT|CONTINUE|NEXT\\s+SENTENCE|SEARCH|END-SEARCH|END-START|END-READ|END-WRITE|END-REWRITE|END-DELETE|END-CALL|END-CHAIN|END-RETURN|END-RECEIVE|END-ACCEPT|END-DISPLAY|END-ADD|END-SUBTRACT|END-MULTIPLY|END-DIVIDE|END-COMPUTE|END-STRING|END-UNSTRING|END-INVOKE|END-JSON|END-XML|END-OF-PAGE|RAISE|RESUME|RETRY|THRU|THROUGH)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "keywords-statements": {
+      "match": "(?i)(?<![A-Za-z0-9-])(ACCEPT|ADD|ALLOCATE|ALTER|CALL|CANCEL|CHAIN|CLOSE|COMPUTE|DELETE|DISABLE|DISPLAY|DIVIDE|ENABLE|ENTER|ENTRY|EXAMINE|EXECUTE|EXHIBIT|FREE|GENERATE|INITIALIZE|INITIATE|INSPECT|INVOKE|JSON|MERGE|MOVE|MULTIPLY|OPEN|PURGE|READ|READY|RECEIVE|RELEASE|RESET|RETURN|REWRITE|SEND|SERVICE|SET|SORT|START|STRING|SUBTRACT|TERMINATE|TRANSFORM|UNLOCK|UNSTRING|USE|VALIDATE|WRITE|XML|COMMIT|ROLLBACK)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "keywords-conditional": {
+      "match": "(?i)(?<![A-Za-z0-9-])(AND|OR|NOT|GREATER|LESS|EQUAL|EQUALS|THAN|EXCEEDS|POSITIVE|NEGATIVE|NUMERIC|ALPHABETIC|ALPHABETIC-LOWER|ALPHABETIC-UPPER|OMITTED|PRESENT|TRUE|FALSE)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "keywords-data": {
+      "match": "(?i)(?<![A-Za-z0-9-])(VALUE|VALUES|USAGE|OCCURS|REDEFINES|RENAMES|BLANK|JUSTIFIED|JUST|SIGN|SEPARATE|SYNCHRONIZED|SYNC|RIGHT|LEFT|DEPENDING|ASCENDING|DESCENDING|INDEXED|GLOBAL|EXTERNAL|BASED|GROUP-USAGE|TYPEDEF|STRONG|PROPERTY|FILLER|CHARACTER|CHARACTERS|LABEL|BLOCK|CONTAINS|RECORDING|STANDARD|LINAGE|FOOTING|CONSTANT|ANY|LENGTH|COUNT|BIT|BOOLEAN|CONDITION-VALUE)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "keywords-environment": {
+      "match": "(?i)(?<![A-Za-z0-9-])(SELECT|ASSIGN|ORGANIZATION|ORGANISATION|ACCESS|SEQUENTIAL|RANDOM|DYNAMIC|RELATIVE|LINE|RECORD|RESERVE|AREA|AREAS|DUPLICATES|PADDING|DECIMAL-POINT|CURRENCY|CLASS|SYMBOLIC|ALPHABET|COLLATING|SEQUENCE|FILE-STATUS|ENVIRONMENT-NAME|ENVIRONMENT-VALUE|FUNCTION-NAME|CALL-CONVENTION|RETURN-CODE|SORT-CONTROL)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "keywords-phrases": {
+      "match": "(?i)(?<![A-Za-z0-9-])(GIVING|INTO|FROM|TO|BY|USING|RETURNING|REMAINDER|ROUNDED|SIZE|ERROR|OVERFLOW|INVALID|KEY|END|TALLYING|REPLACING|DELIMITED|DELIMITER|POINTER|ADVANCING|BEFORE|AFTER|WITH|WITHOUT|NO|LOCK|CORRESPONDING|CORR|OF|IN|ALL|LEADING|TRAILING|FIRST|INPUT|OUTPUT|I-O|EXTEND|REWIND|PAGE|LINES?|MODE|STATUS|RECORDS?|FILE|REFERENCE|CONTENT|OPTIONAL|TIMES|AT|ON|ALSO|OTHER|UPON|FOR|THEN|UP|DOWN|POSITIONING|UNIT|MULTIPLE|TAPE|TALLY|ROUNDING|ENTRY|PROCEED|PROGRAM|PROTOTYPE|RAISING|EXCEPTION|COMMON|RECURSIVE|INITIAL|IS|ARE|THE|A|AN)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "keywords-reserved": {
+      "comment": "Long tail of reserved words not covered by the categories above.",
+      "match": "(?i)(?<![A-Za-z0-9-])(ACTIVE-CLASS|ADDRESS|ALIGNED|ALPHANUMERIC|ALPHANUMERIC-EDITED|ANYCASE|APPLY|ARITHMETIC|AS|AUTOMATIC|AWAY-FROM-ZERO|BACKGROUND-COLOR|BACKWARD|BEGINNING|BELL|BINARY-ENCODING|BLINK|BOTTOM|BYTE-LENGTH|CD|CENTER|CF|CH|CLASS-OBJECT|CLOCK-UNITS|CODE|CODE-SET|COLUMN|COLUMNS|COMMA|COMMUNICATION|CONTROL|CONTROLS|CONVERTING|CRT|CYCLE|DATA-POINTER|DAY|DAY-OF-WEEK|DBCS|DE|DEBUGGING|DECIMAL-ENCODING|DEFAULT|DELIMITED|DESTINATION|DETAIL|DISJOINING|EBCDIC|EC|EGCS|EGI|EMI|ENCODING|ENDING|EOL|EOP|EOS|ESI|EVERY|EXCEPTION-OBJECT|EXCLUSIVE|EXPANDS|FINAL|FLOAT-BINARY-7|FLOAT-BINARY-16|FLOAT-BINARY-34|FOREGROUND-COLOR|FOREVER|FORMAT|FREE|FULL|GROUP|HEADING|HIGHLIGHT|IGNORING|IMPLEMENTS|INDICATE|INHERITS|INITIALIZED|INTERFACE|INTERMEDIATE|INVOKED|JOINING|KANJI|LAST|LC_ALL|LC_COLLATE|LC_CTYPE|LC_MONETARY|LC_NUMERIC|LC_TIME|LEFTLINE|LIMIT|LIMITS|LINAGE-COUNTER|LINE-COUNTER|LOCALE|LOWER|LOWLIGHT|MANUAL|MESSAGE|METACLASS|MODULES|MORE-LABELS|NATIVE|NEAREST-AWAY-FROM-ZERO|NEAREST-EVEN|NEAREST-TOWARD-ZERO|NESTED|NORMAL|NUMBER|NUMERIC-EDITED|OBJECT-REFERENCE|OFF|OPTIONS|ORDER|OVERLINE|OVERRIDE|PAGE-COUNTER|PARSE|PF|PH|PLUS|PREFIXED|PREVIOUS|PRINTING|PRIVATE|PROCEDURES|PROCESSING|PROHIBITED|PROTECTED|PUBLIC|QUEUE|RD|READERS|RECEIVED|RELATION|RELOAD|REMOVAL|REPORTING|REPORTS|REQUIRED|RERUN|REVERSE-VIDEO|RF|RH|SAME|SD|SECONDS|SEGMENT|SEGMENT-LIMIT|SELF|SHARING|SHORT|SIGNED|SORT-MERGE|SOURCE|SOURCES|STANDARD-1|STANDARD-2|STANDARD-BINARY|STANDARD-DECIMAL|STATEMENT|STEP|SUB-QUEUE-1|SUB-QUEUE-2|SUB-QUEUE-3|SUPER|SYMBOL|SYSTEM-DEFAULT|TABLE|TERMINAL|TEST|TEXT|THREAD|THREAD-LOCAL|TOP|TOWARD-GREATER|TOWARD-LESSER|TRAILING-SIGN|TRUNCATION|TYPE|UCS-4|UNDERLINE|UNICODE|UNIVERSAL|UNSIGNED|UPPER|VAL-STATUS|VALID|VALIDATE-STATUS|WHEN-COMPILED|WRITERS|YYYYDDD|YYYYMMDD)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "operators": {
+      "patterns": [
+        { "match": "(\\*\\*)", "name": "keyword.operator.arithmetic.cobol" },
+        { "match": "(<=|>=|<>)", "name": "keyword.operator.comparison.cobol" },
+        { "match": "[-+*/&]", "name": "keyword.operator.arithmetic.cobol" },
+        { "match": "[<>=]", "name": "keyword.operator.comparison.cobol" }
+      ]
+    },
+    "numbers": {
+      "match": "(?i)(?<![A-Z0-9-])[-+]?[0-9]*\\.?[0-9]+([eE][-+]?[0-9]+)?(?![A-Z0-9-])",
+      "name": "constant.numeric.cobol"
+    },
+    "identifier": {
+      "comment": "Any remaining COBOL data/procedure name (refined by semantic tokens).",
+      "match": "[A-Za-z][A-Za-z0-9]*(-[A-Za-z0-9]+)*",
+      "name": "variable.other.cobol"
+    }
+  }
+}
