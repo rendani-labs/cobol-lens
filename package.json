@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 40-rule integrated linter. No compiler required.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -46,7 +46,8 @@
   "activationEvents": [
     "onLanguage:COBOL",
     "workspaceContains:**/*.CBL",
-    "workspaceContains:**/*.clt"
+    "workspaceContains:**/*.clt",
+    "onStartupFinished"
   ],
   "main": "./src/extension.js",
   "contributes": {
@@ -112,6 +113,59 @@
         }
       ]
     },
+    "walkthroughs": [
+      {
+        "id": "cobolLens.gettingStarted",
+        "title": "%cobolLens.walkthrough.title%",
+        "description": "%cobolLens.walkthrough.description%",
+        "steps": [
+          {
+            "id": "welcome",
+            "title": "%cobolLens.walkthrough.welcome.title%",
+            "description": "%cobolLens.walkthrough.welcome.description%",
+            "media": { "markdown": "media/walkthrough/welcome.md" }
+          },
+          {
+            "id": "navigation",
+            "title": "%cobolLens.walkthrough.navigation.title%",
+            "description": "%cobolLens.walkthrough.navigation.description%",
+            "media": { "markdown": "media/walkthrough/navigation.md" }
+          },
+          {
+            "id": "layout",
+            "title": "%cobolLens.walkthrough.layout.title%",
+            "description": "%cobolLens.walkthrough.layout.description%",
+            "media": { "markdown": "media/walkthrough/layout.md" },
+            "completionEvents": ["onCommand:cobolLens.showRecordLayout"]
+          },
+          {
+            "id": "linter",
+            "title": "%cobolLens.walkthrough.linter.title%",
+            "description": "%cobolLens.walkthrough.linter.description%",
+            "media": { "markdown": "media/walkthrough/linter.md" }
+          },
+          {
+            "id": "ifblocks",
+            "title": "%cobolLens.walkthrough.ifblocks.title%",
+            "description": "%cobolLens.walkthrough.ifblocks.description%",
+            "media": { "markdown": "media/walkthrough/ifblocks.md" }
+          },
+          {
+            "id": "completion",
+            "title": "%cobolLens.walkthrough.completion.title%",
+            "description": "%cobolLens.walkthrough.completion.description%",
+            "media": { "markdown": "media/walkthrough/completion.md" }
+          },
+          {
+            "id": "configure",
+            "title": "%cobolLens.walkthrough.configure.title%",
+            "description": "%cobolLens.walkthrough.configure.description%",
+            "media": { "markdown": "media/walkthrough/configure.md" },
+            "completionEvents": ["onCommand:workbench.action.openSettings"]
+          }
+        ]
+      }
+    ],
     "configuration": {
       "title": "COBOL Lens",
       "properties": {
@@ -168,6 +222,11 @@
           "type": "boolean",
           "default": true,
           "description": "%cobolLens.syntaxHighlighting.enabled.description%"
+        },
+        "cobolLens.showWelcomeOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.showWelcomeOnStartup.description%"
         },
         "cobolLens.sourceFormat": {
           "type": "string",

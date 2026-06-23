@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.0] - 2026-06-23
+
+### Added
+- Getting Started walkthrough. On first install (and from `Help > Welcome`) the extension now shows a "Get Started with COBOL Lens" walkthrough with a guided overview of the main features: why it is standalone (no compiler, no language server, no network), symbol and copybook navigation (including nested `COPY ... REPLACING`), the byte layout tools computed without a compiler (hover size, inlay hints, Record Layout panel), the 40-rule real-time linter with Quick Fixes, the IF/ELSE/END-IF block visualization with scope bars, code completion and snippets, and how to configure copybook folders and source format. The walkthrough is purely declarative and the layout step links straight to the `COBOL Lens: Show Record Layout` command. The walkthrough opens automatically only once, the very first time the extension is installed (it is opened to the side, without stealing focus, and never shown again); this one-time auto-open can be disabled with the new setting `cobolLens.showWelcomeOnStartup` (default `true`).
+
 ## [1.4.0] - 2026-06-23
 
 ### Added

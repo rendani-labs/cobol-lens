@@ -13,6 +13,10 @@ This extension is tailored for the **Micro Focus / Rocket COBOL** dialect (Enter
 
 ## Features
 
+### Getting Started
+
+On first install (and any time from `Help > Welcome`) a **Getting Started walkthrough** gives a guided tour of the main features and highlights what COBOL Lens does without a compiler or language server. It opens automatically only once on the very first install (to the side, without stealing focus); you can disable this with `cobolLens.showWelcomeOnStartup`. You can reopen it from the Command Palette with `Welcome: Open Walkthrough...`.
+
 ### Syntax Highlighting
 
 Built-in syntax highlighting for the Micro Focus / Rocket COBOL dialect, styled similarly to the Rocket COBOL extension. It works standalone (no other COBOL extension required) and covers DIVISION/SECTION headers, level numbers, PICTURE clauses, USAGE types, statements and verbs, conditionals, figurative constants, intrinsic functions, `COPY`/`REPLACING`, embedded `EXEC SQL`/`EXEC CICS` blocks, compiler directives, fixed-format (column 7) and inline `*>` comments, and numeric/string literals.

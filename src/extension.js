@@ -2105,6 +2105,23 @@ function activate(context) {
             scheduleIfBlockUpdate();
         })
     );
+
+    // Apri la guida introduttiva (walkthrough) solo alla primissima installazione
+    maybeShowWelcomeWalkthrough(context);
+}
+
+function maybeShowWelcomeWalkthrough(context) {
+    const KEY = 'cobolLens.welcomeShown';
+    if (context.globalState.get(KEY)) return;
+    // Segna subito come mostrato, cosi' non si ripropone mai piu' (anche se l'utente chiude)
+    context.globalState.update(KEY, true);
+    const cfg = vscode.workspace.getConfiguration('cobolLens');
+    if (!cfg.get('showWelcomeOnStartup', true)) return;
+    vscode.commands.executeCommand(
+        'workbench.action.openWalkthrough',
+        'rendani-labs.cobol-lens#cobolLens.gettingStarted',
+        true // toSide: apre di fianco senza rubare il focus all'editor
+    );
 }
 
 function deactivate() {
