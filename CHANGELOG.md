@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.4] - 2026-06-24
+
+### Fixed
+- `empty-paragraph`: paragraphs that contain only `EXIT`/`CONTINUE` are no longer flagged when they are the target of a `PERFORM ... THRU <name>` (or `THROUGH`), since such a paragraph is the intentional terminator of a perform range. The name-based exclusion now also covers the common `EX-` prefix convention (in addition to the `-EX`, `-EXIT`, `-FINE`, `-END`, `-X` suffixes). This makes the rule less aggressive on legacy code that uses THRU ranges.
+
 ## [1.5.3] - 2026-06-24
 
 ### Added

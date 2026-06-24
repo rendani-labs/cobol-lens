@@ -196,7 +196,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `mismatched-copy` | on | error | COPY statements must reference existing files |
 | `perform-thru-order` | on | error | In PERFORM X THRU Y, Y must be defined after X |
 | `section-order` | on | error | DIVISIONs must be in the mandatory order |
-| `empty-paragraph` | on | warning | Flags paragraphs containing only EXIT/CONTINUE (exit paragraphs ending in -EX/-EXIT/-FINE/-END/-X are excluded) |
+| `empty-paragraph` | on | warning | Flags paragraphs containing only EXIT/CONTINUE (exit paragraphs ending in -EX/-EXIT/-FINE/-END/-X, starting with EX-, or used as a PERFORM ... THRU target are excluded) |
 | `consecutive-perform-spacing` | off | warning | A blank line is required between consecutive PERFORMs |
 | `missing-file-status` | on | warning | Every SELECT must have a STATUS clause |
 | `missing-stop-run` | on | warning | Program must contain STOP RUN or GOBACK |

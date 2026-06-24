@@ -1328,6 +1328,7 @@ function checkEmptyParagraph(lines) {
     const diags = [];
     const ctx = new AnalysisContext();
     const paragraphs = []; // {name, startLine}
+    const thruTargets = new Set(); // target di PERFORM ... THRU/THROUGH <nome>
 
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
@@ -1337,6 +1338,14 @@ function checkEmptyParagraph(lines) {
         ctx.update(raw, code);
         if (!ctx.inProcedure) continue;
         const upper = code.trim().toUpperCase();
+        // Raccoglie i bersagli delle THRU/THROUGH: un paragrafo usato come
+        // terminatore di un range PERFORM ... THRU <nome> contiene
+        // legittimamente solo EXIT/CONTINUE e non va segnalato come vuoto.
+        const thruRe = /\b(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/g;
+        let tm;
+        while ((tm = thruRe.exec(upper)) !== null) {
+            thruTargets.add(tm[1]);
+        }
         // Un paragrafo deve iniziare in Area A (primo carattere non-spazio del code)
         if (code && !/^\s/.test(code)) {
             const paraMatch = upper.match(/^([A-Z0-9][\w-]*)\.\s*$/);
@@ -1346,11 +1355,15 @@ function checkEmptyParagraph(lines) {
 
     for (let idx = 0; idx < paragraphs.length; idx++) {
         const { name, startLine } = paragraphs[idx];
-        // Paragrafi di sola uscita: convenzioni comuni di fine paragrafo
-        // (-EX, -EXIT, -FINE, -END, -X) che contengono solo EXIT/CONTINUE
-        // sono intenzionali e non vanno segnalati.
-        if (/-(EX|EXIT|FINE|END|X)$/.test(name)) continue;
+        // Paragrafi di sola uscita: convenzioni comuni di nome
+        // (suffissi -EX, -EXIT, -FINE, -END, -X o prefisso EX-) che
+        // contengono solo EXIT/CONTINUE sono intenzionali.
+        if (/-(EX|EXIT|FINE|END|X)$/.test(name) || /^EX-/.test(name)) continue;
+        // Bersaglio di una PERFORM ... THRU: e' il terminatore di un range,
+        // quindi un paragrafo di solo EXIT/CONTINUE e' corretto.
+        if (thruTargets.has(name)) continue;
         const endLine = idx + 1 < paragraphs.length ? paragraphs[idx + 1].startLine : lines.length;
+
         let hasCode = false;
         for (let j = startLine; j < endLine; j++) {
             const raw = lines[j];
