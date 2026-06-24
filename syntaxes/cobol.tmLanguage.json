@@ -32,7 +32,7 @@
       "match": "^(.{6})(\\$[ \\t]*[A-Za-z][A-Za-z0-9-]*.*)$",
       "captures": {
         "1": { "name": "comment.margin.cobol" },
-        "2": { "name": "keyword.control.directive.cobol" }
+        "2": { "name": "keyword.other.directive.cobol" }
       }
     },
     "fixed-line-long": {
@@ -67,6 +67,7 @@
         { "include": "#divisions" },
         { "include": "#sections" },
         { "include": "#headers" },
+        { "include": "#file-description" },
         { "include": "#oo-headers" },
         { "include": "#paragraph" },
         { "include": "#picture" },
@@ -93,7 +94,7 @@
     "directive-inline": {
       "comment": "Free-format compiler directive introduced by '>>'.",
       "match": "(?i)(>>)\\s*([A-Z][A-Z0-9-]*)",
-      "name": "keyword.control.directive.cobol"
+      "name": "keyword.other.directive.cobol"
     },
     "strings": {
       "patterns": [
@@ -185,6 +186,11 @@
     "headers": {
       "comment": "Paragraph headers in IDENTIFICATION/ENVIRONMENT divisions.",
       "match": "(?i)(?<![A-Za-z0-9-])(PROGRAM-ID|AUTHOR|INSTALLATION|DATE-WRITTEN|DATE-COMPILED|SECURITY|REMARKS|SOURCE-COMPUTER|OBJECT-COMPUTER|SPECIAL-NAMES|REPOSITORY|FILE-CONTROL|I-O-CONTROL|MEMORY|END\\s+PROGRAM|END\\s+METHOD|END\\s+CLASS|END\\s+FACTORY|END\\s+OBJECT|END\\s+INTERFACE)(?![A-Za-z0-9-])",
+      "name": "keyword.control.cobol"
+    },
+    "file-description": {
+      "comment": "File/sort/report/communication description level indicators (FD, SD, RD, CD) in the DATA DIVISION.",
+      "match": "(?i)(?<![A-Za-z0-9-])(FD|SD|RD|CD)(?![A-Za-z0-9-])",
       "name": "keyword.control.cobol"
     },
     "oo-headers": {

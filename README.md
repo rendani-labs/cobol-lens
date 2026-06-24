@@ -173,7 +173,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `no-goto` | on | error | No GOTO -- use PERFORM and IF instead |
 | `no-at-end` | off | error | No AT END / NOT AT END -- use FILE STATUS with EVALUATE |
 | `no-level-77-78` | off | error | No level 77/78 in WORKING-STORAGE |
-| `uppercase` | on | warning | COBOL code must be uppercase |
+| `uppercase` | off | warning | COBOL code must be uppercase |
 | `division-separator` | off | warning | A separator line is required before each DIVISION/SECTION |
 | `pic-alignment` | off | warning | PIC clause must start at position 45 |
 | `select-col12` | off | warning | SELECT in FILE-CONTROL must start at column 12 |

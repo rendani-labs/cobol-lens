@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.2] - 2026-06-24
+
+### Changed
+- Linter rule `uppercase` (COBOL code must be uppercase) is now disabled by default (`cobolLens.linter.rules.uppercase.enabled` default changed from `true` to `false`). Enable it explicitly if you want the uppercase check.
+
+## [1.5.1] - 2026-06-24
+
+### Changed
+- Syntax highlighting: compiler directives (`$SET ...`, `>>` free-format directives) are now colored blue instead of purple, matching the Rocket COBOL convention. The TextMate scope changed from `keyword.control.directive.cobol` to `keyword.other.directive.cobol` so default dark themes render them blue.
+
+### Fixed
+- Syntax highlighting: the `FD` file description indicator is now colored like a keyword (purple) instead of as a plain identifier, consistent with the `SD`/`RD`/`CD` indicators which were already highlighted. A dedicated `file-description` grammar rule now covers all four level indicators (`FD`, `SD`, `RD`, `CD`).
+
 ## [1.5.0] - 2026-06-23
 
 ### Added
