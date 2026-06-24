@@ -1963,6 +1963,99 @@ function updateSourceFormatRulers() {
 }
 
 /**
+ * Applica una lista di TextEdit all'editor in un'unica operazione.
+ * @param {vscode.TextEditor} editor
+ * @param {vscode.TextEdit[]} edits
+ */
+async function applyTextEdits(editor, edits) {
+    if (!edits || edits.length === 0) return;
+    await editor.edit(builder => {
+        for (const e of edits) builder.replace(e.range, e.newText);
+    });
+}
+
+/**
+ * Determina il formato sorgente del documento: il setting cobolLens.sourceFormat,
+ * eventualmente sovrascritto da una direttiva $SET SOURCEFORMAT(VARIABLE|FREE)
+ * nelle prime 20 righe.
+ * @param {vscode.TextDocument} document
+ * @returns {'fixed'|'variable'|'free'}
+ */
+function getDocumentSourceFormat(document) {
+    const limit = Math.min(document.lineCount, 20);
+    for (let i = 0; i < limit; i++) {
+        const m = document.lineAt(i).text.match(/\$SET\s+SOURCEFORMAT\s*\(\s*(VARIABLE|FREE)\s*\)/i);
+        if (m) return m[1].toUpperCase() === 'FREE' ? 'free' : 'variable';
+    }
+    const fmt = vscode.workspace.getConfiguration('cobolLens').get('sourceFormat', 'fixed');
+    return (fmt === 'variable' || fmt === 'free') ? fmt : 'fixed';
+}
+
+/**
+ * Commenta/scommenta le righe coperte dalle selezioni dell'editor (o la riga
+ * del cursore se la selezione e' vuota). In formato fixed il commento e'
+ * l'asterisco in colonna 7; in variable/free e' l'inline comment *>.
+ * Se tutte le righe non vuote sono gia' commentate, le scommenta; altrimenti
+ * le commenta.
+ * @param {vscode.TextEditor} editor
+ */
+async function toggleCobolComment(editor) {
+    const document = editor.document;
+    const fixed = getDocumentSourceFormat(document) === 'fixed';
+
+    // Raccoglie i numeri di riga unici coperti dalle selezioni.
+    /** @type {Set<number>} */
+    const lineSet = new Set();
+    for (const sel of editor.selections) {
+        let end = sel.end.line;
+        // Se la selezione termina all'inizio di una riga (carattere 0) e copre
+        // piu' righe, non includere l'ultima riga (convenzione VS Code).
+        if (end > sel.start.line && sel.end.character === 0) end--;
+        for (let ln = sel.start.line; ln <= end; ln++) lineSet.add(ln);
+    }
+    const lines = [...lineSet].sort((a, b) => a - b);
+
+    const isCommented = fixed
+        ? (text) => text.length >= 7 && text[6] === '*'
+        : (text) => /^\s*\*>/.test(text);
+
+    const nonBlank = lines.filter(ln => document.lineAt(ln).text.trim() !== '');
+    if (nonBlank.length === 0) return;
+    const doUncomment = nonBlank.every(ln => isCommented(document.lineAt(ln).text));
+
+    await editor.edit(builder => {
+        for (const ln of nonBlank) {
+            const lineObj = document.lineAt(ln);
+            const text = lineObj.text;
+            let newText;
+            if (fixed) {
+                if (doUncomment) {
+                    if (text.length >= 7 && text[6] === '*') {
+                        newText = text.substring(0, 6) + ' ' + text.substring(7);
+                    } else {
+                        continue;
+                    }
+                } else {
+                    newText = text.length >= 7
+                        ? text.substring(0, 6) + '*' + text.substring(7)
+                        : text.padEnd(6, ' ') + '*';
+                }
+            } else {
+                if (doUncomment) {
+                    newText = text.replace(/^(\s*)\*>\s?/, '$1');
+                } else {
+                    const m = text.match(/^(\s*)([\s\S]*)$/);
+                    newText = (m ? m[1] : '') + '*> ' + (m ? m[2] : text);
+                }
+            }
+            if (newText !== text) {
+                builder.replace(lineObj.range, newText);
+            }
+        }
+    });
+}
+
+/**
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
@@ -1997,6 +2090,34 @@ function activate(context) {
     context.subscriptions.push(
         vscode.languages.registerDocumentFormattingEditProvider(COBOL_SELECTOR, formattingProvider),
         vscode.languages.registerDocumentRangeFormattingEditProvider(COBOL_SELECTOR, formattingProvider)
+    );
+
+    // Comandi espliciti di formattazione (voci di menu dedicate COBOL Lens).
+    context.subscriptions.push(
+        vscode.commands.registerCommand('cobolLens.formatDocument', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || !isCobolDocument(editor.document)) return;
+            const edits = formattingProvider.computeDocumentEdits(editor.document);
+            await applyTextEdits(editor, edits);
+        }),
+        vscode.commands.registerCommand('cobolLens.formatSelection', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || !isCobolDocument(editor.document)) return;
+            const sel = editor.selection;
+            const range = sel.isEmpty
+                ? editor.document.lineAt(sel.active.line).range
+                : new vscode.Range(sel.start, sel.end);
+            const edits = formattingProvider.computeRangeEdits(editor.document, range);
+            await applyTextEdits(editor, edits);
+        }),
+        // Toggle del commento COBOL sulle righe selezionate (o sulla riga del
+        // cursore). In formato fixed usa l'asterisco in colonna 7; in
+        // variable/free usa l'inline comment *>.
+        vscode.commands.registerCommand('cobolLens.toggleComment', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || !isCobolDocument(editor.document)) return;
+            await toggleCobolComment(editor);
+        })
     );
 
     // Inlay hints: offset e dimensione dei campi della DATA DIVISION

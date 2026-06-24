@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.3] - 2026-06-24
+
+### Added
+- New command `COBOL Lens: Toggle Comment` (default keybinding `Ctrl+K Ctrl+/`, the `oem_2` key, which on an Italian keyboard is the u-grave key, in the COBOL editor) that comments/uncomments the selected lines (or the cursor line). In fixed format it sets/clears the `*` in column 7; in variable/free format it adds/removes the inline `*>` comment. If every non-blank target line is already commented it uncomments, otherwise it comments. Works on multi-line selections.
+- New commands `COBOL Lens: Format Document` and `COBOL Lens: Format Selection`, available from the editor context menu and the Command Palette (the titles include the `COBOL Lens:` prefix so they are easy to tell apart from the built-in ones in the right-click menu). Unlike VS Code's built-in "Format Document With...", "Format Selection" formats only the selected lines. These dedicated commands also run regardless of the `cobolLens.format.enabled` toggle (they are explicit user actions), while still applying only to fixed-format source.
+
+### Changed
+- Formatter: in an `EVALUATE`, the `WHEN` branches are now aligned to the same column as `EVALUATE` (instead of being indented one level under it); the statements inside each `WHEN` branch are indented 3 spaces. `END-EVALUATE` stays aligned with `EVALUATE`.
+- Linter rule `no-goto` is now a `warning` instead of an `error`, and its message is now advisory: it suggests avoiding `GO TO` (which makes the control flow harder to follow and maintain) in favor of `PERFORM` and `IF`/`EVALUATE`, rather than stating it is forbidden. This avoids flooding legacy programs (where `GO TO` is common) with blocking errors.
+- Linter rule `empty-paragraph`: exit-only paragraphs are now recognized by more naming conventions. In addition to `-EX`, names ending in `-EXIT`, `-FINE`, `-END` or `-X` that contain only `EXIT`/`CONTINUE` are no longer flagged, since they are intentional exit paragraphs.
+
+### Fixed
+- `undefined-variable`: index names declared in an `OCCURS ... INDEXED BY` clause are no longer reported as undefined. Both the single-index form and multiple indexes (`INDEXED BY IDX-1 IDX-2`) are recognized, whether the clause is on the same line as the level item or on a continuation line. The same index names are now also indexed by the parser, so Go to Definition, hover, Find All References and Rename work on them.
+- `chars-after-period`: a paragraph header followed by a statement on the same line (the common `EX-ELABORA. EXIT.` idiom) is no longer flagged. The period that closes the paragraph name is not a sentence terminator, so the statement after it is valid; genuine spurious content after a real sentence-terminating period is still reported.
+
 ## [1.5.2] - 2026-06-24
 
 ### Changed

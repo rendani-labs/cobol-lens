@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 40-rule integrated linter. No compiler required.",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -89,6 +89,11 @@
         "command": "editor.showCallHierarchy",
         "key": "ctrl+alt+h",
         "when": "editorTextFocus && editorLangId == cobol"
+      },
+      {
+        "command": "cobolLens.toggleComment",
+        "key": "ctrl+k ctrl+oem_2",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == cobol"
       }
     ],
     "commands": [
@@ -96,6 +101,18 @@
         "command": "cobolLens.showRecordLayout",
         "title": "%cobolLens.command.showRecordLayout.title%",
         "category": "COBOL Lens"
+      },
+      {
+        "command": "cobolLens.formatDocument",
+        "title": "%cobolLens.command.formatDocument.title%"
+      },
+      {
+        "command": "cobolLens.formatSelection",
+        "title": "%cobolLens.command.formatSelection.title%"
+      },
+      {
+        "command": "cobolLens.toggleComment",
+        "title": "%cobolLens.command.toggleComment.title%"
       }
     ],
     "menus": {
@@ -103,9 +120,36 @@
         {
           "command": "cobolLens.showRecordLayout",
           "when": "editorLangId == cobol"
+        },
+        {
+          "command": "cobolLens.formatDocument",
+          "when": "editorLangId == cobol"
+        },
+        {
+          "command": "cobolLens.formatSelection",
+          "when": "editorLangId == cobol"
+        },
+        {
+          "command": "cobolLens.toggleComment",
+          "when": "editorLangId == cobol"
         }
       ],
       "editor/context": [
+        {
+          "command": "cobolLens.toggleComment",
+          "when": "editorLangId == cobol",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "cobolLens.formatSelection",
+          "when": "editorLangId == cobol && editorHasSelection",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "cobolLens.formatDocument",
+          "when": "editorLangId == cobol",
+          "group": "1_modification@3"
+        },
         {
           "command": "cobolLens.showRecordLayout",
           "when": "editorLangId == cobol",
@@ -354,7 +398,7 @@
         },
         "cobolLens.linter.rules.no-goto.severity": {
           "type": "string",
-          "default": "error",
+          "default": "warning",
           "enum": ["error", "warning", "info"],
           "description": "%cobolLens.linter.rules.no-goto.severity.description%"
         },

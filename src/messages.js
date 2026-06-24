@@ -41,8 +41,8 @@ const MESSAGES = {
         en: () => 'Content beyond column 72 is not allowed',
     },
     noGoto: {
-        it: () => 'Uso di GOTO non consentito. Usare PERFORM e IF.',
-        en: () => 'GOTO is not allowed. Use PERFORM and IF instead.',
+        it: () => "E' consigliabile evitare GO TO: rende il flusso difficile da seguire e manutenere (codice \"spaghetti\"). Preferire PERFORM e IF/EVALUATE.",
+        en: () => 'It is advisable to avoid GO TO: it makes the control flow hard to follow and maintain ("spaghetti code"). Prefer PERFORM and IF/EVALUATE.',
     },
     noAtEnd: {
         it: () => 'Uso di AT END / NOT AT END non consentito. Usare il file status con EVALUATE.',

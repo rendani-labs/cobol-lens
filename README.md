@@ -37,7 +37,9 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Go to Symbol in Workspace** | `Ctrl+T` | Fuzzy-search variables, paragraphs and sections across all COBOL files in the workspace |
 | **Reference CodeLens** | Above paragraphs | Show how many times a paragraph or section is used; click to peek the references (off by default) |
 | **Call Hierarchy** | `Ctrl+Alt+H` | Show incoming/outgoing `PERFORM` calls for a paragraph or section |
-| **Format Document** | `Shift+Alt+F` | Reindent fixed-format code (Area A/B, 3-space hierarchy, PIC/TO/VALUE aligned to col 45, col 72 overflow handling, trailing trim); also Format Selection (off by default) |
+| **Format Document** | `Shift+Alt+F` | Reindent fixed-format code (Area A/B, 3-space hierarchy, `EVALUATE`/`WHEN` aligned, PIC/TO/VALUE aligned to col 45, col 72 overflow handling, trailing trim); also Format Selection (off by default) |
+| **Format Document / Selection (commands)** | Context menu / Command Palette | `COBOL Lens: Format Document` and `COBOL Lens: Format Selection` run the formatter explicitly (Format Selection touches only the selected lines), regardless of the `cobolLens.format.enabled` toggle |
+| **Toggle COBOL Comment** | `Ctrl+K Ctrl+/` (`oem_2` key; on an Italian keyboard this key is the one labelled with the u-grave accent) | Comment/uncomment the selected lines (or cursor line): `*` in column 7 for fixed format, inline `*>` for variable/free |
 | **Field Inlay Hints** | Automatic | Show the byte position and size of each DATA DIVISION field at end of line (computed from PIC/USAGE/OCCURS; on by default) |
 | **Record Layout** | Context menu / Command Palette | Show a panel with the byte start/end offset and size of every field in each DATA DIVISION record (off by default) |
 | **Code Snippets** | IntelliSense | Templates for IF/EVALUATE/PERFORM/CALL, parametric PIC clauses, FD/SELECT and a full program skeleton (on by default) |
@@ -170,7 +172,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | Rule | Default | Severity | Description |
 |------|---------|----------|-------------|
 | `col72` | on | error | Code must not exceed column 72 |
-| `no-goto` | on | error | No GOTO -- use PERFORM and IF instead |
+| `no-goto` | on | warning | Advises against GO TO -- prefer PERFORM and IF/EVALUATE for clearer control flow |
 | `no-at-end` | off | error | No AT END / NOT AT END -- use FILE STATUS with EVALUATE |
 | `no-level-77-78` | off | error | No level 77/78 in WORKING-STORAGE |
 | `uppercase` | off | warning | COBOL code must be uppercase |
@@ -194,7 +196,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `mismatched-copy` | on | error | COPY statements must reference existing files |
 | `perform-thru-order` | on | error | In PERFORM X THRU Y, Y must be defined after X |
 | `section-order` | on | error | DIVISIONs must be in the mandatory order |
-| `empty-paragraph` | on | warning | Flags paragraphs containing only EXIT/CONTINUE |
+| `empty-paragraph` | on | warning | Flags paragraphs containing only EXIT/CONTINUE (exit paragraphs ending in -EX/-EXIT/-FINE/-END/-X are excluded) |
 | `consecutive-perform-spacing` | off | warning | A blank line is required between consecutive PERFORMs |
 | `missing-file-status` | on | warning | Every SELECT must have a STATUS clause |
 | `missing-stop-run` | on | warning | Program must contain STOP RUN or GOBACK |

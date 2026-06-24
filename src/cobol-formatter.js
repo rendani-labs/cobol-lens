@@ -515,9 +515,15 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState)
         drawDepth = idx >= 0 ? idx : procStack.length;
         scanFrom = 1;
     } else if (fw === 'WHEN') {
-        if (procStack[procStack.length - 1] === 'WHEN') procStack.pop();
-        drawDepth = procStack.length;
-        procStack.push('WHEN');
+        // WHEN si allinea alla stessa colonna del suo EVALUATE; gli statement
+        // del ramo WHEN rientrano di un livello (lo slot EVALUATE sullo stack).
+        const idx = lastIndexOfKind(procStack, 'EVALUATE');
+        if (idx >= 0) {
+            drawDepth = idx;
+            procStack.length = idx + 1; // mantiene EVALUATE, scarta il ramo WHEN precedente
+        } else {
+            drawDepth = procStack.length;
+        }
         scanFrom = 1;
     } else if (fw.startsWith('END-')) {
         const kind = fw.substring(4);
@@ -554,8 +560,8 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState)
             const idx = lastIndexOfKind(procStack, 'PERFORM');
             if (idx >= 0) procStack.length = idx;
         } else if (w === 'WHEN') {
-            if (procStack[procStack.length - 1] === 'WHEN') procStack.pop();
-            procStack.push('WHEN');
+            const idx = lastIndexOfKind(procStack, 'EVALUATE');
+            if (idx >= 0) procStack.length = idx + 1;
         }
     }
 
@@ -611,11 +617,13 @@ class CobolFormattingProvider {
     /**
      * @param {vscode.TextDocument} document
      * @param {vscode.Range|null} range
+     * @param {boolean} [force] - se true ignora il setting format.enabled
+     *   (usato dai comandi espliciti COBOL Lens: Format Document / Selection).
      * @returns {vscode.TextEdit[]}
      */
-    _computeEdits(document, range) {
+    _computeEdits(document, range, force) {
         const cfg = vscode.workspace.getConfiguration('cobolLens');
-        if (!cfg.get('format.enabled', false)) return [];
+        if (!force && !cfg.get('format.enabled', false)) return [];
         if (cfg.get('sourceFormat', 'fixed') !== 'fixed') return [];
 
         const lines = document.getText().split(/\r?\n/);
@@ -662,6 +670,27 @@ class CobolFormattingProvider {
      */
     provideDocumentRangeFormattingEdits(document, range) {
         return this._computeEdits(document, range);
+    }
+
+    /**
+     * Calcola gli edit per il comando esplicito "COBOL Lens: Format Document",
+     * ignorando il setting format.enabled (l'utente ha richiesto l'azione).
+     * @param {vscode.TextDocument} document
+     * @returns {vscode.TextEdit[]}
+     */
+    computeDocumentEdits(document) {
+        return this._computeEdits(document, null, true);
+    }
+
+    /**
+     * Calcola gli edit per il comando esplicito "COBOL Lens: Format Selection",
+     * ignorando il setting format.enabled.
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Range} range
+     * @returns {vscode.TextEdit[]}
+     */
+    computeRangeEdits(document, range) {
+        return this._computeEdits(document, range, true);
     }
 }
 

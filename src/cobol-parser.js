@@ -258,6 +258,32 @@ function parseCobolSymbols(filePath, content, workspaceRoot, visitedCopybooks, i
 
         // Variabili nella DATA DIVISION (o prima della PROCEDURE)
         if (currentDivision !== 'PROCEDURE' && currentDivision !== 'IDENTIFICATION') {
+            // Indici dichiarati con OCCURS ... INDEXED BY idx-1 [idx-2 ...]
+            // (puo' trovarsi sulla stessa riga del livello o su una riga di continuazione)
+            const idxMatch = /(?:^|\s)INDEXED(?:\s+BY)?\s+(.+)$/i.exec(line);
+            if (idxMatch) {
+                let rest = idxMatch[1].replace(/\.\s*$/, '');
+                let searchFrom = line.toUpperCase().indexOf('INDEXED');
+                for (const tok of rest.split(/\s+/)) {
+                    const idxName = tok.replace(/[.,]+$/, '');
+                    if (!idxName) continue;
+                    if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(idxName)) break;
+                    if (COBOL_RESERVED.has(idxName.toUpperCase())) break;
+                    const col = line.indexOf(idxName, searchFrom);
+                    symbols.push({
+                        name: idxName.toUpperCase(),
+                        originalName: idxName,
+                        type: 'variable',
+                        filePath: filePath,
+                        line: i,
+                        column: col >= 0 ? col : 0,
+                        level: undefined,
+                        lineText: line
+                    });
+                    if (col >= 0) searchFrom = col + idxName.length;
+                }
+            }
+
             const varMatch = VARIABLE_DEF_REGEX.exec(line);
             if (varMatch) {
                 const level = parseInt(varMatch[1], 10);

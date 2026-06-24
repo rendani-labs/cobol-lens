@@ -289,7 +289,7 @@ function getRuleConfig(ruleId) {
 
     // Severity defaults per regola
     const defaultSeverities = {
-        'col72': 'error', 'no-goto': 'error', 'no-at-end': 'error',
+        'col72': 'error', 'no-goto': 'warning', 'no-at-end': 'error',
         'no-level-77-78': 'error', 'uppercase': 'warning',
         'division-separator': 'warning', 'pic-alignment': 'warning',
         'select-col12': 'warning', 'assign-col29': 'warning',
@@ -1346,7 +1346,10 @@ function checkEmptyParagraph(lines) {
 
     for (let idx = 0; idx < paragraphs.length; idx++) {
         const { name, startLine } = paragraphs[idx];
-        if (name.endsWith('-EX')) continue;
+        // Paragrafi di sola uscita: convenzioni comuni di fine paragrafo
+        // (-EX, -EXIT, -FINE, -END, -X) che contengono solo EXIT/CONTINUE
+        // sono intenzionali e non vanno segnalati.
+        if (/-(EX|EXIT|FINE|END|X)$/.test(name)) continue;
         const endLine = idx + 1 < paragraphs.length ? paragraphs[idx + 1].startLine : lines.length;
         let hasCode = false;
         for (let j = startLine; j < endLine; j++) {
@@ -1899,6 +1902,18 @@ function collectDefinedSymbols(lines, isCopy) {
             if (levelMatch) {
                 const name = levelMatch[2].replace(/\.$/, '');
                 if (name !== 'FILLER') symbols.add(name);
+            }
+            // Indici dichiarati con OCCURS ... INDEXED BY idx-1 [idx-2 ...]
+            const idxMatch = upper.match(/(?:^|\s)INDEXED(?:\s+BY)?\s+(.+)$/);
+            if (idxMatch) {
+                const rest = idxMatch[1].replace(/\.\s*$/, '');
+                for (const tok of rest.split(/\s+/)) {
+                    const idxName = tok.replace(/[.,]+$/, '');
+                    if (!idxName) continue;
+                    if (!/^[A-Z0-9][\w-]*$/.test(idxName)) break;
+                    if (COBOL_RESERVED_EXTENDED.has(idxName)) break;
+                    symbols.add(idxName);
+                }
             }
         }
     }
@@ -2740,7 +2755,20 @@ function checkCharsAfterPeriod(lines) {
         // perche' seguiti da una cifra, quindi vengono ignorati.
         if (!isValidIdClauseLine) {
             const codeNoLit = stripLiterals(upperCode);
-            const periodIdx = findTerminatorPeriod(codeNoLit);
+
+            // Header di paragrafo nella PROCEDURE DIVISION: il punto che chiude
+            // il nome del paragrafo (in Area A, primo carattere del codice) non
+            // e' il terminatore di una frase. Uno statement sulla stessa riga
+            // (idioma comune "EX-ELABORA. EXIT.") e' quindi valido: si inizia a
+            // cercare il punto terminatore dopo il nome del paragrafo.
+            let searchStart = 0;
+            if (ctx.currentDivision === 'PROCEDURE' && /^[A-Z0-9]/.test(codeNoLit)) {
+                const headerMatch = codeNoLit.match(/^[A-Z0-9][\w-]*\.(?=\s|$)/);
+                if (headerMatch) searchStart = headerMatch[0].length;
+            }
+
+            const relIdx = findTerminatorPeriod(codeNoLit.substring(searchStart));
+            const periodIdx = relIdx >= 0 ? searchStart + relIdx : -1;
             if (periodIdx >= 0) {
                 const afterPeriodRaw = codeNoLit.substring(periodIdx + 1);
                 if (/\S/.test(afterPeriodRaw)) {
