@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.6.0] - 2026-06-25
+
+### Changed
+- Double-clicking a COBOL identifier now selects the whole hyphenated name (e.g. `EX-VAL-CAMPO-DECOD`) instead of stopping at a single segment like `CAMPO`. This is achieved by removing the hyphen `-` from `editor.wordSeparators` for the `cobol` language (set as a default in the extension), so word selection, Ctrl+F "find selection" and double-click highlight treat hyphenated COBOL names as a single word. This matches the behavior previously provided by the Rocket COBOL extension.
+
 ## [1.5.4] - 2026-06-24
 
 ### Fixed

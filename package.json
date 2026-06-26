@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 40-rule integrated linter. No compiler required.",
-  "version": "1.5.4",
+  "version": "1.6.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -825,7 +825,8 @@
     "configurationDefaults": {
       "[cobol]": {
         "editor.rulers": [6, 7],
-        "editor.guides.indentation": false
+        "editor.guides.indentation": false,
+        "editor.wordSeparators": "`~!@#$%^&*()=+[{]}\\|;:'\",.<>/?"
       }
     }
   },
