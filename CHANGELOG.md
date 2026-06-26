@@ -3,7 +3,7 @@
 ## [1.6.0] - 2026-06-25
 
 ### Changed
-- Double-clicking a COBOL identifier now selects the whole hyphenated name (e.g. `EX-VAL-CAMPO-DECOD`) instead of stopping at a single segment like `CAMPO`. This is achieved by removing the hyphen `-` from `editor.wordSeparators` for the `cobol` language (set as a default in the extension), so word selection, Ctrl+F "find selection" and double-click highlight treat hyphenated COBOL names as a single word. This matches the behavior previously provided by the Rocket COBOL extension.
+- Double-clicking a COBOL identifier now selects the whole hyphenated name (e.g. `EX-VAL-CAMPO-DECOD`) instead of stopping at a single segment like `CAMPO`. This is achieved by removing the hyphen `-` from `editor.wordSeparators` for the `cobol` language (set as a default in the extension), so word selection, Ctrl+F "find selection" and double-click highlight treat hyphenated COBOL names as a single word.
 
 ## [1.5.4] - 2026-06-24
 
@@ -33,7 +33,7 @@
 ## [1.5.1] - 2026-06-24
 
 ### Changed
-- Syntax highlighting: compiler directives (`$SET ...`, `>>` free-format directives) are now colored blue instead of purple, matching the Rocket COBOL convention. The TextMate scope changed from `keyword.control.directive.cobol` to `keyword.other.directive.cobol` so default dark themes render them blue.
+- Syntax highlighting: compiler directives (`$SET ...`, `>>` free-format directives) are now colored blue instead of purple. The TextMate scope changed from `keyword.control.directive.cobol` to `keyword.other.directive.cobol` so default dark themes render them blue.
 
 ### Fixed
 - Syntax highlighting: the `FD` file description indicator is now colored like a keyword (purple) instead of as a plain identifier, consistent with the `SD`/`RD`/`CD` indicators which were already highlighted. A dedicated `file-description` grammar rule now covers all four level indicators (`FD`, `SD`, `RD`, `CD`).
@@ -46,7 +46,7 @@
 ## [1.4.0] - 2026-06-23
 
 ### Added
-- Syntax highlighting tailored for the Micro Focus / Rocket COBOL dialect. The extension now ships its own TextMate grammar so colors work standalone, without requiring any other COBOL extension. Coverage includes: DIVISION/SECTION headers, paragraph and section names, data level numbers (01-49, 66, 77, 78, 88), PICTURE strings (including edited and `S9(n)V9(n)` forms), USAGE types (`COMP`/`COMP-1..5`/`COMP-X`/`BINARY`/`PACKED-DECIMAL`/`POINTER`/`NATIONAL`...), statements/verbs, control flow and all `END-*` scope terminators, conditional operators, data/environment clauses, intrinsic `FUNCTION` calls, figurative constants, object-oriented headers (`CLASS-ID`/`METHOD-ID`...), `COPY`/`REPLACING`, embedded `EXEC SQL`/`EXEC CICS`/`EXEC DLI` blocks, compiler directives (`$SET`, `>>`), fixed-format comments (column 7) and debug lines (`D` in column 7), inline `*>` comments, the identification area (columns 73+ rendered as comment), numeric and string literals (including `X"..."`/`N"..."` and doubled-quote escapes). A broad reserved-word list colors the long tail of MF/Rocket keywords.
+- Syntax highlighting tailored for the Micro Focus COBOL dialect. The extension now ships its own TextMate grammar so colors work standalone, without requiring any other COBOL extension. Coverage includes: DIVISION/SECTION headers, paragraph and section names, data level numbers (01-49, 66, 77, 78, 88), PICTURE strings (including edited and `S9(n)V9(n)` forms), USAGE types (`COMP`/`COMP-1..5`/`COMP-X`/`BINARY`/`PACKED-DECIMAL`/`POINTER`/`NATIONAL`...), statements/verbs, control flow and all `END-*` scope terminators, conditional operators, data/environment clauses, intrinsic `FUNCTION` calls, figurative constants, object-oriented headers (`CLASS-ID`/`METHOD-ID`...), `COPY`/`REPLACING`, embedded `EXEC SQL`/`EXEC CICS`/`EXEC DLI` blocks, compiler directives (`$SET`, `>>`), fixed-format comments (column 7) and debug lines (`D` in column 7), inline `*>` comments, the identification area (columns 73+ rendered as comment), numeric and string literals (including `X"..."`/`N"..."` and doubled-quote escapes). A broad reserved-word list colors the long tail of MF keywords.
 - New setting `cobolLens.syntaxHighlighting.enabled` (default `true`) to enable/disable an additional semantic coloring layer that highlights variables, paragraphs/sections and copybooks using the extension's symbol index. The base TextMate highlighting always stays active; the linter and navigation features are unaffected by this toggle.
 - Quick Fixes (light bulb / Code Actions) for selected linter diagnostics. Most fixes only add text or normalize case (`end-structure` inserts the matching `END-IF`/`END-PERFORM`/`END-EVALUATE`/`END-CALL`... on its own line, aligned to the opening statement, moving the closing period after it; `missing-period` adds the trailing period; `uppercase` converts the code to UPPERCASE while preserving string literals; `missing-stop-run` appends a `GOBACK.` line; `missing-level` inserts a level number inferred from the previous data item; `missing-file-status` adds a `STATUS FS-<file>` clause to the `SELECT` sentence (on its own line, before the period; the status variable is named after the file and must then be defined in WORKING-STORAGE)). A few column-alignment fixes realign a single keyword by adjusting whitespace only, without deleting content: `pic-alignment` moves `PIC` to column 45, `move-to-alignment` moves the `TO` of a `MOVE` to column 45, `select-col12` realigns `SELECT` to column 12, and `assign-col29` realigns the `ASSIGN`/`ORGANIZATION`/`ACCESS`/`STATUS`/`RECORD KEY` clause to column 29. Controlled by the new setting `cobolLens.codeActions.enabled` (default `true`).
 - Symbol rename (`F2`) for variables, paragraphs and sections. All whole-word occurrences in the current program are renamed at once, skipping comments and string literals; the new name is validated as a COBOL identifier (letters/digits/hyphens, max 30 chars, not a reserved word). By default symbols defined in a copybook are not renamed inside the (shared) copybook file; enable `cobolLens.rename.includeCopybooks` to also rename them there. Controlled by the new setting `cobolLens.rename.enabled` (default `true`).
@@ -63,7 +63,7 @@
 - `chars-after-period`: no longer reports false positives on periods that are not statement terminators. A period is now treated as a terminator only when followed by a space or end of line, so the decimal point in numeric literals (`VALUE 12.50.`) and the editing period inside PICTURE strings (`PIC ZZ,ZZ9.99-.`) are ignored. The `SOURCE-COMPUTER.`/`OBJECT-COMPUTER.` paragraph headers of the CONFIGURATION SECTION (e.g. `SOURCE-COMPUTER. IBM-370.`) are also no longer flagged.
 
 ### Notes
-- The grammar uses a dedicated scope name (`source.cobol.lens`) to avoid the TextMate scope-mapping collision warning when the Rocket COBOL extension (which uses `source.cobol`) is also installed.
+- The grammar uses a dedicated scope name (`source.cobol.lens`) to avoid the TextMate scope-mapping collision warning when another COBOL extension (which uses `source.cobol`) is also installed.
 
 ## [1.3.2] - 2026-06-19
 
@@ -79,7 +79,7 @@
 ## [1.3.1] - 2026-06-15
 
 ### Changed
-- Marketplace discoverability: refreshed the extension `description` and `keywords` (added `micro focus`, `rocket cobol`, `enterprise developer`, `go to definition`, `navigation`, `intellisense`, `fixed format`, `variable format`).
+- Marketplace discoverability: refreshed the extension `description` and `keywords` (added `micro focus`, `enterprise developer`, `go to definition`, `navigation`, `intellisense`, `fixed format`, `variable format`).
 - Hover tooltips are now localized and follow the `cobolLens.language` setting (`auto`/`it`/`en`), matching the linter behavior. Labels such as variable/group type, line, size, and the copybook hover text are shown in Italian or English accordingly.
 
 ### Added
