@@ -313,7 +313,14 @@ function getRuleConfig(ruleId) {
         'chars-after-period': 'error',
         'compute-multiline-asterisk': 'warning',
         'alphanumeric-in-compute': 'error',
-        'move-alphanumeric-to-numeric': 'error'
+        'move-alphanumeric-to-numeric': 'error',
+        'duplicate-paragraph': 'error',
+        'alter-statement': 'warning',
+        'next-sentence': 'warning',
+        'evaluate-without-when-other': 'warning',
+        'perform-varying-without-until': 'warning',
+        'level-88-without-parent': 'error',
+        'move-truncation': 'warning'
     };
 
     return {
@@ -3228,6 +3235,460 @@ function _checkMoveStatement(stmt, lineNum, alphanumericVars, numericVars, diags
     }
 }
 
+// ---------------------------------------------------------------------------
+// duplicate-paragraph (paragrafi con nome duplicato nella stessa sezione)
+// ---------------------------------------------------------------------------
+function checkDuplicateParagraph(lines) {
+    const cfg = getRuleConfig('duplicate-paragraph');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const ctx = new AnalysisContext();
+    // I nomi paragrafo devono essere univoci nella stessa SECTION; lo stesso
+    // nome puo' esistere in sezioni diverse (qualificato con IN/OF), quindi lo
+    // scope viene azzerato a ogni cambio di sezione della PROCEDURE DIVISION.
+    let seen = new Map(); // nome -> prima riga (0-based)
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure) continue;
+        // Header di paragrafo/sezione: iniziano in Area A (nessuno spazio iniziale)
+        if (/^\s/.test(code)) continue;
+        const upper = code.trim().toUpperCase().replace(/<[^>]*>/g, 'PLACEHOLDER');
+        if (/^([A-Z0-9][\w-]*)\s+SECTION\s*\.\s*$/.test(upper)) { seen = new Map(); continue; }
+        const paraMatch = upper.match(/^([A-Z0-9][\w-]*)\s*\./);
+        if (!paraMatch) continue;
+        const name = paraMatch[1];
+        if (COBOL_RESERVED_EXTENDED.has(name) || /^\d+$/.test(name)) continue;
+        if (seen.has(name)) {
+            diags.push(makeDiag(i, cfg.severity, 'duplicate-paragraph',
+                msg('duplicateParagraph', name, seen.get(name) + 1),
+                undefined, undefined, name));
+        } else {
+            seen.set(name, i);
+        }
+    }
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// alter-statement (uso di ALTER, pericoloso: auto-modifica del GO TO a runtime)
+// ---------------------------------------------------------------------------
+function checkAlterStatement(lines) {
+    const cfg = getRuleConfig('alter-statement');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const ctx = new AnalysisContext();
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure || ctx.inExecBlock) continue;
+        const upper = code.toUpperCase();
+        // ALTER <procedura> TO [PROCEED TO] <procedura>: la parola ALTER e' usata
+        // solo come verbo, quindi la riconosciamo come token isolato.
+        const m = upper.match(/(?<![\w-])ALTER\s+[A-Z0-9][\w-]*\s+TO\b/);
+        if (m) {
+            const idx = upper.indexOf('ALTER', m.index);
+            const colStart = 7 + idx;
+            diags.push(makeDiag(i, cfg.severity, 'alter-statement',
+                msg('alterStatement'), colStart, colStart + 5));
+        }
+    }
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// next-sentence (NEXT SENTENCE deprecato: usare CONTINUE)
+// ---------------------------------------------------------------------------
+function checkNextSentence(lines) {
+    const cfg = getRuleConfig('next-sentence');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const ctx = new AnalysisContext();
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure || ctx.inExecBlock) continue;
+        const upper = code.toUpperCase();
+        const m = /(?<![\w-])NEXT\s+SENTENCE(?![\w-])/.exec(upper);
+        if (m) {
+            const colStart = 7 + m.index;
+            diags.push(makeDiag(i, cfg.severity, 'next-sentence',
+                msg('nextSentence'), colStart, colStart + m[0].length));
+        }
+    }
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// evaluate-without-when-other (EVALUATE senza ramo di default WHEN OTHER)
+// ---------------------------------------------------------------------------
+function checkEvaluateWithoutWhenOther(lines) {
+    const cfg = getRuleConfig('evaluate-without-when-other');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const ctx = new AnalysisContext();
+    // Stack per gestire EVALUATE annidati. Vengono valutati solo i blocchi
+    // chiusi esplicitamente da END-EVALUATE (stile enforce-ato da end-structure);
+    // gli EVALUATE terminati da punto non vengono segnalati (evita falsi positivi).
+    const stack = [];
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure || ctx.inExecBlock) continue;
+        const upper = code.toUpperCase();
+        if (stack.length && /(?<![\w-])WHEN\s+OTHER(?![\w-])/.test(upper)) {
+            stack[stack.length - 1].hasOther = true;
+        }
+        if (/(?<![\w-])END-EVALUATE(?![\w-])/.test(upper)) {
+            const top = stack.pop();
+            if (top && !top.hasOther) {
+                diags.push(makeDiag(top.line, cfg.severity, 'evaluate-without-when-other',
+                    msg('evaluateWithoutWhenOther'), top.col, top.col + 8));
+            }
+        }
+        const em = /(?<![\w-])EVALUATE(?![\w-])/.exec(upper);
+        if (em) {
+            stack.push({ line: i, hasOther: false, col: 7 + em.index });
+        }
+    }
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// perform-varying-without-until (PERFORM VARYING senza UNTIL: rischio loop)
+// ---------------------------------------------------------------------------
+const PV_BODY_VERB = /^(MOVE|ADD|SUBTRACT|MULTIPLY|DIVIDE|COMPUTE|IF|EVALUATE|DISPLAY|ACCEPT|PERFORM|CALL|READ|WRITE|REWRITE|DELETE|OPEN|CLOSE|STRING|UNSTRING|INSPECT|INITIALIZE|SET|GO|STOP|GOBACK|EXIT|CONTINUE|SEARCH|START|RETURN|RELEASE|SORT|MERGE|CANCEL|EXEC|NEXT)\b/;
+
+function checkPerformVaryingWithoutUntil(lines) {
+    const cfg = getRuleConfig('perform-varying-without-until');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const ctx = new AnalysisContext();
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure || ctx.inExecBlock) continue;
+        const upper = code.trim().toUpperCase();
+        if (!/^PERFORM\b/.test(upper)) continue;
+        if (!/(?<![\w-])VARYING(?![\w-])/.test(upper)) continue;
+        if (/(?<![\w-])UNTIL(?![\w-])/.test(upper)) continue;
+        // UNTIL non sulla riga: scorri le continuazioni finche' non lo trovi o
+        // finche' inizia il corpo del loop (verbo) / END-PERFORM / fine frase.
+        let found = false;
+        let stop = /\.\s*$/.test(upper) || /(?<![\w-])END-PERFORM(?![\w-])/.test(upper);
+        let j = i + 1;
+        while (!stop && j < lines.length) {
+            if (isSkippable(lines[j])) { j++; continue; }
+            const c2 = getCodeContent(lines[j]);
+            if (!c2.trim()) { j++; continue; }
+            const u2 = c2.trim().toUpperCase();
+            if (/(?<![\w-])UNTIL(?![\w-])/.test(u2)) { found = true; break; }
+            if (/(?<![\w-])END-PERFORM(?![\w-])/.test(u2)) break;
+            if (PV_BODY_VERB.test(u2)) break;
+            if (/\.\s*$/.test(u2)) break;
+            j++;
+        }
+        if (!found) {
+            const lead = code.length - code.trimStart().length;
+            const idx = upper.indexOf('VARYING');
+            const colStart = 7 + lead + idx;
+            diags.push(makeDiag(i, cfg.severity, 'perform-varying-without-until',
+                msg('performVaryingWithoutUntil'), colStart, colStart + 7));
+        }
+    }
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// level-88-without-parent (livello 88 senza un campo padre a cui riferirsi)
+// ---------------------------------------------------------------------------
+function checkLevel88WithoutParent(lines) {
+    const cfg = getRuleConfig('level-88-without-parent');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const ctx = new AnalysisContext();
+    let hasParent = false; // esiste un data item (non-88) precedente nella sezione
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        const upper = code.trim().toUpperCase();
+        // Un nuovo header di sezione o una FD/SD/RD azzerano il contesto: il
+        // primo 01 successivo diventa il potenziale padre.
+        if (/^[A-Z0-9][\w-]*\s+SECTION\s*\.\s*$/.test(upper) ||
+            /^(WORKING-STORAGE|LINKAGE|FILE|LOCAL-STORAGE|COMMUNICATION|REPORT|SCREEN)\s+SECTION\b/.test(upper) ||
+            /^(FD|SD|RD)\b/.test(upper)) {
+            hasParent = false;
+            continue;
+        }
+        if (!(ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection)) continue;
+        const lm = upper.match(/^(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+        if (!lm) continue;
+        const level = parseInt(lm[1], 10);
+        const name = lm[2].replace(/\.$/, '');
+        if (level === 88) {
+            if (!hasParent) {
+                diags.push(makeDiag(i, cfg.severity, 'level-88-without-parent',
+                    msg('level88WithoutParent', name), undefined, undefined, name));
+            }
+        } else if ((level >= 1 && level <= 49) || level === 66 || level === 77) {
+            hasParent = true;
+        }
+    }
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// move-truncation (MOVE verso un campo con PIC piu' piccola: troncamento)
+// ---------------------------------------------------------------------------
+
+/**
+ * Espande le ripetizioni PIC del tipo X(10) -> XXXXXXXXXX (con cap di sicurezza).
+ * @param {string} pic
+ * @returns {string}
+ */
+function _expandPicRepeats(pic) {
+    return pic.replace(/([A-Z9$*.,+\-\/B0])\((\d+)\)/g, (m, ch, n) => {
+        const count = Math.min(parseInt(n, 10), 1000000);
+        return ch.repeat(count);
+    });
+}
+
+/**
+ * Analizza una clausola PIC e ne ricava categoria e dimensione. Volutamente
+ * conservativa: classifica solo PIC "pure" (solo X, solo A, o solo 9/S/V) per
+ * evitare falsi positivi sui campi con editing (Z, *, +, -, $, ., ...).
+ * @param {string} picRaw
+ * @returns {{category:'alpha', size:number}|{category:'num', intDigits:number, fracDigits:number}|{category:'other'}}
+ */
+function parsePicInfo(picRaw) {
+    let pic = picRaw.toUpperCase().replace(/\.$/, '');
+    pic = _expandPicRepeats(pic);
+    if (/^X+$/.test(pic)) return { category: 'alpha', size: pic.length };
+    if (/^A+$/.test(pic)) return { category: 'alpha', size: pic.length };
+    const p = pic.replace(/^S/, '');
+    if (/^9+$/.test(p)) return { category: 'num', intDigits: p.length, fracDigits: 0 };
+    const vm = p.match(/^(9*)V(9*)$/);
+    if (vm) return { category: 'num', intDigits: vm[1].length, fracDigits: vm[2].length };
+    return { category: 'other' };
+}
+
+/**
+ * Raccoglie la mappa nome -> info PIC delle variabili elementari (escludendo
+ * gruppi, 88, 66, FILLER, OCCURS ed editing). Serve per move-truncation.
+ * @param {string[]} lines
+ * @param {boolean} isCopy
+ * @returns {Map<string, object>}
+ */
+function collectDataItemPics(lines, isCopy) {
+    const map = new Map();
+    const dataCtx = new AnalysisContext();
+    let di = 0;
+    while (di < lines.length) {
+        const raw = lines[di];
+        if (isSkippable(raw)) { di++; continue; }
+        const code = getCodeContent(raw);
+        if (!code.trim()) { di++; continue; }
+        if (!isCopy) dataCtx.update(raw, code);
+        if (!isCopy && !(dataCtx.inWorkingStorage || dataCtx.inLinkage || dataCtx.inFileSection)) { di++; continue; }
+
+        const upper = code.trim().toUpperCase();
+        const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+        if (!levelMatch) { di++; continue; }
+        const level = parseInt(levelMatch[1], 10);
+        const name = levelMatch[2].replace(/\.$/, '');
+        if (name === 'FILLER' || level === 88 || level === 66) { di++; continue; }
+
+        let fullStmt = code;
+        let j = di + 1;
+        if (!fullStmt.trimEnd().endsWith('.')) {
+            while (j < lines.length) {
+                if (isSkippable(lines[j])) { j++; continue; }
+                const nextCode = getCodeContent(lines[j]);
+                if (!nextCode.trim()) { j++; continue; }
+                const nextUpper = nextCode.trim().toUpperCase();
+                if (/^\d{1,2}\s+/.test(nextUpper)) break;
+                fullStmt += ' ' + nextCode.trim();
+                j++;
+                if (fullStmt.trimEnd().endsWith('.')) break;
+            }
+        }
+        di = j > di + 1 ? j : di + 1;
+
+        const fullUpper = fullStmt.toUpperCase();
+        if (/\bOCCURS\b/.test(fullUpper)) continue; // subscript: risoluzione ambigua
+        const picMatch = fullUpper.match(/\bPIC(?:TURE)?\s+(?:IS\s+)?([^\s,]+)/);
+        if (!picMatch) continue;
+        const info = parsePicInfo(picMatch[1]);
+        if (info.category === 'other') continue;
+        if (!map.has(name)) map.set(name, info);
+    }
+    return map;
+}
+
+/**
+ * Come collectDataItemPics, ma espande anche le COPY (con REPLACING).
+ * @param {string[]} lines
+ * @param {string} [workspaceRoot]
+ * @returns {Map<string, object>}
+ */
+function collectDataItemPicsWithCopy(lines, workspaceRoot) {
+    const map = collectDataItemPics(lines, false);
+    if (!workspaceRoot) return map;
+    const copyStmts = collectCopyStatements(lines);
+    for (const cs of copyStmts) {
+        const resolved = resolveCopybookPath(cs.name, workspaceRoot);
+        if (!resolved) continue;
+        try {
+            const content = fs.readFileSync(resolved, 'utf-8');
+            const copyMap = collectDataItemPics(content.split(/\r?\n/), true);
+            const applyRepl = (nm) => {
+                for (const repl of cs.replacements) {
+                    if (nm.includes(repl.from)) nm = nm.replace(repl.from, repl.to);
+                }
+                return nm;
+            };
+            for (const [n, info] of copyMap) {
+                const nn = applyRepl(n);
+                if (!map.has(nn)) map.set(nn, info);
+            }
+        } catch (e) { /* ignore */ }
+    }
+    return map;
+}
+
+function checkMoveTruncation(lines, workspaceRoot) {
+    const cfg = getRuleConfig('move-truncation');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const picMap = collectDataItemPicsWithCopy(lines, workspaceRoot);
+    if (picMap.size === 0) return diags;
+
+    const ctx = new AnalysisContext();
+    let inMove = false;
+    let moveStartLine = -1;
+    let moveStmt = '';
+
+    const flush = () => {
+        if (inMove && moveStmt) {
+            _checkMoveTruncationStatement(moveStmt, moveStartLine, picMap, diags, cfg);
+        }
+        inMove = false;
+        moveStmt = '';
+    };
+
+    const newVerbOrTerminator = /^\s*(MOVE|DISPLAY|SET|PERFORM|IF|EVALUATE|READ|WRITE|OPEN|CLOSE|CALL|GO|STOP|EXIT|STRING|UNSTRING|INSPECT|ACCEPT|INITIALIZE|SEARCH|DELETE|REWRITE|START|RETURN|RELEASE|SORT|MERGE|ALTER|CANCEL|CONTINUE|GOBACK|EXEC|COPY|WHEN|ELSE|COMPUTE|ADD|SUBTRACT|MULTIPLY|DIVIDE|END-IF|END-EVALUATE|END-PERFORM|END-READ|END-WRITE|END-CALL|END-STRING|END-UNSTRING|END-SEARCH|END-RETURN|END-START|END-DELETE|END-REWRITE|END-ACCEPT|END-DISPLAY|END-EXEC|END-MOVE)\b/;
+
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure || ctx.inExecBlock) { flush(); continue; }
+
+        const upper = code.trim().toUpperCase();
+        const withoutLit = stripLiterals(upper);
+
+        if (!inMove) {
+            if (/^\s*MOVE\b/.test(upper)) {
+                inMove = true;
+                moveStartLine = i;
+                moveStmt = upper;
+                if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+            }
+        } else if (newVerbOrTerminator.test(upper)) {
+            flush();
+            if (/^\s*MOVE\b/.test(upper)) {
+                inMove = true;
+                moveStartLine = i;
+                moveStmt = upper;
+                if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+            }
+        } else {
+            moveStmt += ' ' + upper;
+            if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+        }
+    }
+    flush();
+    return diags;
+}
+
+/**
+ * Analizza una singola istruzione MOVE cercando il troncamento verso una
+ * destinazione con PIC piu' piccola. Considera solo sorgente = identificatore
+ * semplice (no literal/subscript/reference-mod) e destinazioni semplici, con
+ * sorgente e destinazione della stessa categoria (alfanumerica o numerica).
+ */
+function _checkMoveTruncationStatement(stmt, lineNum, picMap, diags, cfg) {
+    let body = stmt.replace(/^\s*MOVE\s+/, '').replace(/\bEND-MOVE\b/g, '').trim();
+    body = body.replace(/\.\s*$/, '').trim();
+    if (/^(CORRESPONDING|CORR)\b/.test(body)) return;
+    if (/\bFUNCTION\b/.test(body)) return;
+
+    const literals = [];
+    const masked = body.replace(/'[^']*'|"[^"]*"/g, (m) => {
+        literals.push(m);
+        return `@LIT${literals.length - 1}@`;
+    });
+    const toMatch = masked.match(/^([\s\S]*?)\s+TO\s+([\s\S]+)$/);
+    if (!toMatch) return;
+    let srcPart = toMatch[1].trim();
+    const destMasked = toMatch[2].trim();
+    srcPart = srcPart.replace(/^ALL\s+/, '').trim();
+
+    // La sorgente deve essere un identificatore semplice (le literal e i campi
+    // con subscript/reference-mod hanno dimensione ambigua: non li trattiamo).
+    if (srcPart.includes('(') || /@LIT\d+@/.test(srcPart)) return;
+    const srcId = (srcPart.match(/^([A-Z][A-Z0-9-]*[A-Z0-9]|[A-Z])$/) || [])[1];
+    if (!srcId) return;
+    const srcInfo = picMap.get(srcId);
+    if (!srcInfo) return;
+
+    const destParts = destMasked.split(/\s+/).filter(Boolean);
+    const reported = new Set();
+    for (const dp of destParts) {
+        if (dp.includes('(') || /@LIT\d+@/.test(dp)) continue;
+        const dm = dp.match(/^([A-Z][A-Z0-9-]*[A-Z0-9]|[A-Z])$/);
+        if (!dm) continue;
+        const destId = dm[1];
+        if (COBOL_RESERVED_EXTENDED.has(destId) || reported.has(destId)) continue;
+        const destInfo = picMap.get(destId);
+        if (!destInfo) continue;
+        if (srcInfo.category !== destInfo.category) continue;
+        if (srcInfo.category === 'alpha') {
+            if (srcInfo.size > destInfo.size) {
+                diags.push(makeDiag(lineNum, cfg.severity, 'move-truncation',
+                    msg('moveTruncation', srcId, srcInfo.size, destId, destInfo.size),
+                    undefined, undefined, destId));
+                reported.add(destId);
+            }
+        } else if (srcInfo.intDigits > destInfo.intDigits) {
+            diags.push(makeDiag(lineNum, cfg.severity, 'move-truncation',
+                msg('moveTruncation', srcId, srcInfo.intDigits, destId, destInfo.intDigits),
+                undefined, undefined, destId));
+            reported.add(destId);
+        }
+    }
+}
+
 // ============================================================================
 // Soppressione diagnostiche (commenti magici cobol-lens-disable*)
 // ============================================================================
@@ -3389,6 +3850,9 @@ function runLinter(text, workspaceRoot) {
         checkVariableNameLength, checkMissingLevel,
         checkCharsAfterPeriod,
         checkComputeMultilineAsterisk,
+        checkDuplicateParagraph, checkAlterStatement,
+        checkNextSentence, checkEvaluateWithoutWhenOther,
+        checkPerformVaryingWithoutUntil, checkLevel88WithoutParent,
     ];
 
     // Controlli validi solo in formato fixed
@@ -3414,6 +3878,7 @@ function runLinter(text, workspaceRoot) {
     allDiags.push(...checkUnsubscriptedOccurs(lines, workspaceRoot));
     allDiags.push(...checkAlphanumericInCompute(lines, workspaceRoot));
     allDiags.push(...checkMoveAlphaToNumeric(lines, workspaceRoot));
+    allDiags.push(...checkMoveTruncation(lines, workspaceRoot));
 
     // Ordina per riga
     allDiags.sort((a, b) => a.range.start.line - b.range.start.line);

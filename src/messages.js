@@ -224,6 +224,34 @@ const MESSAGES = {
         it: (src, dest) => `Valore alfanumerico ${src} spostato (MOVE) nella variabile numerica '${dest}'. Possibile errore di tipo a runtime (usare FUNCTION NUMVAL per la conversione).`,
         en: (src, dest) => `Alphanumeric value ${src} moved (MOVE) into numeric variable '${dest}'. Possible runtime type error (use FUNCTION NUMVAL to convert).`,
     },
+    duplicateParagraph: {
+        it: (name, firstLine) => `Il paragrafo '${name}' e' gia' definito alla riga ${firstLine} nella stessa sezione. Un nome duplicato rende ambiguo il PERFORM.`,
+        en: (name, firstLine) => `Paragraph '${name}' is already defined at line ${firstLine} in the same section. A duplicate name makes PERFORM ambiguous.`,
+    },
+    alterStatement: {
+        it: () => "Istruzione ALTER: modifica il bersaglio di un GO TO a runtime, rendendo il flusso imprevedibile e difficile da manutenere. Ristrutturare con PERFORM/EVALUATE.",
+        en: () => 'ALTER statement: it changes the target of a GO TO at runtime, making the control flow unpredictable and hard to maintain. Restructure using PERFORM/EVALUATE.',
+    },
+    nextSentence: {
+        it: () => "NEXT SENTENCE e' deprecato e fragile (salta alla frase successiva, non allo scope terminator). Usare CONTINUE.",
+        en: () => 'NEXT SENTENCE is deprecated and fragile (it jumps to the next sentence, not the scope terminator). Use CONTINUE instead.',
+    },
+    evaluateWithoutWhenOther: {
+        it: () => "EVALUATE senza WHEN OTHER: manca la gestione del caso di default. Aggiungere WHEN OTHER per intercettare i valori non previsti.",
+        en: () => 'EVALUATE without WHEN OTHER: the default case is not handled. Add a WHEN OTHER branch to catch unexpected values.',
+    },
+    performVaryingWithoutUntil: {
+        it: () => "PERFORM VARYING senza UNTIL: il ciclo non ha una condizione di uscita e rischia di essere infinito. Aggiungere una clausola UNTIL.",
+        en: () => 'PERFORM VARYING without UNTIL: the loop has no exit condition and may run forever. Add an UNTIL clause.',
+    },
+    level88WithoutParent: {
+        it: (name) => `Il livello 88 '${name}' non e' subordinato ad alcun campo: manca la variabile padre a cui la condizione si riferisce.`,
+        en: (name) => `Level 88 '${name}' is not subordinate to any field: the parent data item the condition refers to is missing.`,
+    },
+    moveTruncation: {
+        it: (src, srcSize, dest, destSize) => `MOVE da '${src}' (${srcSize}) a '${dest}' (${destSize}): il valore viene troncato silenziosamente perche' la destinazione e' piu' piccola.`,
+        en: (src, srcSize, dest, destSize) => `MOVE from '${src}' (${srcSize}) to '${dest}' (${destSize}): the value is silently truncated because the destination is smaller.`,
+    },
 
     // --- Hover (provider) ---
     hoverVariable: {

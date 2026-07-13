@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.0] - 2026-07-13
+
+### Added
+- Seven new semantic linter rules (all configurable via `cobolLens.linter.rules.<rule>.enabled` / `.severity`):
+  - `duplicate-paragraph` (error): two paragraphs with the same name in the same section, which makes `PERFORM` ambiguous. Scope is reset at each `SECTION` boundary, so the same name in different sections is allowed.
+  - `alter-statement` (warning): use of the `ALTER` statement, which rewrites a `GO TO` target at runtime and makes control flow unpredictable.
+  - `next-sentence` (warning): use of `NEXT SENTENCE`, deprecated and fragile; use `CONTINUE` instead.
+  - `evaluate-without-when-other` (warning): an `EVALUATE` closed by `END-EVALUATE` that has no `WHEN OTHER` default branch. Nested `EVALUATE` blocks are handled; `EVALUATE` closed by a period is not flagged to avoid false positives.
+  - `perform-varying-without-until` (warning): a `PERFORM VARYING` with no `UNTIL` clause (risk of an infinite loop). The `UNTIL` is also detected on continuation lines.
+  - `level-88-without-parent` (error): a level `88` condition-name that is not subordinate to any parent data item.
+  - `move-truncation` (warning): a `MOVE` into a destination with a smaller `PIC` (silent truncation). Conservative: it compares only pure alphanumeric or pure numeric elementary items (no editing symbols, no `OCCURS`, no subscripts/reference modification), and copybook fields are included.
+- The integrated linter now ships 47 rules (was 40).
+
 ## [1.7.0] - 2026-06-25
 
 ### Added

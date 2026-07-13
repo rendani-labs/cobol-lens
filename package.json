@@ -1,8 +1,8 @@
 {
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
-  "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 40-rule integrated linter. No compiler required.",
-  "version": "1.7.0",
+  "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 47-rule integrated linter. No compiler required.",
+  "version": "1.8.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -824,6 +824,83 @@
           "default": "error",
           "enum": ["error", "warning", "info"],
           "description": "%cobolLens.linter.rules.move-alphanumeric-to-numeric.severity.description%"
+        },
+        "cobolLens.linter.rules.duplicate-paragraph.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.duplicate-paragraph.enabled.description%"
+        },
+        "cobolLens.linter.rules.duplicate-paragraph.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.duplicate-paragraph.severity.description%"
+        },
+        "cobolLens.linter.rules.alter-statement.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.alter-statement.enabled.description%"
+        },
+        "cobolLens.linter.rules.alter-statement.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.alter-statement.severity.description%"
+        },
+        "cobolLens.linter.rules.next-sentence.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.next-sentence.enabled.description%"
+        },
+        "cobolLens.linter.rules.next-sentence.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.next-sentence.severity.description%"
+        },
+        "cobolLens.linter.rules.evaluate-without-when-other.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.evaluate-without-when-other.enabled.description%"
+        },
+        "cobolLens.linter.rules.evaluate-without-when-other.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.evaluate-without-when-other.severity.description%"
+        },
+        "cobolLens.linter.rules.perform-varying-without-until.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.perform-varying-without-until.enabled.description%"
+        },
+        "cobolLens.linter.rules.perform-varying-without-until.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.perform-varying-without-until.severity.description%"
+        },
+        "cobolLens.linter.rules.level-88-without-parent.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.level-88-without-parent.enabled.description%"
+        },
+        "cobolLens.linter.rules.level-88-without-parent.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.level-88-without-parent.severity.description%"
+        },
+        "cobolLens.linter.rules.move-truncation.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.move-truncation.enabled.description%"
+        },
+        "cobolLens.linter.rules.move-truncation.severity": {
+          "type": "string",
+          "default": "warning",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.move-truncation.severity.description%"
         }
       }
     },

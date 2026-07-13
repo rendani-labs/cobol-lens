@@ -56,7 +56,7 @@ Can be controlled via `cobolLens.ifBlockHighlight.enabled` and `cobolLens.ifBloc
 
 ### Integrated Linter
 
-A built-in COBOL linter with **40 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
+A built-in COBOL linter with **47 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
 
 Categories of rules:
 
@@ -211,6 +211,13 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `compute-multiline-asterisk` | on | warning | Multi-line COMPUTE where a line ends with `*` (breaks CICS precompiler) |
 | `alphanumeric-in-compute` | on | error | Alphanumeric variable used in COMPUTE/ADD/SUBTRACT/MULTIPLY/DIVIDE |
 | `move-alphanumeric-to-numeric` | on | error | Alphanumeric value (literal, figurative constant or alphanumeric variable) moved into a numeric variable; `FUNCTION NUMVAL` is excluded |
+| `duplicate-paragraph` | on | error | Two paragraphs with the same name in the same section (makes PERFORM ambiguous) |
+| `alter-statement` | on | warning | Use of ALTER (rewrites a GO TO target at runtime, hard to maintain) |
+| `next-sentence` | on | warning | Use of NEXT SENTENCE (deprecated and fragile; use CONTINUE) |
+| `evaluate-without-when-other` | on | warning | EVALUATE closed by END-EVALUATE without a WHEN OTHER default branch |
+| `perform-varying-without-until` | on | warning | PERFORM VARYING without an UNTIL clause (risk of an infinite loop) |
+| `level-88-without-parent` | on | error | Level 88 condition-name not subordinate to any parent data item |
+| `move-truncation` | on | warning | MOVE into a destination with a smaller PIC (silent truncation); pure alphanumeric or numeric elementary items only |
 
 ## Compatibility
 
