@@ -54,6 +54,7 @@
   "cobolLens.linter.enabled.description": "Abilita/disabilita il linter COBOL integrato",
   "cobolLens.linter.onType.description": "Esegui il linter in tempo reale mentre scrivi (se false, solo al salvataggio)",
   "cobolLens.linter.delay.description": "Ritardo in millisecondi prima di eseguire il linter dopo una modifica",
+  "cobolLens.linter.suppressions.enabled.description": "Abilita i commenti di soppressione inline (cobol-lens-disable, cobol-lens-disable-line, cobol-lens-disable-next-line, cobol-lens-enable) e i relativi Quick Fix",
   "cobolLens.linter.rules.col72.enabled.description": "Il codice non deve superare la colonna 72",
   "cobolLens.linter.rules.col72.severity.description": "Severita' per la regola col72",
   "cobolLens.linter.rules.no-goto.enabled.description": "Sconsiglia l'uso di GO TO (preferire PERFORM e IF/EVALUATE per un flusso piu' chiaro)",

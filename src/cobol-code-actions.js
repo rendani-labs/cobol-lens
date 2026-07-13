@@ -120,6 +120,15 @@ class CobolCodeActionProvider {
             if (diag.source !== 'COBOL Lens') continue;
             const code = typeof diag.code === 'object' && diag.code !== null
                 ? diag.code.value : diag.code;
+
+            // Quick Fix di soppressione (validi per qualunque regola COBOL Lens)
+            if (cfg.get('linter.suppressions.enabled', true)) {
+                const suppressLine = this._suppressLine(document, diag, String(code));
+                if (suppressLine) actions.push(suppressLine);
+                const suppressFile = this._suppressFile(document, diag, String(code));
+                if (suppressFile) actions.push(suppressFile);
+            }
+
             if (!HANDLED_CODES.has(String(code))) continue;
 
             let action = null;
@@ -426,6 +435,49 @@ class CobolCodeActionProvider {
         const m = kwRegex.exec(text.toUpperCase());
         if (!m) return null;
         return this._alignAt(document, diag, lineNum, m.index, targetColumn, title);
+    }
+
+    /**
+     * Sopprime una diagnostica sulla riga segnalata inserendo, subito sopra, un
+     * commento a riga intera "cobol-lens-disable-next-line <regola>" (indicatore
+     * '*' in colonna 7, cosi' viene ignorato da tutte le regole).
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Diagnostic} diag
+     * @param {string} code
+     * @returns {vscode.CodeAction|null}
+     */
+    _suppressLine(document, diag, code) {
+        const lineNum = diag.range.start.line;
+        if (lineNum < 0 || lineNum >= document.lineCount) return null;
+        const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+        const commentLine = '      * cobol-lens-disable-next-line ' + code;
+        const action = new vscode.CodeAction(
+            msg('fixSuppressLine', code), vscode.CodeActionKind.QuickFix);
+        const edit = new vscode.WorkspaceEdit();
+        edit.insert(document.uri, new vscode.Position(lineNum, 0), commentLine + eol);
+        action.edit = edit;
+        action.diagnostics = [diag];
+        return action;
+    }
+
+    /**
+     * Sopprime una diagnostica in tutto il file inserendo, in cima al documento,
+     * un commento a riga intera "cobol-lens-disable <regola>".
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Diagnostic} diag
+     * @param {string} code
+     * @returns {vscode.CodeAction|null}
+     */
+    _suppressFile(document, diag, code) {
+        const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+        const commentLine = '      * cobol-lens-disable ' + code;
+        const action = new vscode.CodeAction(
+            msg('fixSuppressFile', code), vscode.CodeActionKind.QuickFix);
+        const edit = new vscode.WorkspaceEdit();
+        edit.insert(document.uri, new vscode.Position(0, 0), commentLine + eol);
+        action.edit = edit;
+        action.diagnostics = [diag];
+        return action;
     }
 
     /**

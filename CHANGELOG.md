@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.0] - 2026-06-25
+
+### Added
+- Inline suppression comments for linter diagnostics. Inside a COBOL comment (either a full-line comment with `*`/`/` in column 7, or an inline `*>` comment) you can now write directives to silence specific rules:
+  - `cobol-lens-disable-next-line [rules...]` suppresses the given rules on the next code line.
+  - `cobol-lens-disable-line [rules...]` suppresses the given rules on the current line (useful with an inline `*>`).
+  - `cobol-lens-disable [rules...]` suppresses from that point onward.
+  - `cobol-lens-enable [rules...]` re-enables from that point onward.
+  With no rule ids the directive applies to ALL rules. A `--` separator introduces an optional free-text reason that is ignored. Example: `      * cobol-lens-disable-next-line no-goto -- legacy jump`.
+- Two new Quick Fixes on every COBOL Lens diagnostic: "Suppress '<rule>' on this line" (inserts a `cobol-lens-disable-next-line` comment above the flagged line) and "Suppress '<rule>' in the entire file" (inserts a `cobol-lens-disable` comment at the top of the file).
+- New setting `cobolLens.linter.suppressions.enabled` (default `true`) to turn the inline suppression comments and the related Quick Fixes on or off.
+
 ## [1.6.0] - 2026-06-25
 
 ### Changed
@@ -46,7 +58,7 @@
 ## [1.4.0] - 2026-06-23
 
 ### Added
-- Syntax highlighting tailored for the Micro Focus COBOL dialect. The extension now ships its own TextMate grammar so colors work standalone, without requiring any other COBOL extension. Coverage includes: DIVISION/SECTION headers, paragraph and section names, data level numbers (01-49, 66, 77, 78, 88), PICTURE strings (including edited and `S9(n)V9(n)` forms), USAGE types (`COMP`/`COMP-1..5`/`COMP-X`/`BINARY`/`PACKED-DECIMAL`/`POINTER`/`NATIONAL`...), statements/verbs, control flow and all `END-*` scope terminators, conditional operators, data/environment clauses, intrinsic `FUNCTION` calls, figurative constants, object-oriented headers (`CLASS-ID`/`METHOD-ID`...), `COPY`/`REPLACING`, embedded `EXEC SQL`/`EXEC CICS`/`EXEC DLI` blocks, compiler directives (`$SET`, `>>`), fixed-format comments (column 7) and debug lines (`D` in column 7), inline `*>` comments, the identification area (columns 73+ rendered as comment), numeric and string literals (including `X"..."`/`N"..."` and doubled-quote escapes). A broad reserved-word list colors the long tail of MF keywords.
+- Syntax highlighting tailored for the Micro Focus / Rocket COBOL dialect. The extension now ships its own TextMate grammar so colors work standalone, without requiring any other COBOL extension. Coverage includes: DIVISION/SECTION headers, paragraph and section names, data level numbers (01-49, 66, 77, 78, 88), PICTURE strings (including edited and `S9(n)V9(n)` forms), USAGE types (`COMP`/`COMP-1..5`/`COMP-X`/`BINARY`/`PACKED-DECIMAL`/`POINTER`/`NATIONAL`...), statements/verbs, control flow and all `END-*` scope terminators, conditional operators, data/environment clauses, intrinsic `FUNCTION` calls, figurative constants, object-oriented headers (`CLASS-ID`/`METHOD-ID`...), `COPY`/`REPLACING`, embedded `EXEC SQL`/`EXEC CICS`/`EXEC DLI` blocks, compiler directives (`$SET`, `>>`), fixed-format comments (column 7) and debug lines (`D` in column 7), inline `*>` comments, the identification area (columns 73+ rendered as comment), numeric and string literals (including `X"..."`/`N"..."` and doubled-quote escapes). A broad reserved-word list colors the long tail of MF/Rocket keywords.
 - New setting `cobolLens.syntaxHighlighting.enabled` (default `true`) to enable/disable an additional semantic coloring layer that highlights variables, paragraphs/sections and copybooks using the extension's symbol index. The base TextMate highlighting always stays active; the linter and navigation features are unaffected by this toggle.
 - Quick Fixes (light bulb / Code Actions) for selected linter diagnostics. Most fixes only add text or normalize case (`end-structure` inserts the matching `END-IF`/`END-PERFORM`/`END-EVALUATE`/`END-CALL`... on its own line, aligned to the opening statement, moving the closing period after it; `missing-period` adds the trailing period; `uppercase` converts the code to UPPERCASE while preserving string literals; `missing-stop-run` appends a `GOBACK.` line; `missing-level` inserts a level number inferred from the previous data item; `missing-file-status` adds a `STATUS FS-<file>` clause to the `SELECT` sentence (on its own line, before the period; the status variable is named after the file and must then be defined in WORKING-STORAGE)). A few column-alignment fixes realign a single keyword by adjusting whitespace only, without deleting content: `pic-alignment` moves `PIC` to column 45, `move-to-alignment` moves the `TO` of a `MOVE` to column 45, `select-col12` realigns `SELECT` to column 12, and `assign-col29` realigns the `ASSIGN`/`ORGANIZATION`/`ACCESS`/`STATUS`/`RECORD KEY` clause to column 29. Controlled by the new setting `cobolLens.codeActions.enabled` (default `true`).
 - Symbol rename (`F2`) for variables, paragraphs and sections. All whole-word occurrences in the current program are renamed at once, skipping comments and string literals; the new name is validated as a COBOL identifier (letters/digits/hyphens, max 30 chars, not a reserved word). By default symbols defined in a copybook are not renamed inside the (shared) copybook file; enable `cobolLens.rename.includeCopybooks` to also rename them there. Controlled by the new setting `cobolLens.rename.enabled` (default `true`).
@@ -79,7 +91,7 @@
 ## [1.3.1] - 2026-06-15
 
 ### Changed
-- Marketplace discoverability: refreshed the extension `description` and `keywords` (added `micro focus`, `enterprise developer`, `go to definition`, `navigation`, `intellisense`, `fixed format`, `variable format`).
+- Marketplace discoverability: refreshed the extension `description` and `keywords` (added `micro focus`, `rocket cobol`, `enterprise developer`, `go to definition`, `navigation`, `intellisense`, `fixed format`, `variable format`).
 - Hover tooltips are now localized and follow the `cobolLens.language` setting (`auto`/`it`/`en`), matching the linter behavior. Labels such as variable/group type, line, size, and the copybook hover text are shown in Italian or English accordingly.
 
 ### Added

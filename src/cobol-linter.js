@@ -3229,6 +3229,124 @@ function _checkMoveStatement(stmt, lineNum, alphanumericVars, numericVars, diags
 }
 
 // ============================================================================
+// Soppressione diagnostiche (commenti magici cobol-lens-disable*)
+// ============================================================================
+
+/**
+ * Estrae il testo di commento da una riga, ai fini del riconoscimento delle
+ * direttive di soppressione. Riconosce sia i commenti a riga intera (indicatore
+ * '*' o '/' in colonna 7) sia i commenti inline '*>' (Micro Focus), validi in
+ * qualunque colonna.
+ * @param {string} line
+ * @returns {string|null} il testo del commento, oppure null se la riga non ha commenti
+ */
+function getSuppressionComment(line) {
+    if (isComment(line)) {
+        return line.length > 7 ? line.substring(7) : '';
+    }
+    const idx = line.indexOf('*>');
+    if (idx >= 0) return line.substring(idx + 2);
+    return null;
+}
+
+// Le alternative piu' lunghe vanno prima: 'disable' e' prefisso di
+// 'disable-next-line'/'disable-line' e con \b verrebbe altrimenti catturato.
+const SUPPRESS_DIRECTIVE_RE = /cobol-lens-(disable-next-line|disable-line|disable|enable)\b([^]*)/i;
+
+/**
+ * Estrae i nomi delle regole da un frammento di direttiva. Un separatore '--'
+ * introduce un motivo/nota libera che viene ignorato. Nessun id = tutte le regole.
+ * @param {string} rest
+ * @returns {string[]} elenco di rule id in minuscolo (vuoto = tutte le regole)
+ */
+function parseSuppressRules(rest) {
+    let r = rest || '';
+    const dash = r.indexOf('--');
+    if (dash >= 0) r = r.substring(0, dash);
+    return r.split(/[\s,]+/)
+        .map(s => s.trim().toLowerCase().replace(/[.,;:]+$/, ''))
+        .filter(Boolean);
+}
+
+/**
+ * Analizza le direttive di soppressione presenti nel sorgente e restituisce un
+ * oggetto con il metodo isSuppressed(line, code).
+ *
+ * Direttive supportate (dentro un commento):
+ *   cobol-lens-disable-next-line [regole...]  -> sopprime sulla riga di codice successiva
+ *   cobol-lens-disable-line [regole...]       -> sopprime sulla riga corrente (commento inline)
+ *   cobol-lens-disable [regole...]            -> sopprime da qui in poi
+ *   cobol-lens-enable [regole...]             -> riabilita da qui in poi
+ * Senza regole la direttiva vale per TUTTE le regole.
+ * @param {string[]} lines
+ * @returns {{ isSuppressed: (line: number, code: string) => boolean }}
+ */
+function computeSuppressions(lines) {
+    const N = lines.length;
+    /** @type {Map<number, {all: boolean, rules: Set<string>}>} */
+    const lineSuppress = new Map();
+    /** @type {Array<{line: number, kind: string, all: boolean, rules: string[]}>} */
+    const blockEvents = [];
+
+    const addLine = (line, all, rules) => {
+        let entry = lineSuppress.get(line);
+        if (!entry) { entry = { all: false, rules: new Set() }; lineSuppress.set(line, entry); }
+        if (all) entry.all = true;
+        else for (const r of rules) entry.rules.add(r);
+    };
+
+    for (let i = 0; i < N; i++) {
+        const comment = getSuppressionComment(lines[i]);
+        if (comment === null) continue;
+        const m = comment.match(SUPPRESS_DIRECTIVE_RE);
+        if (!m) continue;
+        const kind = m[1].toLowerCase();
+        const rules = parseSuppressRules(m[2]);
+        const all = rules.length === 0;
+        if (kind === 'disable-next-line') {
+            // Bersaglio: la prima riga successiva che non sia vuota o di commento.
+            let j = i + 1;
+            while (j < N && (isBlank(lines[j]) || isComment(lines[j]))) j++;
+            if (j < N) addLine(j, all, rules);
+        } else if (kind === 'disable-line') {
+            addLine(i, all, rules);
+        } else {
+            blockEvents.push({ line: i, kind, all, rules });
+        }
+    }
+
+    const blockSuppressedAt = (line, code) => {
+        let disabledAll = false;
+        const disabledRules = new Set();
+        const enabledExc = new Set();
+        for (const e of blockEvents) {
+            if (e.line > line) break;
+            if (e.kind === 'disable') {
+                if (e.all) { disabledAll = true; enabledExc.clear(); }
+                else for (const r of e.rules) { disabledRules.add(r); enabledExc.delete(r); }
+            } else { // enable
+                if (e.all) { disabledAll = false; disabledRules.clear(); enabledExc.clear(); }
+                else for (const r of e.rules) { disabledRules.delete(r); enabledExc.add(r); }
+            }
+        }
+        if (disabledRules.has(code)) return true;
+        if (disabledAll && !enabledExc.has(code)) return true;
+        return false;
+    };
+
+    return {
+        isSuppressed(line, code) {
+            const entry = lineSuppress.get(line);
+            if (entry) {
+                if (entry.all) return true;
+                if (entry.rules.has(code)) return true;
+            }
+            return blockSuppressedAt(line, code);
+        }
+    };
+}
+
+// ============================================================================
 // Esecuzione linter
 // ============================================================================
 
@@ -3338,10 +3456,17 @@ function runLinter(text, workspaceRoot) {
         }
     }
 
+    // Filtra le diagnostiche soppresse dai commenti magici cobol-lens-disable*
+    let result = allDiags;
+    if (config.get('suppressions.enabled', true)) {
+        const supp = computeSuppressions(lines);
+        result = allDiags.filter(d => !supp.isSuppressed(d.range.start.line, String(d.code)));
+    }
+
     // Ripristina il formato per sicurezza
     currentSourceFormat = 'fixed';
 
-    return allDiags;
+    return result;
 }
 
 module.exports = { runLinter };

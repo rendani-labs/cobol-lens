@@ -307,6 +307,14 @@ const MESSAGES = {
         it: (kw, col) => `Allinea ${kw} alla colonna ${col}`,
         en: (kw, col) => `Align ${kw} to column ${col}`,
     },
+    fixSuppressLine: {
+        it: (code) => `Sopprimi '${code}' su questa riga`,
+        en: (code) => `Suppress '${code}' on this line`,
+    },
+    fixSuppressFile: {
+        it: (code) => `Sopprimi '${code}' in tutto il file`,
+        en: (code) => `Suppress '${code}' in the entire file`,
+    },
     // --- CodeLens ---
     codeLensReference: {
         it: (n) => `${n} riferimento`,
