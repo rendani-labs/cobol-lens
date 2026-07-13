@@ -30,6 +30,8 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Go to Definition** | `F12` / `Ctrl+Click` | Jump to copybook files, variable definitions, paragraphs, and sections |
 | **Peek Definition** | `Alt+F12` | Inline preview of definitions without leaving your current file |
 | **Find All References** | `Shift+F12` | Locate every usage of a variable, paragraph, or section |
+| **Highlight Occurrences** | Cursor on a symbol | Automatically highlight every occurrence of the symbol under the cursor in the current file (the definition is marked as a write) |
+| **Signature Help** | Type `FUNCTION name(` | Parameter hints for common COBOL intrinsic functions, with the current argument highlighted (follows commas and nested calls) |
 | **Rename Symbol** | `F2` | Rename a variable, paragraph, or section across the whole program (and optionally inside copybooks) |
 | **Hover Information** | Mouse hover | See type, level, source file, definition line, and the size in bytes (for groups, the total area size = sum of sub-fields) for any symbol |
 | **Copybook Autocomplete** | Type `COPY ` | Auto-suggest copybook names from configured folders |
@@ -156,6 +158,8 @@ Add these settings to your workspace `.vscode/settings.json`:
 | `cobolLens.workspaceSymbols.enabled` | `true` | Enable Go to Symbol in Workspace (Ctrl+T) across all COBOL files |
 | `cobolLens.codeLens.enabled` | `false` | Show reference-count CodeLens above paragraphs and sections |
 | `cobolLens.callHierarchy.enabled` | `true` | Enable Call Hierarchy (PERFORM/GO TO) for paragraphs and sections |
+| `cobolLens.documentHighlight.enabled` | `true` | Highlight every occurrence of the symbol under the cursor in the current file |
+| `cobolLens.signatureHelp.enabled` | `true` | Show parameter hints for COBOL intrinsic functions while typing FUNCTION calls |
 | `cobolLens.format.enabled` | `false` | Enable the fixed-format formatter (Format Document / Format Selection) |
 | `cobolLens.inlayHints.enabled` | `true` | Show inlay hints with byte position and size of DATA DIVISION fields |
 | `cobolLens.inlayHints.display` | `inline` | Where to show field position/size: `inline` (inlay hints) or `hover` (symbol tooltip, less intrusive) |

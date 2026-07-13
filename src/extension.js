@@ -12,6 +12,7 @@ const { msg, getLang, setLang } = require('./messages');
 const { CobolSemanticTokensProvider, SEMANTIC_LEGEND } = require('./cobol-semantic');
 const { CobolCodeActionProvider } = require('./cobol-code-actions');
 const { CobolFormattingProvider } = require('./cobol-formatter');
+const { getSignatureAt } = require('./cobol-signatures');
 /** Indice simboli condiviso tra tutti i provider */
 const symbolIndex = new SymbolIndex();
 
@@ -535,6 +536,79 @@ class CobolReferenceProvider {
         }
 
         return locations;
+    }
+}
+
+// ============================================================================
+// DocumentHighlightProvider ? Evidenzia le occorrenze del simbolo sotto il cursore
+// ============================================================================
+
+class CobolDocumentHighlightProvider {
+    /**
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Position} position
+     * @returns {vscode.DocumentHighlight[]}
+     */
+    provideDocumentHighlights(document, position) {
+        const cfg = vscode.workspace.getConfiguration('cobolLens');
+        if (!cfg.get('documentHighlight.enabled', true)) return [];
+
+        const line = document.lineAt(position.line).text;
+        if (isComment(line)) return [];
+
+        const wordInfo = getWordAtPosition(document, position);
+        if (!wordInfo) return [];
+
+        const lines = document.getText().split(/\r?\n/);
+        const occurrences = findWordOccurrences(lines, wordInfo.word.toUpperCase());
+        if (occurrences.length === 0) return [];
+
+        // Riga di definizione (solo se il simbolo e' definito nel documento
+        // corrente): la sua occorrenza viene evidenziata come "Write".
+        const defSymbol = symbolIndex.findSymbol(document, wordInfo.word);
+        const defLine = (defSymbol && defSymbol.filePath === document.uri.fsPath)
+            ? defSymbol.line : -1;
+
+        const width = wordInfo.word.length;
+        return occurrences.map(o => new vscode.DocumentHighlight(
+            new vscode.Range(o.line, o.start, o.line, o.start + width),
+            o.line === defLine
+                ? vscode.DocumentHighlightKind.Write
+                : vscode.DocumentHighlightKind.Read));
+    }
+}
+
+// ============================================================================
+// SignatureHelpProvider ? Firme delle funzioni intrinseche COBOL
+// ============================================================================
+
+class CobolSignatureHelpProvider {
+    /**
+     * @param {vscode.TextDocument} document
+     * @param {vscode.Position} position
+     * @returns {vscode.SignatureHelp | null}
+     */
+    provideSignatureHelp(document, position) {
+        const cfg = vscode.workspace.getConfiguration('cobolLens');
+        if (!cfg.get('signatureHelp.enabled', true)) return null;
+
+        const line = document.lineAt(position.line).text;
+        if (isComment(line)) return null;
+
+        const sig = getSignatureAt(line, position.character);
+        if (!sig) return null;
+
+        const label = sig.params.length
+            ? `FUNCTION ${sig.name}(${sig.params.join(', ')})`
+            : `FUNCTION ${sig.name}`;
+        const info = new vscode.SignatureInformation(label, new vscode.MarkdownString(sig.doc));
+        info.parameters = sig.params.map(p => new vscode.ParameterInformation(p));
+
+        const help = new vscode.SignatureHelp();
+        help.signatures = [info];
+        help.activeSignature = 0;
+        help.activeParameter = sig.activeParameter;
+        return help;
     }
 }
 
@@ -2069,6 +2143,8 @@ function activate(context) {
     context.subscriptions.push(
         vscode.languages.registerDefinitionProvider(COBOL_SELECTOR, new CobolDefinitionProvider()),
         vscode.languages.registerReferenceProvider(COBOL_SELECTOR, new CobolReferenceProvider()),
+        vscode.languages.registerDocumentHighlightProvider(COBOL_SELECTOR, new CobolDocumentHighlightProvider()),
+        vscode.languages.registerSignatureHelpProvider(COBOL_SELECTOR, new CobolSignatureHelpProvider(), '(', ','),
         vscode.languages.registerCodeLensProvider(COBOL_SELECTOR, new CobolCodeLensProvider()),
         vscode.languages.registerCallHierarchyProvider(COBOL_SELECTOR, new CobolCallHierarchyProvider()),
         vscode.languages.registerRenameProvider(COBOL_SELECTOR, new CobolRenameProvider()),

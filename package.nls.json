@@ -24,6 +24,8 @@
   "cobolLens.workspaceSymbols.enabled.description": "Enable 'Go to Symbol in Workspace' (Ctrl+T) to search variables, paragraphs and sections across every COBOL file in the workspace. On by default.",
   "cobolLens.codeLens.enabled.description": "Show a reference count (CodeLens) above each paragraph and section definition; click it to peek the references. Off by default.",
   "cobolLens.callHierarchy.enabled.description": "Enable Call Hierarchy (Show Call Hierarchy) for paragraphs and sections, tracking PERFORM and GO TO relationships within the file. On by default.",
+  "cobolLens.documentHighlight.enabled.description": "Highlight every occurrence of the symbol under the cursor in the current file. On by default.",
+  "cobolLens.signatureHelp.enabled.description": "Show parameter hints (Signature Help) for COBOL intrinsic functions while typing FUNCTION calls. On by default.",
   "cobolLens.format.enabled.description": "Enable the fixed-format formatter (Format Document / Format Selection): DIVISION/SECTION/paragraphs and 01/77 levels in Area A (col 8), 3-space hierarchical indentation for data and PROCEDURE blocks, exactly one space between level number and name, and trailing-space trimming. Comments and the identification area (col 73+) are left untouched. Off by default.",
   "cobolLens.inlayHints.enabled.description": "Show inlay hints with the byte position (1-based, from the start of the 01 record) and the size in bytes of each DATA DIVISION field, computed from its PICTURE/USAGE/OCCURS. On by default.",
   "cobolLens.inlayHints.display.description": "Where to show the field byte position and size: 'inline' as inlay hints at the end of the line (default), or 'hover' inside the symbol hover tooltip (less intrusive).",

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.9.0] - 2026-07-13
+
+### Added
+- Document Highlight: placing the cursor on a symbol (variable, paragraph or section) now highlights every occurrence of that name in the current file. The definition, when it is in the same file, is marked as a write occurrence. Comments and string literals are ignored. Controlled by the new `cobolLens.documentHighlight.enabled` setting (on by default).
+- Signature Help for COBOL intrinsic functions: while typing a `FUNCTION name(...)` call the editor shows the parameter hints for the function, with the current argument highlighted (it follows the commas, handles nested calls, and ignores commas inside string literals). Covers a curated set of common Micro Focus / Rocket intrinsic functions (`LENGTH`, `NUMVAL`, `NUMVAL-C`, `MOD`, `REM`, `MAX`, `MIN`, `SUM`, `MEAN`, `MEDIAN`, `SQRT`, `ABS`, `INTEGER`, `TRIM`, `UPPER-CASE`, `LOWER-CASE`, `REVERSE`, date/time and trigonometric functions, and more). Controlled by the new `cobolLens.signatureHelp.enabled` setting (on by default).
+
 ## [1.8.0] - 2026-07-13
 
 ### Added
