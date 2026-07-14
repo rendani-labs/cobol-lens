@@ -4,7 +4,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
-const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath, parseValueClause, findConditionNames, findConditionParent } = require('./cobol-parser');
+const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath, parseValueClause, findConditionNames, findConditionParent, expandCopyText } = require('./cobol-parser');
 const { SymbolIndex } = require('./symbol-index');
 const { runLinter } = require('./cobol-linter');
 const { computeFieldSize, collectLayout, computeFieldInfoAt } = require('./cobol-layout');
@@ -446,9 +446,58 @@ class CobolCopyLinkProvider {
 }
 
 // ============================================================================
-// DocumentSymbolProvider ? Outline nel pannello laterale
+// TextDocumentContentProvider ? Anteprima con COPY espanse (sola lettura)
 // ============================================================================
 
+const EXPAND_SCHEME = 'cobol-lens-expand';
+
+class CobolExpandContentProvider {
+    constructor() {
+        this._onDidChange = new vscode.EventEmitter();
+        /** @type {vscode.Event<vscode.Uri>} */
+        this.onDidChange = this._onDidChange.event;
+    }
+
+    /**
+     * @param {vscode.Uri} uri - il path originale e' nel query (encoded)
+     * @returns {string}
+     */
+    provideTextDocumentContent(uri) {
+        const origPath = decodeURIComponent(uri.query);
+        let content;
+        try {
+            content = fs.readFileSync(origPath, 'utf-8');
+        } catch (e) {
+            return '      * COBOL Lens: ' + msg('expandReadError') + ' ' + origPath;
+        }
+
+        const origUri = vscode.Uri.file(origPath);
+        const folder = vscode.workspace.getWorkspaceFolder(origUri);
+        let wsRoot = folder ? folder.uri.fsPath : undefined;
+        if (!wsRoot) {
+            const folders = vscode.workspace.workspaceFolders;
+            wsRoot = folders && folders.length ? folders[0].uri.fsPath : path.dirname(origPath);
+        }
+
+        const expanded = expandCopyText(content.split(/\r?\n/), wsRoot, {});
+        const header = [
+            '      *================================================================',
+            '      * ' + msg('expandHeader'),
+            '      * ' + msg('expandSource') + ': ' + path.basename(origPath),
+            '      *================================================================'
+        ];
+        return header.concat(expanded).join('\n');
+    }
+
+    /** @param {vscode.Uri} uri */
+    refresh(uri) {
+        this._onDidChange.fire(uri);
+    }
+}
+
+// ============================================================================
+// DocumentSymbolProvider ? Outline nel pannello laterale
+// ============================================================================
 class CobolDocumentSymbolProvider {
     /**
      * @param {vscode.TextDocument} document
@@ -2298,6 +2347,34 @@ function activate(context) {
                 return;
             }
             showRecordLayout();
+        })
+    );
+
+    // Anteprima con COPY espanse (documento virtuale in sola lettura).
+    const expandProvider = new CobolExpandContentProvider();
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider(EXPAND_SCHEME, expandProvider),
+        vscode.commands.registerCommand('cobolLens.expandCopybook', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || !isCobolDocument(editor.document)) {
+                vscode.window.showInformationMessage(msg('expandNotCobol'));
+                return;
+            }
+            const origPath = editor.document.uri.fsPath;
+            if (!origPath) {
+                vscode.window.showInformationMessage(msg('expandNotCobol'));
+                return;
+            }
+            const base = path.basename(origPath);
+            const uri = vscode.Uri.from({
+                scheme: EXPAND_SCHEME,
+                path: '/' + base + '.expanded.cbl',
+                query: encodeURIComponent(origPath)
+            });
+            expandProvider.refresh(uri);
+            const doc = await vscode.workspace.openTextDocument(uri);
+            await vscode.languages.setTextDocumentLanguage(doc, 'cobol');
+            await vscode.window.showTextDocument(doc, { preview: false });
         })
     );
 

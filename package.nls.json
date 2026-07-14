@@ -36,6 +36,7 @@
   "cobolLens.recordLayout.enabled.description": "Enable the 'COBOL Lens: Show Record Layout' command, which opens a panel listing each DATA DIVISION record with the byte start/end offset and size of every field. Off by default.",
   "cobolLens.snippets.enabled.description": "Provide COBOL code snippets (IF, EVALUATE, PERFORM, CALL, parametric PIC clauses, program skeleton, etc.) as completion items. On by default.",
   "cobolLens.command.showRecordLayout.title": "Show Record Layout",
+  "cobolLens.command.expandCopybook.title": "Expand Copybooks (Preview)",
   "cobolLens.command.formatDocument.title": "COBOL Lens: Format Document",
   "cobolLens.command.formatSelection.title": "COBOL Lens: Format Selection",
   "cobolLens.command.toggleComment.title": "COBOL Lens: Toggle Comment",

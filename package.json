@@ -103,6 +103,11 @@
         "category": "COBOL Lens"
       },
       {
+        "command": "cobolLens.expandCopybook",
+        "title": "%cobolLens.command.expandCopybook.title%",
+        "category": "COBOL Lens"
+      },
+      {
         "command": "cobolLens.formatDocument",
         "title": "%cobolLens.command.formatDocument.title%"
       },
@@ -119,6 +124,10 @@
       "commandPalette": [
         {
           "command": "cobolLens.showRecordLayout",
+          "when": "editorLangId == cobol"
+        },
+        {
+          "command": "cobolLens.expandCopybook",
           "when": "editorLangId == cobol"
         },
         {
@@ -154,6 +163,11 @@
           "command": "cobolLens.showRecordLayout",
           "when": "editorLangId == cobol",
           "group": "navigation@9"
+        },
+        {
+          "command": "cobolLens.expandCopybook",
+          "when": "editorLangId == cobol",
+          "group": "navigation@10"
         }
       ]
     },

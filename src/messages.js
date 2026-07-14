@@ -378,6 +378,22 @@ const MESSAGES = {
         it: () => 'Apri un file COBOL per visualizzarne il layout dei record.',
         en: () => 'Open a COBOL file to view its record layout.',
     },
+    expandNotCobol: {
+        it: () => 'Apri un file COBOL salvato per espandere le copybook.',
+        en: () => 'Open a saved COBOL file to expand copybooks.',
+    },
+    expandReadError: {
+        it: () => 'Impossibile leggere il file',
+        en: () => 'Unable to read the file',
+    },
+    expandHeader: {
+        it: () => 'COBOL Lens - Anteprima con COPY espanse (sola lettura)',
+        en: () => 'COBOL Lens - Preview with COPY expanded (read-only)',
+    },
+    expandSource: {
+        it: () => 'Origine',
+        en: () => 'Source',
+    },
     recordLayoutEmpty: {
         it: () => 'Nessun record dati trovato nella DATA DIVISION.',
         en: () => 'No data records found in the DATA DIVISION.',

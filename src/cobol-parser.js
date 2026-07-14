@@ -500,6 +500,118 @@ function findConditionParent(lines, condLineIndex) {
     return undefined;
 }
 
+/**
+ * Effettua l'escape dei metacaratteri di una regexp.
+ * @param {string} s
+ * @returns {string}
+ */
+function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Applica le sostituzioni REPLACING (pseudo-testo) al testo di una copybook.
+ * Le righe di commento non vengono toccate.
+ * @param {string[]} lines
+ * @param {Array<{from: string, to: string}>} replacements
+ * @returns {string[]}
+ */
+function applyTextReplacements(lines, replacements) {
+    if (!replacements || replacements.length === 0) return lines;
+    return lines.map(line => {
+        if (isComment(line)) return line;
+        let result = line;
+        for (const r of replacements) {
+            if (!r.from) continue;
+            result = result.replace(new RegExp(escapeRegExp(r.from), 'gi'), r.to);
+        }
+        return result;
+    });
+}
+
+/**
+ * Espande ricorsivamente le istruzioni COPY di un sorgente producendo il testo
+ * risultante (righe). Applica le clausole REPLACING al testo della copybook e
+ * previene la ricorsione infinita. Le COPY non risolvibili vengono lasciate
+ * invariate. Il lettore/risolutore sono iniettabili (per i test).
+ * @param {string[]} lines
+ * @param {string} workspaceRoot
+ * @param {object} [opts]
+ * @param {(name: string, root: string) => (string|undefined)} [opts.resolve]
+ * @param {(filePath: string) => string} [opts.read]
+ * @param {boolean} [opts.markers] - inserisci commenti marcatori (default true)
+ * @param {Set<string>} [opts.chain] - copybook in corso di espansione (anti-ricorsione)
+ * @returns {string[]}
+ */
+function expandCopyText(lines, workspaceRoot, opts) {
+    opts = opts || {};
+    const resolve = opts.resolve || resolveCopybookPath;
+    const read = opts.read || ((p) => fs.readFileSync(p, 'utf-8'));
+    const markers = opts.markers !== false;
+    const chain = opts.chain || new Set();
+    /** @type {string[]} */
+    const out = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (isComment(line)) { out.push(line); continue; }
+
+        const copyMatch = COPY_REGEX.exec(line);
+        if (!copyMatch) { out.push(line); continue; }
+
+        const copyName = copyMatch[1];
+        const key = copyName.toUpperCase();
+        const { replacements, endLine } = extractReplacements(lines, i);
+        const resolved = resolve(copyName, workspaceRoot);
+
+        // Codice che precede la COPY sulla stessa riga (es. "01 WS-OUTER. COPY X.")
+        // va preservato per non perderlo nell'espansione.
+        const prefix = line.substring(0, copyMatch.index).replace(/\s+$/, '');
+        const hasPrefix = prefix.trim().length > 0;
+
+        // COPY non risolvibile o ricorsiva: lascia le righe originali.
+        if (!resolved || chain.has(key)) {
+            for (let k = i; k <= endLine; k++) out.push(lines[k]);
+            if (markers) {
+                out.push('      * COBOL Lens: COPY ' + copyName +
+                    (chain.has(key) ? ' non espansa (ricorsione)' : ' non trovata'));
+            }
+            i = endLine;
+            continue;
+        }
+
+        let content;
+        try {
+            content = read(resolved);
+        } catch (e) {
+            for (let k = i; k <= endLine; k++) out.push(lines[k]);
+            i = endLine;
+            continue;
+        }
+
+        const childChain = new Set(chain);
+        childChain.add(key);
+        let subLines = expandCopyText(content.split(/\r?\n/), workspaceRoot, {
+            resolve, read, markers, chain: childChain
+        });
+        subLines = applyTextReplacements(subLines, replacements);
+
+        if (hasPrefix) out.push(prefix);
+        if (markers) {
+            out.push('      * >>> COPY ' + copyName +
+                (replacements.length ? ' REPLACING' : '') + ' (COBOL Lens)');
+        }
+        for (const s of subLines) out.push(s);
+        if (markers) {
+            out.push('      * <<< END COPY ' + copyName);
+        }
+
+        i = endLine;
+    }
+
+    return out;
+}
+
 module.exports = {
     parseCobolSymbols,
     resolveCopybookPath,
@@ -509,6 +621,8 @@ module.exports = {
     parseValueClause,
     findConditionNames,
     findConditionParent,
+    expandCopyText,
+    applyTextReplacements,
     isComment,
     COPY_REGEX,
     REPLACING_PAIR_REGEX,

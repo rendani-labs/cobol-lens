@@ -45,6 +45,7 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Toggle COBOL Comment** | `Ctrl+K Ctrl+/` (`oem_2` key; on an Italian keyboard this key is the one labelled with the u-grave accent) | Comment/uncomment the selected lines (or cursor line): `*` in column 7 for fixed format, inline `*>` for variable/free |
 | **Field Inlay Hints** | Automatic | Show the byte position and size of each DATA DIVISION field at end of line (computed from PIC/USAGE/OCCURS; on by default) |
 | **Record Layout** | Context menu / Command Palette | Show a panel with the byte start/end offset and size of every field in each DATA DIVISION record (off by default) |
+| **Expand Copybooks (Preview)** | Context menu / Command Palette | Open a read-only preview with every `COPY` expanded inline, including nested copybooks and `COPY ... REPLACING` |
 | **Code Snippets** | IntelliSense | Templates for IF/EVALUATE/PERFORM/CALL, parametric PIC clauses, FD/SELECT and a full program skeleton (on by default) |
 | **Code Folding** | `Ctrl+Shift+[` | Collapse DIVISIONs, SECTIONs, and paragraphs |
 | **Outline View** | Sidebar | Browse the full structure of your program: variables, paragraphs, sections |
