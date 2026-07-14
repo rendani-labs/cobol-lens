@@ -97,6 +97,22 @@ function isSectionHeader(upper) {
 }
 
 /**
+ * Indica se la riga appare come una voce della DATA DIVISION: numero di livello
+ * (01-49, 66, 77, 88), voce FD/SD/RD/CD, oppure continuazione di una clausola
+ * dati gia' aperta. Serve a formattare correttamente i copybook che contengono
+ * solo il tracciato dati, privi dell'intestazione DATA DIVISION.
+ * @param {string} upper - testo codice in MAIUSCOLO (senza letterali)
+ * @param {string} firstWord
+ * @param {boolean} dataPending - una clausola dati e' rimasta aperta dalla riga precedente
+ * @returns {boolean}
+ */
+function looksLikeDataItem(upper, firstWord, dataPending) {
+    if (/^\d{1,2}\b/.test(upper)) return true;
+    if (/^(FD|SD|RD|CD)$/.test(firstWord)) return true;
+    return dataPending;
+}
+
+/**
  * Scompone una riga fixed nelle sue aree.
  * @param {string} raw
  * @returns {{ seq: string, indicator: string, code: string, idArea: string }}
@@ -391,6 +407,18 @@ function computeFormatted(lines, procDefLines) {
                 continue;
             }
             out[i] = formatProcedureLine(seq, idArea, codeText, upper, procStack, procState);
+            continue;
+        }
+
+        // Copybook senza intestazioni di DIVISION: se la riga e' una voce dati
+        // (numero di livello / FD-SD / continuazione di clausola aperta), la si
+        // formatta come nella DATA DIVISION (indentazione gerarchica + PIC a
+        // colonna 45), altrimenti si lascia in Area A.
+        if (division === '' && looksLikeDataItem(upper, firstWord, dataPending)) {
+            out[i] = formatDataLine(seq, idArea, codeText, upper, firstWord,
+                dataStack, () => dataPending, v => { dataPending = v; },
+                () => dataContIndent, v => { dataContIndent = v; },
+                () => dataValueCol, v => { dataValueCol = v; });
             continue;
         }
 

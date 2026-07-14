@@ -9,6 +9,9 @@
   - `cobolLens.programExtensions`: extensions to try when resolving called programs (empty string = no extension).
 - Signature Help now recognizes the full set of COBOL intrinsic functions (over 90), covering the ISO 2014/2023 standard and Micro Focus / Rocket extensions: formatted date/time (`FORMATTED-DATE`, `FORMATTED-DATETIME`, `FORMATTED-TIME`, `FORMATTED-CURRENT-DATE`, `INTEGER-OF-FORMATTED-DATE`, `SECONDS-FROM-FORMATTED-TIME`, `SECONDS-PAST-MIDNIGHT`), financial (`ANNUITY`, `PRESENT-VALUE`), statistics (`STANDARD-DEVIATION`, `VARIANCE`, `MIDRANGE`), math constants (`PI`, `E`), sign/parts (`SIGN`, `FRACTION-PART`, `HIGHEST-ALGEBRAIC`, `LOWEST-ALGEBRAIC`), exception (`EXCEPTION-FILE`, `EXCEPTION-LOCATION`, `EXCEPTION-STATEMENT`, `EXCEPTION-STATUS`), validation (`TEST-NUMVAL`, `TEST-NUMVAL-C`, `TEST-NUMVAL-F`, `TEST-DATE-YYYYMMDD`, `TEST-DAY-YYYYDDD`, `TEST-FORMATTED-DATETIME`), locale (`LOCALE-COMPARE`, `LOCALE-DATE`, `LOCALE-TIME`, `LOCALE-TIME-FROM-SECONDS`), national/Unicode (`NATIONAL-OF`, `DISPLAY-OF`, `CHAR-NATIONAL`, `ULENGTH`, `UPOS`, `USUBSTR`, `UVALID`, `UWIDTH`, `USUPPLEMENTARY`), and more (`CONCATENATE`, `SUBSTITUTE`, `BYTE-LENGTH`, `STORED-CHAR-LENGTH`, `NUMVAL-F`, `COMBINED-DATETIME`, `STANDARD-COMPARE`, `BOOLEAN-OF-INTEGER`, `INTEGER-OF-BOOLEAN`).
 
+### Fixed
+- Formatter on copybooks: a copybook that contains only a data layout (level numbers `01/05/...` without the `DATA DIVISION` header) is now indented hierarchically with the `PIC` clauses aligned, instead of being flattened to Area A with misplaced `PIC` columns. Any line that starts with a level number (or `FD/SD/RD/CD`, or continues an open data clause) is now treated as a data item even outside an explicit `DATA DIVISION`.
+
 ## [1.9.0] - 2026-07-13
 
 ### Added
