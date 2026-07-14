@@ -373,9 +373,68 @@ function resolveCopybookPath(copyName, workspaceRoot) {
     return undefined;
 }
 
+/**
+ * Analizza una riga alla ricerca di una CALL a un programma.
+ * Riconosce sia CALL 'NOME' / "NOME" (letterale) sia CALL identificatore
+ * (variabile). Restituisce il nome grezzo, la posizione sulla riga e se il
+ * bersaglio e' un letterale.
+ * @param {string} line
+ * @returns {{ name: string, nameStart: number, nameEnd: number, isLiteral: boolean } | undefined}
+ */
+function parseCallStatement(line) {
+    if (isComment(line)) return undefined;
+
+    // CALL 'NOME' oppure CALL "NOME"
+    const litRe = /\bCALL\s+(['"])([^'"]+)\1/i;
+    const mLit = litRe.exec(line);
+    if (mLit) {
+        // Posizione del nome: fine del match meno la lunghezza del nome e la
+        // virgoletta di chiusura.
+        const nameStart = mLit.index + mLit[0].length - mLit[2].length - 1;
+        return { name: mLit[2], nameStart, nameEnd: nameStart + mLit[2].length, isLiteral: true };
+    }
+
+    // CALL identificatore (variabile che contiene il nome del programma)
+    const idRe = /\bCALL\s+([A-Za-z][\w-]*)/i;
+    const mId = idRe.exec(line);
+    if (mId) {
+        const nameStart = mId.index + mId[0].length - mId[1].length;
+        return { name: mId[1], nameStart, nameEnd: nameStart + mId[1].length, isLiteral: false };
+    }
+
+    return undefined;
+}
+
+/**
+ * Risolve il percorso del file sorgente di un programma chiamato via CALL,
+ * cercandolo nelle cartelle configurate (cobolLens.programFolders) con le
+ * estensioni configurate (cobolLens.programExtensions).
+ * @param {string} programName
+ * @param {string} workspaceRoot
+ * @returns {string | undefined}
+ */
+function resolveProgramPath(programName, workspaceRoot) {
+    const config = vscode.workspace.getConfiguration('cobolLens');
+    const folders = config.get('programFolders', ['', 'src', 'Source', 'source', 'cbl', 'CBL', 'Cobol', 'COBOL']);
+    const extensions = config.get('programExtensions', ['.CBL', '.cbl', '.cob', '.COB', '.cobol', '.COBOL', '']);
+
+    for (const folder of folders) {
+        const folderPath = folder ? path.join(workspaceRoot, folder) : workspaceRoot;
+        for (const ext of extensions) {
+            const filePath = path.join(folderPath, programName + ext);
+            if (fs.existsSync(filePath)) {
+                return filePath;
+            }
+        }
+    }
+    return undefined;
+}
+
 module.exports = {
     parseCobolSymbols,
     resolveCopybookPath,
+    parseCallStatement,
+    resolveProgramPath,
     isComment,
     COPY_REGEX,
     REPLACING_PAIR_REGEX,

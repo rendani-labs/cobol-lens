@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.0] - 2026-07-14
+
+### Added
+- Program-to-program navigation on `CALL` statements: Go to Definition (`F12` / `Ctrl+Click`) and clickable links now resolve the called program to its source file in the workspace. Both literal calls (`CALL 'PROGNAME'` / `CALL "PROGNAME"`) and indirect calls through a data item are supported; for an indirect call the target variable is resolved to its `VALUE` literal when available. Comment lines and `END-CALL` are ignored, and an unresolved `CALL variable` still falls back to jumping to the variable definition.
+- Two new settings control the lookup, mirroring the copybook resolution:
+  - `cobolLens.programFolders`: folders (relative to the workspace root) to search for called programs (empty string = workspace root).
+  - `cobolLens.programExtensions`: extensions to try when resolving called programs (empty string = no extension).
+
 ## [1.9.0] - 2026-07-13
 
 ### Added

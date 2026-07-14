@@ -4,7 +4,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
-const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED } = require('./cobol-parser');
+const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath } = require('./cobol-parser');
 const { SymbolIndex } = require('./symbol-index');
 const { runLinter } = require('./cobol-linter');
 const { computeFieldSize, collectLayout, computeFieldInfoAt } = require('./cobol-layout');
@@ -122,6 +122,44 @@ function parseCopyFromLine(line) {
 }
 
 /**
+ * Se il nome e' un identificatore (variabile), risolve la sua clausola VALUE a
+ * un letterale stringa (es. 01 WS-PROG PIC X(8) VALUE 'PGMXYZ'), utile per i
+ * CALL indiretti. Restituisce il testo del letterale o undefined.
+ * @param {vscode.TextDocument} document
+ * @param {string} name
+ * @returns {string | undefined}
+ */
+function resolveIdentifierValueLiteral(document, name) {
+    const symbol = symbolIndex.findSymbol(document, name);
+    if (!symbol) return undefined;
+    const lines = getFileLines(document, symbol.filePath);
+    if (!lines || symbol.line >= lines.length) return undefined;
+    const defText = lines[symbol.line];
+    const vm = /VALUE\s+(?:IS\s+)?(['"])([^'"]+)\1/i.exec(defText);
+    return vm ? vm[2] : undefined;
+}
+
+/**
+ * Risolve il file sorgente del programma bersaglio di una CALL. Per i CALL
+ * letterali usa direttamente il nome; per i CALL a variabile prova a risolvere
+ * la VALUE della variabile a un letterale.
+ * @param {vscode.TextDocument} document
+ * @param {{ name: string, isLiteral: boolean }} callInfo
+ * @returns {string | undefined}
+ */
+function resolveCallProgramPath(document, callInfo) {
+    const { fsPath: wsRoot } = getWorkspaceRoot(document);
+    if (!wsRoot) return undefined;
+    let programName = callInfo.name;
+    if (!callInfo.isLiteral) {
+        const literal = resolveIdentifierValueLiteral(document, callInfo.name);
+        if (!literal) return undefined;
+        programName = literal;
+    }
+    return resolveProgramPath(programName, wsRoot);
+}
+
+/**
  * Trova le occorrenze "whole word" di un nome (case-insensitive) in un array
  * di righe, saltando i commenti e il contenuto dei letterali stringa.
  * Usato dal rename per non toccare keyword/sottostringhe o testo tra apici.
@@ -191,6 +229,18 @@ class CobolDefinitionProvider {
                 }
                 return undefined;
             }
+        }
+
+        // 1b. Prova CALL 'programma' / CALL variabile
+        const callInfo = parseCallStatement(line);
+        if (callInfo && position.character >= callInfo.nameStart && position.character <= callInfo.nameEnd) {
+            const resolvedProgram = resolveCallProgramPath(document, callInfo);
+            if (resolvedProgram) {
+                return new vscode.Location(vscode.Uri.file(resolvedProgram), new vscode.Position(0, 0));
+            }
+            // Letterale non risolto: nessuna definizione. Per una variabile,
+            // prosegue verso la definizione della variabile stessa.
+            if (callInfo.isLiteral) return undefined;
         }
 
         // 2. Prova simbolo (variabile, paragrafo, sezione)
@@ -340,18 +390,32 @@ class CobolCopyLinkProvider {
             if (isComment(line)) continue;
 
             const copyInfo = parseCopyFromLine(line);
-            if (!copyInfo) continue;
+            if (copyInfo) {
+                const resolved = resolveCopybookPath(copyInfo.copyName, wsRoot);
+                if (resolved) {
+                    const range = new vscode.Range(
+                        i, copyInfo.nameStart,
+                        i, copyInfo.nameStart + copyInfo.copyName.length
+                    );
+                    const link = new vscode.DocumentLink(range, vscode.Uri.file(resolved));
+                    link.tooltip = `Apri copybook: ${path.basename(resolved)}`;
+                    links.push(link);
+                }
+                continue;
+            }
 
-            const resolved = resolveCopybookPath(copyInfo.copyName, wsRoot);
-            if (!resolved) continue;
-
-            const range = new vscode.Range(
-                i, copyInfo.nameStart,
-                i, copyInfo.nameStart + copyInfo.copyName.length
-            );
-            const link = new vscode.DocumentLink(range, vscode.Uri.file(resolved));
-            link.tooltip = `Apri copybook: ${path.basename(resolved)}`;
-            links.push(link);
+            // Link ai CALL verso un programma risolvibile nel workspace.
+            const callInfo = parseCallStatement(line);
+            if (callInfo) {
+                const resolvedProgram = resolveCallProgramPath(document, callInfo);
+                if (resolvedProgram) {
+                    const range = new vscode.Range(
+                        i, callInfo.nameStart, i, callInfo.nameEnd);
+                    const link = new vscode.DocumentLink(range, vscode.Uri.file(resolvedProgram));
+                    link.tooltip = `Apri programma: ${path.basename(resolvedProgram)}`;
+                    links.push(link);
+                }
+            }
         }
 
         return links;

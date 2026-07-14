@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 47-rule integrated linter. No compiler required.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -232,6 +232,33 @@
             ".copy"
           ],
           "description": "%cobolLens.copyExtensions.description%"
+        },
+        "cobolLens.programFolders": {
+          "type": "array",
+          "default": [
+            "",
+            "src",
+            "Source",
+            "source",
+            "cbl",
+            "CBL",
+            "Cobol",
+            "COBOL"
+          ],
+          "description": "%cobolLens.programFolders.description%"
+        },
+        "cobolLens.programExtensions": {
+          "type": "array",
+          "default": [
+            ".CBL",
+            ".cbl",
+            ".cob",
+            ".COB",
+            ".cobol",
+            ".COBOL",
+            ""
+          ],
+          "description": "%cobolLens.programExtensions.description%"
         },
         "cobolLens.ignoredCopybooks": {
           "type": "array",

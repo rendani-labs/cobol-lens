@@ -28,6 +28,7 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | Feature | Shortcut | Description |
 |---------|----------|-------------|
 | **Go to Definition** | `F12` / `Ctrl+Click` | Jump to copybook files, variable definitions, paragraphs, and sections |
+| **Go to Called Program** | `F12` / `Ctrl+Click` | Jump from a `CALL 'PROGNAME'` (or a `CALL` through a data item with a known `VALUE`) to the called program's source file |
 | **Peek Definition** | `Alt+F12` | Inline preview of definitions without leaving your current file |
 | **Find All References** | `Shift+F12` | Locate every usage of a variable, paragraph, or section |
 | **Highlight Occurrences** | Cursor on a symbol | Automatically highlight every occurrence of the symbol under the cursor in the current file (the definition is marked as a write) |
@@ -160,6 +161,8 @@ Add these settings to your workspace `.vscode/settings.json`:
 | `cobolLens.callHierarchy.enabled` | `true` | Enable Call Hierarchy (PERFORM/GO TO) for paragraphs and sections |
 | `cobolLens.documentHighlight.enabled` | `true` | Highlight every occurrence of the symbol under the cursor in the current file |
 | `cobolLens.signatureHelp.enabled` | `true` | Show parameter hints for COBOL intrinsic functions while typing FUNCTION calls |
+| `cobolLens.programFolders` | `["", "src", "Source", ...]` | Folders (relative to the workspace root) searched to resolve programs called via `CALL` |
+| `cobolLens.programExtensions` | `[".CBL", ".cbl", ...]` | Extensions to try when resolving called programs |
 | `cobolLens.format.enabled` | `false` | Enable the fixed-format formatter (Format Document / Format Selection) |
 | `cobolLens.inlayHints.enabled` | `true` | Show inlay hints with byte position and size of DATA DIVISION fields |
 | `cobolLens.inlayHints.display` | `inline` | Where to show field position/size: `inline` (inlay hints) or `hover` (symbol tooltip, less intrusive) |

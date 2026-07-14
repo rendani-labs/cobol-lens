@@ -1,6 +1,8 @@
 {
   "cobolLens.copyFolders.description": "Cartelle in cui cercare le copybook (relative al workspace root)",
   "cobolLens.copyExtensions.description": "Estensioni da provare per risolvere le copybook (stringa vuota = nessuna estensione)",
+  "cobolLens.programFolders.description": "Cartelle (relative alla radice del workspace) in cui cercare i programmi chiamati via CALL (stringa vuota = radice del workspace)",
+  "cobolLens.programExtensions.description": "Estensioni da provare per risolvere i programmi chiamati (stringa vuota = nessuna estensione)",
   "cobolLens.ignoredCopybooks.description": "Elenco di copybook da escludere dalla diagnostica bloccante sulle COPY non risolte",
   "cobolLens.language.description": "Lingua dei messaggi diagnostici del linter (auto = rileva dalla lingua di VS Code)",
   "cobolLens.language.auto": "Rileva dalla lingua di visualizzazione di VS Code",

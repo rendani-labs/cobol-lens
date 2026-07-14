@@ -1,6 +1,8 @@
 {
   "cobolLens.copyFolders.description": "Folders to search for copybooks (relative to the workspace root)",
   "cobolLens.copyExtensions.description": "Extensions to try when resolving copybooks (empty string = no extension)",
+  "cobolLens.programFolders.description": "Folders (relative to the workspace root) searched to resolve programs called via CALL (empty string = workspace root)",
+  "cobolLens.programExtensions.description": "Extensions to try when resolving called programs (empty string = no extension)",
   "cobolLens.ignoredCopybooks.description": "List of copybooks to exclude from the blocking diagnostic on unresolved COPY statements",
   "cobolLens.language.description": "Language for linter diagnostic messages (auto = detect from VS Code locale)",
   "cobolLens.language.auto": "Detect from VS Code display language",
