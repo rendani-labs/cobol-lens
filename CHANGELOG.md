@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.11.0] - 2026-07-14
+
+### Added
+- Hover for condition names (`88` level): hovering a level-88 item now shows the parent data item it qualifies and its `VALUE`(s), including value lists and `THRU` ranges. Conversely, hovering a data item that owns condition names lists them with their values, so you can see all the `88` flags of a field at a glance.
+
 ## [1.10.0] - 2026-07-14
 
 ### Added

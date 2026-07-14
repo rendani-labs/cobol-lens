@@ -282,6 +282,14 @@ const MESSAGES = {
         it: () => 'Posizione (byte)',
         en: () => 'Position (byte)',
     },
+    hoverConditionOf: {
+        it: () => 'Condizione su',
+        en: () => 'Condition on',
+    },
+    hoverConditions: {
+        it: () => 'Condition-name (88)',
+        en: () => 'Condition names (88)',
+    },
     hoverOpenCopybook: {
         it: () => 'Apri copybook',
         en: () => 'Open copybook',

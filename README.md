@@ -34,7 +34,7 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Highlight Occurrences** | Cursor on a symbol | Automatically highlight every occurrence of the symbol under the cursor in the current file (the definition is marked as a write) |
 | **Signature Help** | Type `FUNCTION name(` | Parameter hints for common COBOL intrinsic functions, with the current argument highlighted (follows commas and nested calls) |
 | **Rename Symbol** | `F2` | Rename a variable, paragraph, or section across the whole program (and optionally inside copybooks) |
-| **Hover Information** | Mouse hover | See type, level, source file, definition line, and the size in bytes (for groups, the total area size = sum of sub-fields) for any symbol |
+| **Hover Information** | Mouse hover | See type, level, source file, definition line, and the size in bytes (for groups, the total area size = sum of sub-fields) for any symbol; for `88` items shows the parent field and its `VALUE`(s), and for a field lists its condition names |
 | **Copybook Autocomplete** | Type `COPY ` | Auto-suggest copybook names from configured folders |
 | **Code Completion** | Type / `Ctrl+Space` | Suggest variables, paragraphs/sections (prioritized after `PERFORM`/`GO TO`) and common COBOL keywords |
 | **Go to Symbol in Workspace** | `Ctrl+T` | Fuzzy-search variables, paragraphs and sections across all COBOL files in the workspace |

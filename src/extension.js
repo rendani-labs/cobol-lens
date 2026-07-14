@@ -4,7 +4,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
-const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath } = require('./cobol-parser');
+const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath, parseValueClause, findConditionNames, findConditionParent } = require('./cobol-parser');
 const { SymbolIndex } = require('./symbol-index');
 const { runLinter } = require('./cobol-linter');
 const { computeFieldSize, collectLayout, computeFieldInfoAt } = require('./cobol-layout');
@@ -351,6 +351,29 @@ class CobolHoverProvider {
                         const info = computeFieldInfoAt(fileLines, sym.line, wsRoot);
                         if (info) {
                             content.appendMarkdown(`**${msg('hoverPosition')}:** ${info.offset + 1}\n\n`);
+                        }
+                    }
+
+                    // Condition-name (88): mostra il campo padre e il/i VALUE.
+                    if (sym.level === 88) {
+                        const parent = findConditionParent(fileLines, sym.line);
+                        if (parent) {
+                            content.appendMarkdown(`**${msg('hoverConditionOf')}:** \`${parent.name}\`\n\n`);
+                        }
+                        const val = parseValueClause(sym.lineText || fileLines[sym.line] || '');
+                        if (val) {
+                            content.appendMarkdown(`**VALUE:** \`${val}\`\n\n`);
+                        }
+                    } else {
+                        // Campo con condition-name subordinati: elencali con i valori.
+                        const conds = findConditionNames(fileLines, sym.line);
+                        if (conds.length) {
+                            content.appendMarkdown(`**${msg('hoverConditions')}:**\n\n`);
+                            for (const c of conds) {
+                                content.appendMarkdown(
+                                    `- \`${c.name}\`${c.value ? ` = \`${c.value}\`` : ''}\n`);
+                            }
+                            content.appendMarkdown('\n');
                         }
                     }
                 }

@@ -430,11 +430,85 @@ function resolveProgramPath(programName, workspaceRoot) {
     return undefined;
 }
 
+/**
+ * Estrae livello e nome da una riga di definizione dati (fixed o variable).
+ * @param {string} lineText
+ * @returns {{ level: number, name: string } | undefined}
+ */
+function parseDataLevel(lineText) {
+    if (isComment(lineText)) return undefined;
+    const m = VARIABLE_DEF_REGEX.exec(lineText);
+    if (!m) return undefined;
+    return { level: parseInt(m[1], 10), name: m[2] };
+}
+
+/**
+ * Estrae la clausola VALUE/VALUES da una riga (tipicamente un condition-name
+ * 88). Restituisce il testo grezzo dei valori, senza la keyword e senza il
+ * punto finale di chiusura frase, oppure undefined se assente.
+ * @param {string} lineText
+ * @returns {string | undefined}
+ */
+function parseValueClause(lineText) {
+    if (isComment(lineText)) return undefined;
+    const m = /\bVALUES?\b\s+(?:IS\s+|ARE\s+)?([\s\S]+)$/i.exec(lineText);
+    if (!m) return undefined;
+    const v = m[1].trim().replace(/\.\s*$/, '').trim();
+    return v || undefined;
+}
+
+/**
+ * Trova i condition-name (livello 88) immediatamente subordinati a una voce
+ * dati elementare.
+ * @param {string[]} lines
+ * @param {number} dataLineIndex - indice 0-based della voce dati
+ * @returns {{ name: string, value: (string|undefined), line: number }[]}
+ */
+function findConditionNames(lines, dataLineIndex) {
+    const parent = parseDataLevel(lines[dataLineIndex] || '');
+    if (!parent || parent.level === 88) return [];
+    const result = [];
+    for (let i = dataLineIndex + 1; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isComment(raw) || !raw || !raw.trim()) continue;
+        const info = parseDataLevel(raw);
+        if (!info) continue; // riga di continuazione di clausola: la si salta
+        if (info.level === 88) {
+            result.push({ name: info.name, value: parseValueClause(raw), line: i });
+        } else {
+            break; // primo elemento non-88: gli 88 seguono direttamente il campo
+        }
+    }
+    return result;
+}
+
+/**
+ * Per un condition-name (88), trova la voce dati padre (il campo elementare che
+ * lo precede immediatamente).
+ * @param {string[]} lines
+ * @param {number} condLineIndex - indice 0-based della riga 88
+ * @returns {{ name: string, level: number, line: number } | undefined}
+ */
+function findConditionParent(lines, condLineIndex) {
+    for (let i = condLineIndex - 1; i >= 0; i--) {
+        const raw = lines[i];
+        if (isComment(raw) || !raw || !raw.trim()) continue;
+        const info = parseDataLevel(raw);
+        if (!info) continue;
+        if (info.level !== 88) return { name: info.name, level: info.level, line: i };
+    }
+    return undefined;
+}
+
 module.exports = {
     parseCobolSymbols,
     resolveCopybookPath,
     parseCallStatement,
     resolveProgramPath,
+    parseDataLevel,
+    parseValueClause,
+    findConditionNames,
+    findConditionParent,
     isComment,
     COPY_REGEX,
     REPLACING_PAIR_REGEX,
