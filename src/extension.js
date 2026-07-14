@@ -4,7 +4,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
-const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath, parseValueClause, findConditionNames, findConditionParent, expandCopyText } = require('./cobol-parser');
+const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath, parseValueClause, findConditionNames, findConditionParent, expandCopyText, findExecBlocks } = require('./cobol-parser');
 const { SymbolIndex } = require('./symbol-index');
 const { runLinter } = require('./cobol-linter');
 const { computeFieldSize, collectLayout, computeFieldInfoAt } = require('./cobol-layout');
@@ -323,6 +323,13 @@ class CobolHoverProvider {
         if (symbols.length === 0) return undefined;
 
         const content = new vscode.MarkdownString();
+
+        // Host variable in un blocco EXEC SQL/CICS: il token e' preceduto da ':'.
+        if (wordInfo.range.start.character > 0
+            && line.charAt(wordInfo.range.start.character - 1) === ':') {
+            content.appendMarkdown(`**${msg('hoverHostVar')}**\n\n`);
+        }
+
         for (const sym of symbols) {
             const typeLabel = sym.type === 'variable' ? msg('hoverVariable', sym.level)
                 : sym.type === 'paragraph' ? msg('hoverParagraph')
@@ -1472,6 +1479,11 @@ class CobolFoldingProvider {
         const ranges = [];
         /** @type {{ line: number, type: string }[]} */
         const stack = [];
+
+        // Blocchi EXEC SQL/CICS/DLI ... END-EXEC (ripiegabili).
+        for (const b of findExecBlocks(document.getText().split(/\r?\n/))) {
+            ranges.push(new vscode.FoldingRange(b.start, b.end, vscode.FoldingRangeKind.Region));
+        }
 
         for (let i = 0; i < document.lineCount; i++) {
             const line = document.lineAt(i).text;

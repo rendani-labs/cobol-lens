@@ -508,7 +508,6 @@ function findConditionParent(lines, condLineIndex) {
 function escapeRegExp(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-
 /**
  * Applica le sostituzioni REPLACING (pseudo-testo) al testo di una copybook.
  * Le righe di commento non vengono toccate.
@@ -612,6 +611,34 @@ function expandCopyText(lines, workspaceRoot, opts) {
     return out;
 }
 
+/**
+ * Individua i blocchi EXEC SQL/CICS/DLI ... END-EXEC che si estendono su piu'
+ * righe fisiche. Restituisce gli intervalli [start, end] (0-based, inclusivi).
+ * I blocchi EXEC ... END-EXEC su una sola riga vengono ignorati (nulla da
+ * ripiegare). Righe vuote e commenti non interrompono il blocco.
+ * @param {string[]} lines
+ * @returns {{ start: number, end: number }[]}
+ */
+function findExecBlocks(lines) {
+    /** @type {{ start: number, end: number }[]} */
+    const blocks = [];
+    let start = -1;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line || isComment(line) || !line.trim()) continue;
+        const upper = line.toUpperCase();
+        if (start < 0) {
+            if (/\bEXEC\s+(SQL|CICS|DLI|DL1|ADS)\b/.test(upper) && !/\bEND-EXEC\b/.test(upper)) {
+                start = i;
+            }
+        } else if (/\bEND-EXEC\b/.test(upper)) {
+            if (i > start) blocks.push({ start, end: i });
+            start = -1;
+        }
+    }
+    return blocks;
+}
+
 module.exports = {
     parseCobolSymbols,
     resolveCopybookPath,
@@ -623,6 +650,7 @@ module.exports = {
     findConditionParent,
     expandCopyText,
     applyTextReplacements,
+    findExecBlocks,
     isComment,
     COPY_REGEX,
     REPLACING_PAIR_REGEX,

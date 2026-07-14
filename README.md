@@ -47,7 +47,7 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Record Layout** | Context menu / Command Palette | Show a panel with the byte start/end offset and size of every field in each DATA DIVISION record (off by default) |
 | **Expand Copybooks (Preview)** | Context menu / Command Palette | Open a read-only preview with every `COPY` expanded inline, including nested copybooks and `COPY ... REPLACING` |
 | **Code Snippets** | IntelliSense | Templates for IF/EVALUATE/PERFORM/CALL, parametric PIC clauses, FD/SELECT and a full program skeleton (on by default) |
-| **Code Folding** | `Ctrl+Shift+[` | Collapse DIVISIONs, SECTIONs, and paragraphs |
+| **Code Folding** | `Ctrl+Shift+[` | Collapse DIVISIONs, SECTIONs, paragraphs, and `EXEC SQL`/`EXEC CICS` blocks |
 | **Outline View** | Sidebar | Browse the full structure of your program: variables, paragraphs, sections |
 | **Missing Copybook Warning** | Automatic | Flags unresolved COPY statements in the Problems panel |
 | **COPY ... REPLACING** | Automatic | Full support for `==OLD== BY ==NEW==` replacements |

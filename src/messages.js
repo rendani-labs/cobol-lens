@@ -290,6 +290,10 @@ const MESSAGES = {
         it: () => 'Condition-name (88)',
         en: () => 'Condition names (88)',
     },
+    hoverHostVar: {
+        it: () => 'Variabile host (EXEC SQL/CICS)',
+        en: () => 'Host variable (EXEC SQL/CICS)',
+    },
     hoverOpenCopybook: {
         it: () => 'Apri copybook',
         en: () => 'Open copybook',
