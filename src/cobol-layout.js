@@ -105,19 +105,23 @@ function countNumericDigits(expanded) {
 
 /**
  * Estrae la clausola USAGE normalizzata dal testo dell'entry.
+ * La keyword USAGE viene riconosciuta solo se NON fa parte di un nome dato
+ * (che puo' contenere lettere, cifre e trattini, es. "PGTN1186-ANNO-COMP"):
+ * non deve quindi essere preceduta ne' seguita da [A-Z0-9-].
  * @param {string} text
  * @returns {string}
  */
 function detectUsage(text) {
     const u = text.toUpperCase();
-    if (/\b(COMP-3|COMPUTATIONAL-3|PACKED-DECIMAL)\b/.test(u)) return 'COMP-3';
-    if (/\b(COMP-5|COMPUTATIONAL-5)\b/.test(u)) return 'COMP-5';
-    if (/\b(COMP-4|COMPUTATIONAL-4|BINARY)\b/.test(u)) return 'COMP-4';
-    if (/\b(COMP-1|COMPUTATIONAL-1)\b/.test(u)) return 'COMP-1';
-    if (/\b(COMP-2|COMPUTATIONAL-2)\b/.test(u)) return 'COMP-2';
-    if (/\b(COMP|COMPUTATIONAL)\b/.test(u)) return 'COMP';
-    if (/\bINDEX\b/.test(u)) return 'INDEX';
-    if (/\bPOINTER\b/.test(u)) return 'POINTER';
+    const has = (kw) => new RegExp('(?<![A-Z0-9-])(?:' + kw + ')(?![A-Z0-9-])').test(u);
+    if (has('COMP-3|COMPUTATIONAL-3|PACKED-DECIMAL')) return 'COMP-3';
+    if (has('COMP-5|COMPUTATIONAL-5')) return 'COMP-5';
+    if (has('COMP-4|COMPUTATIONAL-4|BINARY')) return 'COMP-4';
+    if (has('COMP-1|COMPUTATIONAL-1')) return 'COMP-1';
+    if (has('COMP-2|COMPUTATIONAL-2')) return 'COMP-2';
+    if (has('COMP|COMPUTATIONAL')) return 'COMP';
+    if (has('INDEX')) return 'INDEX';
+    if (has('POINTER')) return 'POINTER';
     return 'DISPLAY';
 }
 
