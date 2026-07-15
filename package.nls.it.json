@@ -27,6 +27,7 @@
   "cobolLens.codeLens.enabled.description": "Mostra il numero di riferimenti (CodeLens) sopra ogni definizione di paragrafo e sezione; un clic apre l'anteprima dei riferimenti. Disattivato per impostazione predefinita.",
   "cobolLens.callHierarchy.enabled.description": "Abilita la gerarchia delle chiamate (Mostra gerarchia chiamate) per paragrafi e sezioni, tracciando le relazioni PERFORM e GO TO all'interno del file. Attivo per impostazione predefinita.",
   "cobolLens.documentHighlight.enabled.description": "Evidenzia tutte le occorrenze del simbolo sotto il cursore nel file corrente. Attivo per impostazione predefinita.",
+  "cobolLens.documentHighlight.distinguishReadWrite.description": "Quando evidenzia le occorrenze di un campo, usa colori propri distinti (azzurro = lettura, arancione = scrittura) per distinguere letture e scritture, indipendentemente dal tema. Disattivo per impostazione predefinita; se attivo sostituisce l'evidenziazione standard delle occorrenze per i file COBOL.",
   "cobolLens.signatureHelp.enabled.description": "Mostra i suggerimenti dei parametri (Signature Help) per le funzioni intrinseche COBOL mentre si digita una chiamata FUNCTION. Attivo per impostazione predefinita.",
   "cobolLens.format.enabled.description": "Abilita il formattatore per il formato fixed (Formatta documento / Formatta selezione): DIVISION/SECTION/paragrafi e livelli 01/77 in Area A (col 8), indentazione gerarchica di 3 spazi per dati e blocchi PROCEDURE, esattamente uno spazio tra numero di livello e nome, e rimozione degli spazi finali. Commenti e area di identificazione (col 73+) restano invariati. Disattivato per impostazione predefinita.",
   "cobolLens.inlayHints.enabled.description": "Mostra suggerimenti inline (inlay hints) con la posizione in byte (1-based, dall'inizio del record 01) e la dimensione in byte di ogni campo della DATA DIVISION, calcolata da PICTURE/USAGE/OCCURS. Attivo per impostazione predefinita.",
@@ -35,8 +36,11 @@
   "cobolLens.inlayHints.display.hover.description": "Mostra le informazioni solo nel tooltip al passaggio del mouse sul simbolo (meno invasivo).",
   "cobolLens.recordLayout.enabled.description": "Abilita il comando 'COBOL Lens: Mostra layout record', che apre un pannello con l'elenco dei record della DATA DIVISION e, per ogni campo, l'offset in byte di inizio/fine e la dimensione. Disattivato per impostazione predefinita.",
   "cobolLens.snippets.enabled.description": "Fornisce snippet di codice COBOL (IF, EVALUATE, PERFORM, CALL, clausole PIC parametriche, scheletro programma, ecc.) come voci di completamento. Attivo per impostazione predefinita.",
-  "cobolLens.command.showRecordLayout.title": "Mostra layout record",
-  "cobolLens.command.expandCopybook.title": "Espandi copybook (anteprima)",
+  "cobolLens.command.showRecordLayout.title": "COBOL Lens: Mostra layout record",
+  "cobolLens.command.expandCopybook.title": "COBOL Lens: Espandi copybook (anteprima)",
+  "cobolLens.command.refreshCopyTree.title": "COBOL Lens: Aggiorna dipendenze copybook",
+  "cobolLens.view.copyTree.name": "Dipendenze copybook COBOL",
+  "cobolLens.view.copyTree.empty": "Apri un file COBOL per vederne l'albero delle dipendenze copybook (COPY).",
   "cobolLens.command.formatDocument.title": "COBOL Lens: Formatta documento",
   "cobolLens.command.formatSelection.title": "COBOL Lens: Formatta selezione",
   "cobolLens.command.toggleComment.title": "COBOL Lens: Commenta/scommenta",
@@ -153,5 +157,7 @@
   "cobolLens.linter.rules.level-88-without-parent.enabled.description": "Condition-name di livello 88 non subordinato ad alcun campo padre",
   "cobolLens.linter.rules.level-88-without-parent.severity.description": "Severita' per la regola level-88-without-parent",
   "cobolLens.linter.rules.move-truncation.enabled.description": "MOVE verso una destinazione con PIC piu' piccola (troncamento silenzioso); confronta solo campi elementari alfanumerici o numerici puri",
-  "cobolLens.linter.rules.move-truncation.severity.description": "Severita' per la regola move-truncation"
+  "cobolLens.linter.rules.move-truncation.severity.description": "Severita' per la regola move-truncation",
+  "cobolLens.linter.rules.odo-not-last.enabled.description": "Una tabella con OCCURS DEPENDING ON deve essere l'ultimo campo del record (non puo' essere seguita da campi con storage)",
+  "cobolLens.linter.rules.odo-not-last.severity.description": "Severita' per la regola odo-not-last"
 }

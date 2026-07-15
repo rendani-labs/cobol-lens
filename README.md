@@ -23,6 +23,8 @@ Built-in syntax highlighting for the Micro Focus / Rocket COBOL dialect, styled 
 
 An optional **semantic coloring** layer additionally highlights variables, paragraphs/sections and copybooks using the extension's own symbol index. It can be toggled with `cobolLens.syntaxHighlighting.enabled` (default `on`); turning it off keeps the base highlighting, linter and navigation fully active.
 
+<img src="media/images/syntax-highlighting.png" alt="COBOL source with syntax highlighting: DIVISION/SECTION headers, level numbers, PICTURE/USAGE/VALUE clauses, level-88 items, OCCURS INDEXED BY, COPY REPLACING, an embedded EXEC SQL block with host variables, and string/numeric literals" width="640">
+
 ### Navigation & IntelliSense
 
 | Feature | Shortcut | Description |
@@ -31,7 +33,7 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Go to Called Program** | `F12` / `Ctrl+Click` | Jump from a `CALL 'PROGNAME'` (or a `CALL` through a data item with a known `VALUE`) to the called program's source file |
 | **Peek Definition** | `Alt+F12` | Inline preview of definitions without leaving your current file |
 | **Find All References** | `Shift+F12` | Locate every usage of a variable, paragraph, or section |
-| **Highlight Occurrences** | Cursor on a symbol | Automatically highlight every occurrence of the symbol under the cursor in the current file (the definition is marked as a write) |
+| **Highlight Occurrences** | Cursor on a symbol | Automatically highlight every occurrence of the symbol under the cursor in the current file (the definition is marked as a write). Optionally distinguish reads from writes with distinct, theme-independent colors -- see `cobolLens.documentHighlight.distinguishReadWrite` |
 | **Signature Help** | Type `FUNCTION name(` | Parameter hints for common COBOL intrinsic functions, with the current argument highlighted (follows commas and nested calls) |
 | **Rename Symbol** | `F2` | Rename a variable, paragraph, or section across the whole program (and optionally inside copybooks) |
 | **Hover Information** | Mouse hover | See type, level, source file, definition line, and the size in bytes (for groups, the total area size = sum of sub-fields) for any symbol; for `88` items shows the parent field and its `VALUE`(s), and for a field lists its condition names |
@@ -44,7 +46,8 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Format Document / Selection (commands)** | Context menu / Command Palette | `COBOL Lens: Format Document` and `COBOL Lens: Format Selection` run the formatter explicitly (Format Selection touches only the selected lines), regardless of the `cobolLens.format.enabled` toggle |
 | **Toggle COBOL Comment** | `Ctrl+K Ctrl+/` (`oem_2` key; on an Italian keyboard this key is the one labelled with the u-grave accent) | Comment/uncomment the selected lines (or cursor line): `*` in column 7 for fixed format, inline `*>` for variable/free |
 | **Field Inlay Hints** | Automatic | Show the byte position and size of each DATA DIVISION field at end of line (computed from PIC/USAGE/OCCURS; on by default) |
-| **Record Layout** | Context menu / Command Palette | Show a panel with the byte start/end offset and size of every field in each DATA DIVISION record (off by default) |
+| **Record Layout** | Context menu / Command Palette | Show a panel with the byte start/end offset and size of every field in each DATA DIVISION record; `REDEFINES` overlaps (with the redefined field name) and `OCCURS ... DEPENDING ON` tables are highlighted (off by default) |
+| **Copybook Dependencies** | Explorer view | A tree of the nested `COPY` dependencies of the active file; unresolved copybooks are flagged "not found" and recursive includes "recursion". Click to open a copybook; refresh from the view title |
 | **Expand Copybooks (Preview)** | Context menu / Command Palette | Open a read-only preview with every `COPY` expanded inline, including nested copybooks and `COPY ... REPLACING` |
 | **Code Snippets** | IntelliSense | Templates for IF/EVALUATE/PERFORM/CALL, parametric PIC clauses, FD/SELECT and a full program skeleton (on by default) |
 | **Code Folding** | `Ctrl+Shift+[` | Collapse DIVISIONs, SECTIONs, paragraphs, and `EXEC SQL`/`EXEC CICS` blocks |
@@ -52,15 +55,45 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Missing Copybook Warning** | Automatic | Flags unresolved COPY statements in the Problems panel |
 | **COPY ... REPLACING** | Automatic | Full support for `==OLD== BY ==NEW==` replacements |
 
+Rich **hover** shows the type, level, source file, definition line and byte size (for a group, the total area size), and for `88` condition-names the parent field with its `VALUE`(s) -- and vice versa the list of `88` flags of a field:
+
+<img src="media/images/hover-dimension-1.png" alt="Hover on a field showing its size in bytes and the list of its level-88 condition names with their values" width="420"> <img src="media/images/hover-dimension-2.png" alt="Hover on a level-88 item showing the parent field it qualifies and its VALUE" width="420">
+
+**Signature Help** shows parameter hints for COBOL intrinsic functions as you type, with the active argument highlighted:
+
+<img src="media/images/signature-help.png" alt="Signature help popup for FUNCTION MOD with the two arguments and the active one highlighted" width="520">
+
+**Highlight Occurrences** can optionally tell reads from writes with distinct, theme-independent colors (blue = read, orange = write) -- enable `cobolLens.documentHighlight.distinguishReadWrite`:
+
+<img src="media/images/read-write-highlight.png" alt="A data item highlighted with orange where it is written (SET, PERFORM VARYING) and blue where it is read (UNTIL condition and as a subscript)" width="620">
+
+**Call Hierarchy** shows the incoming and outgoing `PERFORM` calls of a paragraph or section as an explorable tree:
+
+<img src="media/images/call-hierarchy.png" alt="Call Hierarchy panel showing the callers of a paragraph as a branching tree up to the main paragraph" width="520">
+
+The **Copybook Dependencies** view shows the nested `COPY` tree of the active file, flagging missing copybooks (`not found`) and recursive includes (`recursion`):
+
+<img src="media/images/copybook-dependencies.png" alt="Copybook Dependencies tree view showing nested COPY statements, a missing copybook flagged 'not found' and a recursive one flagged 'recursion'" width="420">
+
+**Expand Copybooks (Preview)** opens a read-only document with every `COPY` expanded inline, including nested copybooks and `COPY ... REPLACING`:
+
+<img src="media/images/expand-copybooks.png" alt="Side-by-side of a program with COPY statements and the read-only preview with each COPY expanded inline between marker comments" width="820">
+
+The **Record Layout** panel lists the byte start/end offset and size of every field, highlighting `REDEFINES` overlaps (with the redefined field name) and `OCCURS ... DEPENDING ON` tables:
+
+<img src="media/images/record-layout.png" alt="Record Layout panel listing each field with byte offsets and size, with REDEFINES rows and an OCCURS DEPENDING ON table highlighted" width="820">
+
 ### IF Block Visualization
 
 When the cursor is on an `IF`, `ELSE`, or `END-IF` line, colored **keyword borders** highlight the matching block. **Scope bars** run along the left margin for every nesting level (up to 9 levels), making it easy to track complex nested conditions at a glance.
 
 Can be controlled via `cobolLens.ifBlockHighlight.enabled` and `cobolLens.ifBlockHighlight.scopeBars`.
 
+<img src="media/images/if-block-highlight.png" alt="Nested IF/ELSE/END-IF blocks with colored keyword borders and vertical scope bars on the left, one color per nesting level" width="560">
+
 ### Integrated Linter
 
-A built-in COBOL linter with **47 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
+A built-in COBOL linter with **48 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
 
 Categories of rules:
 
@@ -70,7 +103,13 @@ Categories of rules:
 - **Best practices** -- no GOTO, no AT END, no ELSE IF, REDEFINES size check, missing STOP RUN
 - **File handling** -- missing FILE STATUS, COPY resolution, PERFORM THRU order
 
+Diagnostics appear inline (squiggles) and in the Problems panel, each tagged with the rule name so you can tune it:
+
+<img src="media/images/linter-problems-panel.png" alt="Editor with linter squiggles and the Problems panel listing several COBOL Lens diagnostics, each labelled with its rule name" width="820">
+
 See [Linter Rules](#linter-rules) below for the full list.
+
+<img src="media/images/odo-not-last.png" alt="Linter diagnostic for the odo-not-last rule: a table with OCCURS DEPENDING ON is not the last item in its record; hover also shows the field size and inlay hints" width="820">
 
 ### Quick Fixes
 
@@ -161,6 +200,7 @@ Add these settings to your workspace `.vscode/settings.json`:
 | `cobolLens.codeLens.enabled` | `false` | Show reference-count CodeLens above paragraphs and sections |
 | `cobolLens.callHierarchy.enabled` | `true` | Enable Call Hierarchy (PERFORM/GO TO) for paragraphs and sections |
 | `cobolLens.documentHighlight.enabled` | `true` | Highlight every occurrence of the symbol under the cursor in the current file |
+| `cobolLens.documentHighlight.distinguishReadWrite` | `false` | Use distinct built-in colors (blue = read, orange = write) to tell reads from writes when highlighting occurrences, independently of the color theme; replaces the standard occurrence highlight when on |
 | `cobolLens.signatureHelp.enabled` | `true` | Show parameter hints for COBOL intrinsic functions while typing FUNCTION calls |
 | `cobolLens.programFolders` | `["", "src", "Source", ...]` | Folders (relative to the workspace root) searched to resolve programs called via `CALL` |
 | `cobolLens.programExtensions` | `[".CBL", ".cbl", ...]` | Extensions to try when resolving called programs |
@@ -226,6 +266,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `perform-varying-without-until` | on | warning | PERFORM VARYING without an UNTIL clause (risk of an infinite loop) |
 | `level-88-without-parent` | on | error | Level 88 condition-name not subordinate to any parent data item |
 | `move-truncation` | on | warning | MOVE into a destination with a smaller PIC (silent truncation); pure alphanumeric or numeric elementary items only |
+| `odo-not-last` | on | error | A table with OCCURS DEPENDING ON must be the last item in its record (nothing with storage may follow it) |
 
 ## Compatibility
 

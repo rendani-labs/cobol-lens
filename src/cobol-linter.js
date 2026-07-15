@@ -320,7 +320,8 @@ function getRuleConfig(ruleId) {
         'evaluate-without-when-other': 'warning',
         'perform-varying-without-until': 'warning',
         'level-88-without-parent': 'error',
-        'move-truncation': 'warning'
+        'move-truncation': 'warning',
+        'odo-not-last': 'error'
     };
 
     return {
@@ -1607,7 +1608,7 @@ function computePicSize(pic, usage) {
 /**
  * Parsa le definizioni di variabili nella DATA DIVISION.
  * @param {string[]} lines
- * @returns {Array<{level:number, name:string, pic:string|null, usage:string, occurs:number, redefines:string|null, lineNum:number}>}
+ * @returns {Array<{level:number, name:string, pic:string|null, usage:string, occurs:number, redefines:string|null, dependingOn?:string|null, lineNum:number}>}
  */
 function parseDataItems(lines) {
     const items = [];
@@ -1669,7 +1670,11 @@ function parseDataItems(lines) {
         const redefMatch = upper.match(/(?:^|\s)REDEFINES\s+([A-Z][A-Z0-9-]*)/);
         const redefines = redefMatch ? redefMatch[1] : null;
 
-        items.push({ level, name, pic, usage, occurs, redefines, lineNum });
+        // OCCURS ... DEPENDING ON obj (tabella a lunghezza variabile)
+        const odoMatch = upper.match(/\bOCCURS\b[^.]*?\bDEPENDING\s+(?:ON\s+)?([A-Z][A-Z0-9-]*)/);
+        const dependingOn = odoMatch ? odoMatch[1] : null;
+
+        items.push({ level, name, pic, usage, occurs, redefines, dependingOn, lineNum });
     }
     return items;
 }
@@ -1779,6 +1784,45 @@ function checkRedefinesSize(lines) {
             diags.push(makeDiag(item.lineNum, cfg.severity, 'redefines-size',
                 msg('redefinesSize', item.redefines, origSize, redefSize),
                 undefined, undefined, item.name));
+        }
+    }
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// odo-not-last: una tabella OCCURS DEPENDING ON deve essere l'ultimo elemento
+// del suo record. In memoria un item a lunghezza variabile non puo' essere
+// seguito da altri campi con storage nello stesso record 01/77 (solo i suoi
+// subordinati sono ammessi). Standard ISO/Micro Focus.
+// ---------------------------------------------------------------------------
+function checkOdoNotLast(lines) {
+    const cfg = getRuleConfig('odo-not-last');
+    if (!cfg.enabled) return [];
+    const diags = [];
+
+    const items = parseDataItems(lines);
+
+    for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
+        if (!item.dependingOn) continue;
+
+        const odoLevel = item.level;
+        // Scorri gli item successivi finche' restano nello stesso record radice.
+        for (let k = idx + 1; k < items.length; k++) {
+            const nxt = items[k];
+            // Un nuovo 01/77 chiude il record: la tabella era di fatto l'ultima.
+            if (nxt.level === 1 || nxt.level === 77) break;
+            // I subordinati della tabella (livello maggiore) sono ammessi.
+            if (nxt.level > odoLevel) continue;
+            // 88 (condition-name) e 66 (RENAMES) non occupano storage.
+            if (nxt.level === 88 || nxt.level === 66) continue;
+            // Un item con REDEFINES condivide lo spazio, non lo segue: ammesso.
+            if (nxt.redefines) continue;
+            // Item pari/superiore con storage dopo la tabella ODO: violazione.
+            diags.push(makeDiag(item.lineNum, cfg.severity, 'odo-not-last',
+                msg('odoNotLast', item.name, nxt.name),
+                undefined, undefined, item.name));
+            break;
         }
     }
     return diags;
@@ -3853,6 +3897,7 @@ function runLinter(text, workspaceRoot) {
         checkDuplicateParagraph, checkAlterStatement,
         checkNextSentence, checkEvaluateWithoutWhenOther,
         checkPerformVaryingWithoutUntil, checkLevel88WithoutParent,
+        checkOdoNotLast,
     ];
 
     // Controlli validi solo in formato fixed

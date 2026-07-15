@@ -156,6 +156,10 @@ const MESSAGES = {
         it: (orig, origSize, redefSize) => `REDEFINES: '${orig}' occupa ${origSize} byte, la ridefinizione occupa ${redefSize} byte (devono coincidere)`,
         en: (orig, origSize, redefSize) => `REDEFINES: '${orig}' is ${origSize} bytes, the redefinition is ${redefSize} bytes (they must match)`,
     },
+    odoNotLast: {
+        it: (name, next) => `La tabella '${name}' con OCCURS DEPENDING ON deve essere l'ultimo campo del record: e' seguita da '${next}'`,
+        en: (name, next) => `Table '${name}' with OCCURS DEPENDING ON must be the last item in the record: it is followed by '${next}'`,
+    },
     invalidColumn7: {
         it: (ch) => `Carattere '${ch}' non valido in colonna 7 (ammessi: spazio, *, /, D, -, $)`,
         en: (ch) => `Character '${ch}' is not valid in column 7 (allowed: space, *, /, D, -, $)`,
@@ -438,6 +442,10 @@ const MESSAGES = {
         it: () => 'REDEFINES',
         en: () => 'REDEFINES',
     },
+    recordLayoutNoteDependingOn: {
+        it: () => 'DEPENDING ON',
+        en: () => 'DEPENDING ON',
+    },
     recordLayoutNoteCopy: {
         it: () => 'da copybook',
         en: () => 'from copybook',
@@ -445,6 +453,15 @@ const MESSAGES = {
     recordLayoutNoteNoStorage: {
         it: () => 'nessuno storage',
         en: () => 'no storage',
+    },
+    // --- Copybook dependency tree ---
+    copyTreeMissing: {
+        it: () => 'non trovata',
+        en: () => 'not found',
+    },
+    copyTreeCyclic: {
+        it: () => 'ricorsione',
+        en: () => 'recursion',
     },
     // --- Rename (F2) ---
     renameNotRenamable: {

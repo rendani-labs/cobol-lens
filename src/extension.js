@@ -4,7 +4,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
-const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath, parseValueClause, findConditionNames, findConditionParent, expandCopyText, findExecBlocks } = require('./cobol-parser');
+const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath, parseValueClause, findConditionNames, findConditionParent, expandCopyText, findExecBlocks, classifyWriteOccurrence } = require('./cobol-parser');
 const { SymbolIndex } = require('./symbol-index');
 const { runLinter } = require('./cobol-linter');
 const { computeFieldSize, collectLayout, computeFieldInfoAt } = require('./cobol-layout');
@@ -13,6 +13,7 @@ const { CobolSemanticTokensProvider, SEMANTIC_LEGEND } = require('./cobol-semant
 const { CobolCodeActionProvider } = require('./cobol-code-actions');
 const { CobolFormattingProvider } = require('./cobol-formatter');
 const { getSignatureAt } = require('./cobol-signatures');
+const { buildCopyTree } = require('./cobol-copytree');
 /** Indice simboli condiviso tra tutti i provider */
 const symbolIndex = new SymbolIndex();
 
@@ -503,7 +504,98 @@ class CobolExpandContentProvider {
 }
 
 // ============================================================================
-// DocumentSymbolProvider ? Outline nel pannello laterale
+// TreeDataProvider - Dipendenze copybook (COPY annidate) del file attivo
+// ============================================================================
+
+/**
+ * Elemento dell'albero delle dipendenze copybook.
+ */
+class CopyTreeItem extends vscode.TreeItem {
+    /**
+     * @param {import('./cobol-copytree').CopyNode} node
+     */
+    constructor(node) {
+        const hasChildren = node.children && node.children.length > 0;
+        super(node.name,
+            hasChildren
+                ? vscode.TreeItemCollapsibleState.Expanded
+                : vscode.TreeItemCollapsibleState.None);
+        this.copyNode = node;
+
+        if (!node.resolved) {
+            this.description = msg('copyTreeMissing');
+            this.iconPath = new vscode.ThemeIcon('warning',
+                new vscode.ThemeColor('editorWarning.foreground'));
+            this.tooltip = `${node.name} - ${msg('copyTreeMissing')}`;
+        } else if (node.cyclic) {
+            this.description = msg('copyTreeCyclic');
+            this.iconPath = new vscode.ThemeIcon('sync-ignored',
+                new vscode.ThemeColor('editorWarning.foreground'));
+            this.tooltip = `${node.name} - ${msg('copyTreeCyclic')}`;
+        } else {
+            this.iconPath = new vscode.ThemeIcon('file');
+            this.tooltip = node.filePath || node.name;
+        }
+
+        // Cliccando l'elemento apre la copybook (se risolta).
+        if (node.resolved && node.filePath) {
+            this.command = {
+                command: 'vscode.open',
+                title: 'Open Copybook',
+                arguments: [vscode.Uri.file(node.filePath)]
+            };
+        }
+        this.contextValue = node.resolved ? 'copybook' : 'copybookMissing';
+    }
+}
+
+class CobolCopyTreeProvider {
+    constructor() {
+        this._onDidChangeTreeData = new vscode.EventEmitter();
+        /** @type {vscode.Event<void>} */
+        this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+        /** @type {vscode.TextDocument | undefined} */
+        this._document = undefined;
+    }
+
+    /** Aggiorna la vista in base al documento COBOL attivo. */
+    refresh() {
+        const editor = vscode.window.activeTextEditor;
+        this._document = (editor && isCobolDocument(editor.document))
+            ? editor.document : undefined;
+        this._onDidChangeTreeData.fire();
+    }
+
+    /** @param {CopyTreeItem} element */
+    getTreeItem(element) {
+        return element;
+    }
+
+    /**
+     * @param {CopyTreeItem} [element]
+     * @returns {CopyTreeItem[]}
+     */
+    getChildren(element) {
+        if (element) {
+            return (element.copyNode.children || []).map(n => new CopyTreeItem(n));
+        }
+        // Radice: costruisci l'albero dal documento attivo.
+        if (!this._document || !this._document.uri.fsPath) return [];
+        const { fsPath: wsRoot } = getWorkspaceRoot(this._document);
+        if (!wsRoot) return [];
+        // Usa il testo in memoria del file attivo (puo' contenere modifiche non salvate).
+        const rootPath = this._document.uri.fsPath;
+        const roots = buildCopyTree(rootPath, wsRoot, {
+            read: (p) => (p === rootPath
+                ? this._document.getText()
+                : fs.readFileSync(p, 'utf-8'))
+        });
+        return roots.map(n => new CopyTreeItem(n));
+    }
+}
+
+// ============================================================================
+// DocumentSymbolProvider - Outline nel pannello laterale
 // ============================================================================
 class CobolDocumentSymbolProvider {
     /**
@@ -695,6 +787,10 @@ class CobolDocumentHighlightProvider {
     provideDocumentHighlights(document, position) {
         const cfg = vscode.workspace.getConfiguration('cobolLens');
         if (!cfg.get('documentHighlight.enabled', true)) return [];
+        // Quando la distinzione read/write con colori propri e' attiva, le
+        // decorazioni dedicate sostituiscono l'evidenziazione standard (per
+        // evitare la sovrapposizione dei due stili).
+        if (cfg.get('documentHighlight.distinguishReadWrite', false)) return [];
 
         const line = document.lineAt(position.line).text;
         if (isComment(line)) return [];
@@ -713,11 +809,18 @@ class CobolDocumentHighlightProvider {
             ? defSymbol.line : -1;
 
         const width = wordInfo.word.length;
-        return occurrences.map(o => new vscode.DocumentHighlight(
-            new vscode.Range(o.line, o.start, o.line, o.start + width),
-            o.line === defLine
+        return occurrences.map(o => {
+            // La riga di definizione (con eventuale VALUE) e' una scrittura;
+            // per le altre occorrenze si analizza lo statement per distinguere
+            // le destinazioni in scrittura (MOVE...TO, COMPUTE, SET, ...) dalle
+            // letture.
+            const kind = (o.line === defLine
+                || classifyWriteOccurrence(lines[o.line], o.start) === 'write')
                 ? vscode.DocumentHighlightKind.Write
-                : vscode.DocumentHighlightKind.Read));
+                : vscode.DocumentHighlightKind.Read;
+            return new vscode.DocumentHighlight(
+                new vscode.Range(o.line, o.start, o.line, o.start + width), kind);
+        });
     }
 }
 
@@ -1677,12 +1780,26 @@ function buildRecordLayoutHtml(layout) {
             const end = it.size > 0 ? it.offset + it.size : start;
             const notes = [];
             if (it.isGroup) notes.push(msg('recordLayoutNoteGroup'));
-            if (it.redefines) notes.push(msg('recordLayoutNoteRedefines'));
-            if (it.occurs > 1) notes.push(`OCCURS ${it.occurs}`);
+            if (it.redefines) {
+                notes.push(it.redefinesTarget
+                    ? `${msg('recordLayoutNoteRedefines')} ${it.redefinesTarget}`
+                    : msg('recordLayoutNoteRedefines'));
+            }
+            if (it.dependingOn) {
+                const range = (it.occursMin && it.occursMin !== it.occurs)
+                    ? `${it.occursMin} TO ${it.occurs}` : String(it.occurs);
+                notes.push(`OCCURS ${range} ${msg('recordLayoutNoteDependingOn')} ${it.dependingOn}`);
+            } else if (it.occurs > 1) {
+                notes.push(`OCCURS ${it.occurs}`);
+            }
             if (it.fromCopy) notes.push(msg('recordLayoutNoteCopy'));
             if (it.size <= 0) notes.push(msg('recordLayoutNoteNoStorage'));
 
-            const rowClass = it.isGroup ? ' class="group"' : '';
+            const classes = [];
+            if (it.isGroup) classes.push('group');
+            if (it.redefines) classes.push('redef');
+            if (it.dependingOn) classes.push('odo');
+            const rowClass = classes.length ? ` class="${classes.join(' ')}"` : '';
             html += `<tr${rowClass}>`
                 + `<td>${escapeHtml(String(it.level).padStart(2, '0'))}</td>`
                 + `<td>${indent}${escapeHtml(it.name)}</td>`
@@ -1720,6 +1837,10 @@ function recordLayoutWebviewHtml(title, body) {
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
     td.notes { color: var(--vscode-descriptionForeground); }
     tr.group td { font-weight: 600; }
+    tr.redef td { background: var(--vscode-diffEditor-removedTextBackground, rgba(255,150,0,0.10)); }
+    tr.redef td:first-child { border-left: 3px solid var(--vscode-editorWarning-foreground, #cca700); }
+    tr.odo td { background: var(--vscode-diffEditor-insertedTextBackground, rgba(0,150,255,0.08)); }
+    tr.odo td:first-child { border-left: 3px solid var(--vscode-charts-blue, #3794ff); }
     .empty { color: var(--vscode-descriptionForeground); font-style: italic; }
     code { font-family: var(--vscode-editor-font-family); }
 </style>
@@ -2061,6 +2182,89 @@ function scheduleIfBlockUpdate() {
 }
 
 // ============================================================================
+// Read/Write decorations - evidenzia scrittura vs lettura con colori propri,
+// indipendenti dal tema (attivabile dal setting distinguishReadWrite).
+// ============================================================================
+
+/** Decorazione per le occorrenze in LETTURA (azzurro, tenue). */
+const readOccurrenceDecoType = vscode.window.createTextEditorDecorationType({
+    backgroundColor: 'rgba(79, 193, 255, 0.18)',
+    border: '1px solid rgba(79, 193, 255, 0.85)',
+    borderRadius: '2px',
+    overviewRulerColor: 'rgba(79, 193, 255, 0.85)',
+    overviewRulerLane: vscode.OverviewRulerLane.Center
+});
+
+/** Decorazione per le occorrenze in SCRITTURA (arancione, marcato). */
+const writeOccurrenceDecoType = vscode.window.createTextEditorDecorationType({
+    backgroundColor: 'rgba(232, 140, 40, 0.30)',
+    border: '1px solid rgba(232, 140, 40, 0.95)',
+    borderRadius: '2px',
+    fontWeight: 'bold',
+    overviewRulerColor: 'rgba(232, 140, 40, 0.95)',
+    overviewRulerLane: vscode.OverviewRulerLane.Center
+});
+
+/** @type {NodeJS.Timeout | undefined} */
+let readWriteDecoTimer;
+
+/**
+ * Applica le decorazioni read/write per il simbolo sotto il cursore, quando il
+ * setting cobolLens.documentHighlight.distinguishReadWrite e' attivo.
+ * @param {vscode.TextEditor | undefined} editor
+ */
+function applyReadWriteDecorations(editor) {
+    if (!editor) return;
+    const clear = () => {
+        editor.setDecorations(readOccurrenceDecoType, []);
+        editor.setDecorations(writeOccurrenceDecoType, []);
+    };
+    if (!isCobolDocument(editor.document)) { clear(); return; }
+
+    const cfg = vscode.workspace.getConfiguration('cobolLens');
+    if (!cfg.get('documentHighlight.distinguishReadWrite', false)) { clear(); return; }
+
+    const position = editor.selection.active;
+    const line = editor.document.lineAt(position.line).text;
+    if (isComment(line)) { clear(); return; }
+
+    const wordInfo = getWordAtPosition(editor.document, position);
+    if (!wordInfo) { clear(); return; }
+
+    const lines = editor.document.getText().split(/\r?\n/);
+    const occurrences = findWordOccurrences(lines, wordInfo.word.toUpperCase());
+    if (occurrences.length === 0) { clear(); return; }
+
+    const defSymbol = symbolIndex.findSymbol(editor.document, wordInfo.word);
+    const defLine = (defSymbol && defSymbol.filePath === editor.document.uri.fsPath)
+        ? defSymbol.line : -1;
+
+    const width = wordInfo.word.length;
+    /** @type {vscode.Range[]} */
+    const readRanges = [];
+    /** @type {vscode.Range[]} */
+    const writeRanges = [];
+    for (const o of occurrences) {
+        const range = new vscode.Range(o.line, o.start, o.line, o.start + width);
+        const isWrite = o.line === defLine
+            || classifyWriteOccurrence(lines[o.line], o.start) === 'write';
+        (isWrite ? writeRanges : readRanges).push(range);
+    }
+    editor.setDecorations(readOccurrenceDecoType, readRanges);
+    editor.setDecorations(writeOccurrenceDecoType, writeRanges);
+}
+
+/**
+ * Schedula l'aggiornamento delle decorazioni read/write con debounce.
+ */
+function scheduleReadWriteUpdate() {
+    if (readWriteDecoTimer) clearTimeout(readWriteDecoTimer);
+    readWriteDecoTimer = setTimeout(() => {
+        applyReadWriteDecorations(vscode.window.activeTextEditor);
+    }, 100);
+}
+
+// ============================================================================
 // Diagnostica ? Linter integrato + warning copybook mancanti
 // ============================================================================
 
@@ -2390,6 +2594,25 @@ function activate(context) {
         })
     );
 
+    // TreeView: dipendenze copybook (COPY annidate) del file COBOL attivo.
+    const copyTreeProvider = new CobolCopyTreeProvider();
+    const copyTreeView = vscode.window.createTreeView('cobolLensCopyTree', {
+        treeDataProvider: copyTreeProvider,
+        showCollapseAll: true
+    });
+    context.subscriptions.push(
+        copyTreeView,
+        vscode.commands.registerCommand('cobolLens.refreshCopyTree', () => {
+            copyTreeProvider.refresh();
+        }),
+        vscode.window.onDidChangeActiveTextEditor(() => copyTreeProvider.refresh()),
+        vscode.workspace.onDidSaveTextDocument(doc => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document === doc) copyTreeProvider.refresh();
+        })
+    );
+    copyTreeProvider.refresh();
+
     // Colorazione semantica (layer opzionale, attivabile dal setting)
     updateSemanticTokensRegistration();
 
@@ -2451,6 +2674,9 @@ function activate(context) {
             if (e.affectsConfiguration('cobolLens.inlayHints')) {
                 inlayHintsProvider.refresh();
             }
+            if (e.affectsConfiguration('cobolLens.documentHighlight')) {
+                applyReadWriteDecorations(vscode.window.activeTextEditor);
+            }
         })
     );
 
@@ -2463,19 +2689,26 @@ function activate(context) {
         ...ifScopeBarDecoTypes
     );
 
+    // Decorazioni read/write (colori propri, indipendenti dal tema)
+    context.subscriptions.push(readOccurrenceDecoType, writeOccurrenceDecoType);
+
     // Aggiorna decorazioni IF all'apertura, cambio editor, cambio cursore, modifica
     if (vscode.window.activeTextEditor) {
         applyIfBlockDecorations(vscode.window.activeTextEditor);
+        applyReadWriteDecorations(vscode.window.activeTextEditor);
     }
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor(editor => {
             if (editor) applyIfBlockDecorations(editor);
+            applyReadWriteDecorations(editor);
         }),
         vscode.window.onDidChangeTextEditorSelection(() => {
             scheduleIfBlockUpdate();
+            scheduleReadWriteUpdate();
         }),
         vscode.workspace.onDidChangeTextDocument(() => {
             scheduleIfBlockUpdate();
+            scheduleReadWriteUpdate();
         })
     );
 

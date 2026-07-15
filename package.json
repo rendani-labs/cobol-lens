@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 47-rule integrated linter. No compiler required.",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -99,13 +99,16 @@
     "commands": [
       {
         "command": "cobolLens.showRecordLayout",
-        "title": "%cobolLens.command.showRecordLayout.title%",
-        "category": "COBOL Lens"
+        "title": "%cobolLens.command.showRecordLayout.title%"
       },
       {
         "command": "cobolLens.expandCopybook",
-        "title": "%cobolLens.command.expandCopybook.title%",
-        "category": "COBOL Lens"
+        "title": "%cobolLens.command.expandCopybook.title%"
+      },
+      {
+        "command": "cobolLens.refreshCopyTree",
+        "title": "%cobolLens.command.refreshCopyTree.title%",
+        "icon": "$(refresh)"
       },
       {
         "command": "cobolLens.formatDocument",
@@ -169,8 +172,30 @@
           "when": "editorLangId == cobol",
           "group": "navigation@10"
         }
+      ],
+      "view/title": [
+        {
+          "command": "cobolLens.refreshCopyTree",
+          "when": "view == cobolLensCopyTree",
+          "group": "navigation"
+        }
       ]
     },
+    "views": {
+      "explorer": [
+        {
+          "id": "cobolLensCopyTree",
+          "name": "%cobolLens.view.copyTree.name%",
+          "icon": "$(references)"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "cobolLensCopyTree",
+        "contents": "%cobolLens.view.copyTree.empty%"
+      }
+    ],
     "walkthroughs": [
       {
         "id": "cobolLens.gettingStarted",
@@ -378,6 +403,11 @@
           "type": "boolean",
           "default": true,
           "description": "%cobolLens.documentHighlight.enabled.description%"
+        },
+        "cobolLens.documentHighlight.distinguishReadWrite": {
+          "type": "boolean",
+          "default": false,
+          "description": "%cobolLens.documentHighlight.distinguishReadWrite.description%"
         },
         "cobolLens.signatureHelp.enabled": {
           "type": "boolean",
@@ -952,6 +982,17 @@
           "default": "warning",
           "enum": ["error", "warning", "info"],
           "description": "%cobolLens.linter.rules.move-truncation.severity.description%"
+        },
+        "cobolLens.linter.rules.odo-not-last.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.odo-not-last.enabled.description%"
+        },
+        "cobolLens.linter.rules.odo-not-last.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.odo-not-last.severity.description%"
         }
       }
     },

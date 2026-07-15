@@ -27,8 +27,11 @@ const { isComment, VARIABLE_DEF_REGEX, COPY_REGEX, resolveCopybookPath } = requi
  * @property {number} startLine - Riga 0-based dove inizia la definizione
  * @property {string|null} pic - Stringa PICTURE (es. "X(4)") oppure null
  * @property {string} usage - Usage normalizzato (DISPLAY, COMP-3, COMP, ...)
- * @property {number} occurs - Numero di occorrenze (1 se assente)
+ * @property {number} occurs - Numero di occorrenze massimo (1 se assente)
+ * @property {number} occursMin - Numero di occorrenze minimo (uguale a occurs se non OCCURS m TO n)
  * @property {boolean} redefines - true se l'entry ha clausola REDEFINES
+ * @property {string|null} redefinesTarget - Nome del campo ridefinito (null se assente)
+ * @property {string|null} dependingOn - Nome dell'oggetto OCCURS DEPENDING ON (null se assente)
  * @property {boolean} signSeparate - true se l'entry ha clausola SIGN SEPARATE
  * @property {boolean} fromCopy - true se l'entry proviene da una copybook espansa
  */
@@ -152,6 +155,39 @@ function detectOccurs(text) {
 }
 
 /**
+ * Estrae il numero minimo di OCCURS (il primo valore di "OCCURS m TO n").
+ * Per un OCCURS fisso coincide con detectOccurs.
+ * @param {string} text
+ * @returns {number}
+ */
+function detectOccursMin(text) {
+    const m = /\bOCCURS\s+(\d+)(?:\s+TO\s+(\d+))?/i.exec(text);
+    if (!m) return 1;
+    const min = parseInt(m[1], 10);
+    return min > 0 ? min : 1;
+}
+
+/**
+ * Estrae il nome dell'oggetto della clausola OCCURS DEPENDING ON.
+ * @param {string} text
+ * @returns {string|null}
+ */
+function detectDependingOn(text) {
+    const m = /\bOCCURS\b[^.]*?\bDEPENDING\s+(?:ON\s+)?([A-Za-z][A-Za-z0-9-]*)/i.exec(text);
+    return m ? m[1] : null;
+}
+
+/**
+ * Estrae il nome del campo ridefinito dalla clausola REDEFINES.
+ * @param {string} text
+ * @returns {string|null}
+ */
+function detectRedefinesTarget(text) {
+    const m = /\bREDEFINES\s+([A-Za-z][A-Za-z0-9-]*)/i.exec(text);
+    return m ? m[1] : null;
+}
+
+/**
  * Indica se l'entry ha la clausola SIGN ... SEPARATE.
  * @param {string} text
  * @returns {boolean}
@@ -243,7 +279,10 @@ function collectDataEntries(lines, workspaceRoot, visited, fromCopy) {
             pic: detectPicture(text),
             usage: detectUsage(text),
             occurs: detectOccurs(text),
+            occursMin: detectOccursMin(text),
             redefines: /\bREDEFINES\b/i.test(text),
+            redefinesTarget: detectRedefinesTarget(text),
+            dependingOn: detectDependingOn(text),
             signSeparate: hasSignSeparate(text),
             fromCopy: !!fromCopy
         });
@@ -366,7 +405,10 @@ function computeFieldSize(lines, defLine, workspaceRoot) {
  * @property {boolean} fromCopy - true se proveniente da una copybook
  * @property {number} depth - Profondita' di annidamento (0 = record 01/77)
  * @property {boolean} redefines - true se l'entry ha clausola REDEFINES
- * @property {number} occurs - Numero di occorrenze (1 se assente)
+ * @property {string|null} redefinesTarget - Nome del campo ridefinito (null se assente)
+ * @property {string|null} dependingOn - Nome dell'oggetto OCCURS DEPENDING ON (null se assente)
+ * @property {number} occurs - Numero di occorrenze massimo (1 se assente)
+ * @property {number} occursMin - Numero di occorrenze minimo (uguale a occurs se OCCURS fisso)
  */
 
 /**
@@ -387,7 +429,10 @@ function layoutEntryAt(entries, idx, base, out, depth) {
     const push = (size, isGroup) => out.push({
         startLine: e.startLine, level: e.level, name: e.name,
         offset: base, size, isGroup, fromCopy: !!e.fromCopy,
-        depth: d, redefines: !!e.redefines, occurs: e.occurs
+        depth: d, redefines: !!e.redefines,
+        redefinesTarget: e.redefinesTarget || null,
+        dependingOn: e.dependingOn || null,
+        occurs: e.occurs, occursMin: (typeof e.occursMin === 'number' ? e.occursMin : e.occurs)
     });
 
     // Livelli 88/66: nessuno storage.
@@ -478,5 +523,8 @@ module.exports = {
     expandPicture,
     detectUsage,
     detectPicture,
-    detectOccurs
+    detectOccurs,
+    detectOccursMin,
+    detectDependingOn,
+    detectRedefinesTarget
 };

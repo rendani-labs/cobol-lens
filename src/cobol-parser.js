@@ -639,6 +639,165 @@ function findExecBlocks(lines) {
     return blocks;
 }
 
+/**
+ * Verbi COBOL che introducono uno statement il cui operando (o parte di esso)
+ * puo' essere una destinazione in scrittura. Usato da classifyWriteOccurrence.
+ */
+const WRITE_STATEMENT_VERBS = new Set([
+    'MOVE', 'SET', 'COMPUTE', 'ADD', 'SUBTRACT', 'MULTIPLY', 'DIVIDE',
+    'INITIALIZE', 'ACCEPT', 'STRING', 'UNSTRING', 'INSPECT', 'PERFORM',
+    'READ', 'RETURN'
+]);
+
+/**
+ * Maschera i letterali stringa di una riga sostituendone il contenuto con
+ * spazi (mantenendo le posizioni), cosi' le keyword tra apici non contano.
+ * @param {string} line
+ * @returns {string}
+ */
+function maskStringLiteralsKeepLen(line) {
+    let out = '';
+    let quote = null;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (quote) {
+            out += ' ';
+            if (ch === quote) quote = null;
+        } else if (ch === '"' || ch === "'") {
+            quote = ch;
+            out += ' ';
+        } else {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+/**
+ * Stabilisce se l'occorrenza di un identificatore (alla colonna occStart della
+ * riga) e' usata come DESTINAZIONE in SCRITTURA dallo statement COBOL della
+ * riga, oppure in sola LETTURA. L'analisi e' euristica e per riga singola:
+ * copre i casi piu' comuni (MOVE ... TO, COMPUTE = , SET ... TO, ADD/SUBTRACT/
+ * MULTIPLY/DIVIDE con TO/FROM/BY/INTO/GIVING/REMAINDER, INITIALIZE, ACCEPT,
+ * STRING/UNSTRING INTO, INSPECT ... TALLYING, PERFORM VARYING/AFTER, READ/
+ * RETURN ... INTO). In caso di dubbio, o su righe di continuazione senza verbo,
+ * restituisce 'read' (scelta prudente). Gli identificatori dentro parentesi
+ * (subscript/indice) sono sempre 'read'.
+ * @param {string} lineText - testo della riga (non mascherato)
+ * @param {number} occStart - colonna 0-based dell'inizio dell'occorrenza
+ * @returns {'read'|'write'}
+ */
+function classifyWriteOccurrence(lineText, occStart) {
+    if (!lineText || isComment(lineText)) return 'read';
+    const masked = maskStringLiteralsKeepLen(lineText).toUpperCase();
+
+    // Dentro parentesi = subscript/indice: mai la destinazione dello statement.
+    let depth = 0;
+    for (let i = 0; i < occStart && i < masked.length; i++) {
+        const c = masked[i];
+        if (c === '(') depth++;
+        else if (c === ')') depth = Math.max(0, depth - 1);
+    }
+    if (depth > 0) return 'read';
+
+    // Tokenizza gli identificatori (parole COBOL) con la loro posizione.
+    /** @type {{ text: string, start: number }[]} */
+    const tokens = [];
+    const re = /[A-Z0-9-]+/g;
+    let m;
+    while ((m = re.exec(masked)) !== null) {
+        tokens.push({ text: m[0], start: m.index });
+    }
+    const occIdx = tokens.findIndex(t => t.start === occStart);
+    if (occIdx < 0) return 'read';
+
+    // Verbo di testa dello statement: primo token che e' un verbo noto.
+    let verbIdx = -1;
+    let verb = null;
+    for (let i = 0; i < tokens.length; i++) {
+        if (WRITE_STATEMENT_VERBS.has(tokens[i].text)) { verbIdx = i; verb = tokens[i].text; break; }
+    }
+    if (verbIdx < 0 || occIdx < verbIdx) return 'read';
+
+    // Indice del primo token uguale a kw dopo il verbo.
+    const idxOf = (kw) => {
+        for (let i = verbIdx + 1; i < tokens.length; i++) {
+            if (tokens[i].text === kw) return i;
+        }
+        return -1;
+    };
+    const afterKw = (kw) => { const k = idxOf(kw); return k >= 0 && occIdx > k ? 'write' : 'read'; };
+
+    switch (verb) {
+        case 'MOVE':
+            // MOVE src TO dst [dst2 ...]: destinazioni dopo TO.
+            return afterKw('TO');
+        case 'SET': {
+            // SET dst [dst2] TO val   |   SET dst UP/DOWN BY n: destinazioni PRIMA.
+            const bounds = ['TO', 'UP', 'DOWN'].map(idxOf).filter(x => x >= 0);
+            if (bounds.length === 0) return 'read';
+            const boundary = Math.min(...bounds);
+            return occIdx < boundary ? 'write' : 'read';
+        }
+        case 'COMPUTE': {
+            // COMPUTE dst [ROUNDED] = espr: destinazioni prima del primo '='.
+            const eqPos = masked.indexOf('=', tokens[verbIdx].start);
+            if (eqPos < 0) return 'read';
+            return occStart < eqPos ? 'write' : 'read';
+        }
+        case 'ADD':
+            // ADD ... TO dst | ADD ... GIVING dst (GIVING ha priorita').
+            return idxOf('GIVING') >= 0 ? afterKw('GIVING') : afterKw('TO');
+        case 'SUBTRACT':
+            return idxOf('GIVING') >= 0 ? afterKw('GIVING') : afterKw('FROM');
+        case 'MULTIPLY':
+            return idxOf('GIVING') >= 0 ? afterKw('GIVING') : afterKw('BY');
+        case 'DIVIDE': {
+            if (afterKw('REMAINDER') === 'write') return 'write';
+            if (idxOf('GIVING') >= 0) {
+                const g = idxOf('GIVING');
+                const rem = idxOf('REMAINDER');
+                if (occIdx > g && (rem < 0 || occIdx < rem)) return 'write';
+                return 'read';
+            }
+            return afterKw('INTO');
+        }
+        case 'INITIALIZE': {
+            // INITIALIZE dst [dst2 ...] [REPLACING ...]: tutti i target prima di REPLACING.
+            const repl = idxOf('REPLACING');
+            if (repl >= 0 && occIdx > repl) return 'read';
+            return 'write';
+        }
+        case 'ACCEPT':
+            // ACCEPT dst [FROM ...]: dst e' scrittura, dopo FROM e' lettura.
+            return afterKw('FROM') === 'write' ? 'read' : 'write';
+        case 'STRING':
+        case 'UNSTRING':
+        case 'READ':
+        case 'RETURN':
+            return afterKw('INTO');
+        case 'INSPECT': {
+            const tally = idxOf('TALLYING');
+            if (tally >= 0 && occIdx > tally) {
+                const forIdx = idxOf('FOR');
+                if (forIdx < 0 || occIdx < forIdx) return 'write';
+            }
+            return 'read';
+        }
+        case 'PERFORM': {
+            // PERFORM VARYING v ... [AFTER v2 ...]: la variabile subito dopo
+            // VARYING/AFTER e' scrittura.
+            const vary = idxOf('VARYING');
+            if (vary >= 0 && occIdx === vary + 1) return 'write';
+            const after = idxOf('AFTER');
+            if (after >= 0 && occIdx === after + 1) return 'write';
+            return 'read';
+        }
+        default:
+            return 'read';
+    }
+}
+
 module.exports = {
     parseCobolSymbols,
     resolveCopybookPath,
@@ -651,6 +810,7 @@ module.exports = {
     expandCopyText,
     applyTextReplacements,
     findExecBlocks,
+    classifyWriteOccurrence,
     isComment,
     COPY_REGEX,
     REPLACING_PAIR_REGEX,

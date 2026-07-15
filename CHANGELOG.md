@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.12.0] - 2026-07-15
+
+### Added
+- Copybook Dependencies view: a new "COBOL Copybook Dependencies" tree in the Explorer shows the nested `COPY` dependency tree of the active COBOL file. Copybooks are resolved through the same folders/extensions used elsewhere; nested copies are expanded recursively, unresolved copybooks are flagged as "not found", and recursive includes are marked "recursion" without looping. Click an item to open the copybook; a refresh button in the view title rebuilds the tree (it also refreshes automatically when you switch or save files).
+- Record Layout, advanced Data Division: `OCCURS ... DEPENDING ON` tables are now recognized and shown with a `OCCURS m TO n DEPENDING ON obj` note and a distinct highlight; `REDEFINES` rows are highlighted and now show which field they redefine (`REDEFINES target`), making overlapping storage easy to spot.
+- New linter rule `odo-not-last`: a table described with `OCCURS DEPENDING ON` must be the last item in its record (nothing with storage may follow it, only its own subordinates). Configurable via `cobolLens.linter.rules.odo-not-last.enabled` / `.severity` (default: error).
+- Highlight Occurrences can now distinguish read from write (opt-in, off by default). When you place the cursor on a data item, occurrences where the item is a write target are shown with a distinct built-in color (orange) and reads/subscripts with another (blue), independently of the color theme -- no manual color setup needed. Recognized writes: `MOVE ... TO`, `COMPUTE`, `SET`, `ADD`/`SUBTRACT`/`MULTIPLY`/`DIVIDE` with `TO`/`FROM`/`BY`/`INTO`/`GIVING`/`REMAINDER`, `INITIALIZE`, `ACCEPT`, `STRING`/`UNSTRING ... INTO`, `INSPECT ... TALLYING`, `PERFORM VARYING`, `READ`/`RETURN ... INTO`; everything else (including subscripts) stays a read. Enable it with the setting `cobolLens.documentHighlight.distinguishReadWrite` set to `true` (Settings UI: search "COBOL Lens read write", or add `"cobolLens.documentHighlight.distinguishReadWrite": true` to settings.json). When on, it replaces the standard occurrence highlight for COBOL files.
+
+### Fixed
+- Editor context menu: the `Show Record Layout` entry now shows the `COBOL Lens:` prefix (`COBOL Lens: Show Record Layout`), consistent with the other COBOL Lens context-menu commands. The `COBOL Lens:` prefix is now part of the command title instead of the command `category` (which VS Code shows only in the Command Palette, not in the context menu).
+
+## [1.11.1] - 2026-07-15
+
+### Fixed
+- Editor context menu: the `Expand Copybooks (Preview)` entry now shows the `COBOL Lens:` prefix (`COBOL Lens: Expand Copybooks (Preview)`), so it is easy to tell apart from the built-in right-click commands. The `COBOL Lens:` prefix is now part of the command title instead of the command `category` (which VS Code shows only in the Command Palette, not in the context menu).
+
 ## [1.11.0] - 2026-07-15
 
 ### Added
