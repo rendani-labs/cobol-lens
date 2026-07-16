@@ -107,9 +107,11 @@ Diagnostics appear inline (squiggles) and in the Problems panel, each tagged wit
 
 <img src="media/images/linter-problems-panel.png" alt="Editor with linter squiggles and the Problems panel listing several COBOL Lens diagnostics, each labelled with its rule name" width="820">
 
-See [Linter Rules](#linter-rules) below for the full list.
+For example, the `odo-not-last` rule flags a table declared with `OCCURS ... DEPENDING ON` that is not the last item in its record (nothing with storage may follow it):
 
 <img src="media/images/odo-not-last.png" alt="Linter diagnostic for the odo-not-last rule: a table with OCCURS DEPENDING ON is not the last item in its record; hover also shows the field size and inlay hints" width="820">
+
+See [Linter Rules](#linter-rules) below for the full list.
 
 ### Quick Fixes
 
