@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.12.1] - 2026-07-16
+
+### Fixed
+- Linter on copybooks opened directly: data-oriented rules (such as `missing-period` and `pic-missing`) now run when a data copybook is the active file. Previously these rules never fired on a standalone copybook because they only activated inside a recognized `WORKING-STORAGE`/`LINKAGE`/`FILE SECTION`, which a copybook fragment does not contain; missing final periods on data items (for example the fields of a record layout) were therefore not reported. A data copybook (a fragment with no `DIVISION`/`SECTION` headers whose first code line is a level-number entry) is now treated as a data-section context. Procedure copybooks are unaffected and keep their previous behavior (no false positives).
+
 ## [1.12.0] - 2026-07-15
 
 ### Added

@@ -32,6 +32,40 @@ const SEPARATOR_PATTERN = '*' + '-'.repeat(65);
 let currentSourceFormat = 'fixed';
 
 /**
+ * Indica se il file corrente e' una copybook di dati (frammento privo di
+ * DIVISION/SECTION, composto da voci di dato con numero di livello).
+ * Impostato da runLinter prima di eseguire le regole. Quando true, le regole
+ * orientate ai dati (missing-period, pic-missing, ecc.) devono considerare
+ * l'intero file come se fosse dentro una sezione dati.
+ */
+let currentIsCopybook = false;
+
+/**
+ * Rileva se il contenuto e' una copybook di DATI.
+ * Una copybook e' un frammento incluso via COPY: non contiene alcun header di
+ * DIVISION. Per distinguere una copy di dati da una copy di procedure, si
+ * verifica che la prima riga di codice significativa sia una voce con numero
+ * di livello (es. 01/05/10...).
+ * @param {string[]} lines
+ * @returns {boolean}
+ */
+function detectCopybook(lines) {
+    let firstCode = null;
+    for (let i = 0; i < lines.length; i++) {
+        if (isSkippable(lines[i])) continue;
+        const trimmed = getCodeContent(lines[i]).trim();
+        if (!trimmed) continue;
+        const upper = trimmed.toUpperCase();
+        // Un header di DIVISION indica un programma completo, non una copy.
+        if (upper.includes('DIVISION')) return false;
+        if (firstCode === null) firstCode = upper;
+    }
+    if (firstCode === null) return false;
+    // Copy di dati: la prima riga di codice e' una voce con numero di livello.
+    return /^\d{1,2}\s+/.test(firstCode);
+}
+
+/**
  * Rileva il source format dal contenuto del file.
  * Cerca la direttiva $SET sourceformat(...) nelle prime righe.
  * @param {string[]} lines
@@ -153,7 +187,10 @@ class AnalysisContext {
     constructor() {
         this.currentDivision = '';
         this.inFileControl = false;
-        this.inWorkingStorage = false;
+        // In una copybook di dati (frammento senza DIVISION/SECTION) l'intero
+        // file va considerato come contesto dati: non esistono header che
+        // attivino i flag di sezione, quindi li inizializziamo qui.
+        this.inWorkingStorage = currentIsCopybook;
         this.inLinkage = false;
         this.inFileSection = false;
         this.inProcedure = false;
@@ -3873,6 +3910,10 @@ function runLinter(text, workspaceRoot) {
 
     // Rileva il source format e imposta la variabile globale
     currentSourceFormat = detectSourceFormat(lines);
+
+    // Rileva se il file e' una copybook di dati: in tal caso le regole sui
+    // dati devono trattare l'intero file come contesto di sezione dati.
+    currentIsCopybook = detectCopybook(lines);
 
     /** @type {vscode.Diagnostic[]} */
     const allDiags = [];
