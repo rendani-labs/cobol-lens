@@ -879,6 +879,18 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
         if (!inlineOrVarying && !hasThru) procState.performCol = col;
     }
 
+    // PERFORM ... THRU inline (range) su una sola riga: porta il THRU sulla riga
+    // sotto, indentato di un passo (stile template), se indentThru e' attivo.
+    if (fw === 'PERFORM' && opts.indentThru) {
+        const sm = stripLit(outText).toUpperCase().match(/\bTHR(?:U|OUGH)\b/);
+        if (sm && sm.index > 0) {
+            const p1 = collapseSpaces(outText.substring(0, sm.index).replace(/\s+$/, ''));
+            const p2 = collapseSpaces(outText.substring(sm.index));
+            return buildLine(seq, idArea, col, p1) + '\n'
+                + buildLine('', '', col + indent, p2);
+        }
+    }
+
     return buildLine(seq, idArea, col, outText);
 }
 
@@ -900,17 +912,7 @@ const DATA_SEP_SECTIONS = new Set(['WORKING-STORAGE', 'LINKAGE', 'FILE', 'LOCAL-
 const BLOCK_VERBS = new Set(['IF', 'EVALUATE', 'PERFORM', 'SET', 'SEARCH']);
 
 /** Suffissi dei paragrafi di uscita (nessun separatore, solo riga vuota). */
-const EXIT_SUFFIX = /-(EX|EXIT|FINE|END|X|USCITA)$/;
-
-/**
- * Colonna 1-based del primo carattere non-spazio di una riga (0 se vuota).
- * @param {string} line
- * @returns {number}
- */
-function firstNonSpaceCol(line) {
-    const m = line.match(/^(\s*)\S/);
-    return m ? m[1].length + 1 : 0;
-}
+const EXIT_SUFFIX = /-(EX|EXIT|USCITA)$/;
 
 /**
  * Indica se la riga e' un separatore commento (col 7 = '*' e resto solo trattini).
@@ -1002,7 +1004,8 @@ function applyStage2(out, lines, procDefLines, opts) {
             if (opts.sectionSeparators && div !== 'IDENTIFICATION') pushSepIfNeeded();
             result.push(fmt);
             division = div; inProc = (div === 'PROCEDURE');
-            resetStmt(); blankAfterHeader = false;
+            resetStmt();
+            blankAfterHeader = opts.blankLines && div === 'PROCEDURE';
             continue;
         }
         // --- SECTION header ---
@@ -1037,19 +1040,32 @@ function applyStage2(out, lines, procDefLines, opts) {
             continue;
         }
         // --- riga di continuazione: parte dello statement aperto ---
-        if (isCont) { result.push(fmt); continue; }
+        if (isCont) {
+            result.push(fmt);
+            if (endsWithTerminator(codeText)) {
+                if (stmtStartBase && stmtStartKind) prevBaseKind = stmtStartKind;
+                stmtOpen = false; stmtStartKind = null; stmtStartBase = false;
+            }
+            continue;
+        }
 
         // --- riga di statement PROCEDURE ---
         if (inProc) {
             const firstPhys = fmt.split('\n')[0];
-            const baseLevel = firstNonSpaceCol(firstPhys) === AREA_B;
+            // Colonna del codice ignorando l'indicatore in col 7 (es. 'D' debug).
+            let cc = 7;
+            while (cc < firstPhys.length && firstPhys[cc] === ' ') cc++;
+            const baseLevel = (cc + 1) === AREA_B;
             if (!stmtOpen) {
                 // inizio di una nuova sentence
                 if (blankAfterHeader) { pushBlankIfNeeded(); blankAfterHeader = false; }
                 stmtStartKind = firstWord;
                 stmtStartBase = baseLevel;
+                // Riga vuota tra due sentence base-level, a meno che abbiano lo
+                // stesso verbo NON di blocco (es. MOVE+MOVE, DISPLAY+DISPLAY
+                // restano ravvicinati; verbi diversi o di blocco si separano).
                 if (opts.blankLines && baseLevel && prevBaseKind !== null
-                    && (BLOCK_VERBS.has(firstWord) || BLOCK_VERBS.has(prevBaseKind))) {
+                    && (firstWord !== prevBaseKind || BLOCK_VERBS.has(firstWord))) {
                     pushBlankIfNeeded();
                 }
             }

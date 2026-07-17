@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.18.0] - 2026-07-17
+
+### Added
+- Formatter: an inline `PERFORM <para> THRU <para>` written on a single line is now split so the `THRU` moves to the next line, indented one step below the `PERFORM` (matching the standard style), when `cobolLens.format.indentThru` is on.
+
+### Changed
+- Formatter structural spacing (`cobolLens.format.blankLines`): the blank-line rule between statements is now clearer. A blank line separates two consecutive statements unless they start with the same non-block verb (so consecutive `MOVE`/`DISPLAY`/... stay grouped, while different verbs or block statements `IF`/`EVALUATE`/`PERFORM`/`SET`/`SEARCH` are separated). A blank line is also inserted after the `PROCEDURE DIVISION` header (before the first statement). Debug lines (a `D` in column 7) are now handled at their real code column.
+
+### Fixed
+- Formatter separators/blank lines: a finalization paragraph whose name ends in `-FINE` (for example `F0000-FINE`) is no longer mistaken for an exit paragraph. Only paragraphs ending in `-EX`, `-EXIT` or `-USCITA` are treated as exit paragraphs (they get a blank line); all other main paragraphs correctly receive the `*----` separator and the blank line after their header.
+
 ## [1.17.0] - 2026-07-17
 
 ### Added
