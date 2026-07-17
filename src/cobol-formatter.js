@@ -156,6 +156,27 @@ function endsWithTerminator(codeText) {
 }
 
 /**
+ * Indica se il testo contiene un letterale stringa non chiuso (numero dispari
+ * di apici, tenendo conto dell'escape con apice doppio). Serve a capire se la
+ * coda in colonna 73+ e' codice sbordato oltre la col 72 anziche' area di
+ * identificazione.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasUnterminatedLiteral(text) {
+    let quote = null;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (quote) {
+            if (ch === quote) quote = null;
+        } else if (ch === "'" || ch === '"') {
+            quote = ch;
+        }
+    }
+    return quote !== null;
+}
+
+/**
  * Determina la DIVISION introdotta da una riga, se presente.
  * @param {string} upper - testo codice in MAIUSCOLO
  * @returns {string|null}
@@ -298,8 +319,9 @@ function joinAligned(before, after, col, alignCol = ALIGN_COL) {
 
 /**
  * Allinea le clausole di una voce dati: PIC (o, in assenza di PIC, VALUE per
- * gli 88) alla colonna `alignCol`. Se la riga supera la colonna 72 e non basta
- * ridurre lo spazio, spezza le clausole su piu' righe.
+ * gli 88) alla colonna `alignCol`. L'ancora va SEMPRE alla colonna di
+ * allineamento (il gap si riduce solo se il nome la supererebbe); se la riga
+ * eccede la colonna 72, il letterale del VALUE va a capo sotto il nome.
  * @param {string} codeText - testo codice (con numero di livello gia' normalizzato)
  * @param {number} col - colonna 1-based di inizio della voce
  * @param {number} [alignCol] - colonna 1-based di allineamento della clausola
@@ -316,36 +338,59 @@ function alignDataClauses(codeText, col, alignCol = ALIGN_COL) {
     const anchorIdx = m.index;
     const before = collapsed.substring(0, anchorIdx).replace(/\s+$/, '');
     const after = collapsed.substring(anchorIdx);
-    const joined = joinAligned(before, after, col, alignCol);
-    if (!joined.overflow) {
-        return [{ col, text: joined.text }];
+    // L'ancora (PIC o VALUE) va sempre alla colonna di allineamento; il gap si
+    // riduce solo se il nome la supererebbe (min 1 spazio). Il gap NON viene
+    // compresso per far stare un VALUE lungo: in quel caso il valore va a capo.
+    const maxLen = CODE_END - col + 1;
+    let gap = (alignCol - col) - before.length;
+    if (gap < 1) gap = 1;
+    const oneLine = before + ' '.repeat(gap) + after;
+    if (oneLine.length <= maxLen) {
+        return [{ col, text: oneLine }];
     }
-    return splitDataClauses(before, after, col, alignCol);
+    return splitDataClauses(before, after, col, alignCol, gap);
 }
 
 /**
- * Spezza le clausole di una voce dati su piu' righe quando non stanno entro la
- * colonna 72. La clausola di ancoraggio resta in linea; la clausola VALUE (o le
- * successive) va a capo allineata alla colonna `alignCol`.
- * @param {string} before
- * @param {string} after - keyword di ancoraggio + resto (compresso)
- * @param {number} col
- * @param {number} [alignCol]
+ * Spezza una voce dati troppo lunga: la clausola PIC resta in linea allineata
+ * alla colonna di allineamento (seguita da VALUE), mentre il letterale del
+ * VALUE va a capo: se ci sta, allineato alla colonna dell'ancora (la P di PIC);
+ * altrimenti alla colonna iniziale del nome della variabile (piu' a sinistra,
+ * quindi con piu' spazio disponibile).
+ * @param {string} before - livello + nome (gia' senza spazi finali)
+ * @param {string} after - keyword di ancoraggio (PIC/VALUE) + resto
+ * @param {number} col - colonna 1-based di inizio della voce
+ * @param {number} [alignCol] - colonna 1-based di allineamento dell'ancora
+ * @param {number} [gap] - spazi tra `before` e l'ancora (per tenere l'ancora a alignCol)
  * @returns {{ col: number, text: string }[]}
  */
-function splitDataClauses(before, after, col, alignCol = ALIGN_COL) {
+function splitDataClauses(before, after, col, alignCol = ALIGN_COL, gap) {
+    // Colonna iniziale del nome della variabile (il letterale va sotto il nome).
+    const sp = before.indexOf(' ');
+    const nameCol = sp >= 0 ? col + sp + 1 : col;
+    if (gap === undefined) {
+        gap = (alignCol - col) - before.length;
+        if (gap < 1) gap = 1;
+    }
     const strippedAfter = stripLit(after).toUpperCase();
     const vm = strippedAfter.match(/\bVALUES?\b/);
-    if (!vm || vm.index === 0) {
-        // Nessun punto di taglio utile: riga unica, best-effort.
-        const { text } = joinAligned(before, after, col, alignCol);
-        return [{ col, text }];
+    if (!vm) {
+        // Nessuna clausola VALUE da mandare a capo: riga unica, best-effort.
+        return [{ col, text: before + ' '.repeat(gap) + after }];
     }
-    const part1 = after.substring(0, vm.index).replace(/\s+$/, ''); // clausola PIC/...
-    const part2 = after.substring(vm.index);                       // VALUE ...
-    const seg1 = alignDataClauses(before + ' ' + part1, col, alignCol);
-    const seg2 = { col: alignCol, text: collapseSpaces(part2) };
-    return [...seg1, seg2];
+    const kwLen = (after.slice(vm.index).match(/^\S+/) || ['VALUE'])[0].length;
+    // Testa: "... PIC ... VALUE" (o solo "VALUE" per gli 88), con l'ancora a alignCol.
+    const head = after.substring(0, vm.index + kwLen).replace(/\s+$/, '');
+    // Operando: il letterale (e gli eventuali valori seguenti).
+    const operand = after.substring(vm.index + kwLen).replace(/^\s+/, '');
+    if (operand === '') {
+        return [{ col, text: before + ' '.repeat(gap) + after }];
+    }
+    const line1 = before + ' '.repeat(gap) + head;
+    // Il letterale a capo parte dalla colonna dell'ancora (col 45) se ci sta;
+    // altrimenti dalla colonna del nome (piu' spazio a disposizione).
+    const operandCol = (alignCol + operand.length - 1) <= CODE_END ? alignCol : nameCol;
+    return [{ col, text: line1 }, { col: operandCol, text: operand }];
 }
 
 /**
@@ -444,7 +489,15 @@ function computeFormatted(lines, procDefLines, options) {
             continue;
         }
 
-        const { seq, code, idArea } = splitLine(raw);
+        const { seq } = splitLine(raw);
+        let { code, idArea } = splitLine(raw);
+        // Se il codice (col 8-72) contiene un letterale non chiuso e c'e'
+        // contenuto in col 73+, quella coda non e' area di identificazione ma
+        // codice sbordato oltre la col 72: la si recupera come parte del codice.
+        if (idArea !== '' && hasUnterminatedLiteral(code)) {
+            code = code + idArea;
+            idArea = '';
+        }
         const codeText = code.replace(/^\s+/, '').replace(/\s+$/, '');
         if (codeText === '') { out[i] = ''; continue; }
         const upper = stripLit(codeText).toUpperCase();

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.16.0] - 2026-07-17
+
+### Changed
+- Formatter, data item overflow: the `PIC` clause now stays anchored at the configured picture column (45 by default) even when a long `VALUE` literal would push the line past column 72. When the whole item no longer fits on one line, the `VALUE` literal is wrapped to the next line: it starts at the picture column (under the `P` of `PIC`) when it fits there, otherwise it starts at the variable name column (which leaves more room). The formatter also recovers a literal whose tail had spilled past column 72 into the identification area (detected via an unterminated string literal in columns 8-72), so re-formatting such a line produces valid fixed-format code instead of leaving code in the identification area.
+
 ## [1.15.0] - 2026-07-17
 
 ### Added
