@@ -1,6 +1,6 @@
 ## Catch issues as you type
 
-A built-in linter with **47 configurable rules** runs in real time (or on save):
+A built-in linter with **48 configurable rules** runs in real time (or on save):
 
 - **Structure** -- DIVISION order, END-xxx matching, orphan scope delimiters
 - **Formatting** -- column 72 limit, PIC alignment, level spacing, uppercase

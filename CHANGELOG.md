@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.0] - 2026-07-17
+
+### Added
+- Getting Started walkthrough: new "Master your copybooks" step that showcases the Copybook Dependencies tree and the Expand Copybooks (Preview) command, including nested `COPY` and `COPY ... REPLACING`, all without a compiler.
+
+### Changed
+- Aligned the linter rule count to 48 across the extension description, the walkthrough and the localized strings (the README was already updated in 1.12.0). The extension ships 48 configurable rules.
+
 ## [1.12.1] - 2026-07-16
 
 ### Fixed
