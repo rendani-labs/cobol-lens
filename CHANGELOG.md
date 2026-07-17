@@ -5,7 +5,7 @@
 ### Added
 - Formatter, IDENTIFICATION DIVISION: the value of each paragraph (`PROGRAM-ID`, `AUTHOR`, `DATE-WRITTEN`, ...) is now aligned to column 22 (one space after `DATE-WRITTEN.`), so the values line up.
 - Formatter, FILE-CONTROL: `SELECT` entries are now laid out in the standard style. `SELECT` and the file name stay in Area B (column 12), each clause keyword (`ASSIGN TO`, `ORGANIZATION`, `ACCESS`, `RECORD KEY`, `ALTERNATE RECORD KEY`, `STATUS`, `RESERVE`, ...) is aligned to column 29 and its value to column 42, and the optional `IS`/`MODE` noise words are dropped. Unrecognized clauses are left untouched (no token is ever lost).
-- Formatter structural spacing (`cobolLens.format.blankLines`): a blank line is now inserted before each `FD`/`SD` entry in the FILE SECTION except the first, to separate the file descriptions.
+- Formatter structural spacing (`cobolLens.format.blankLines`): a blank line is now inserted before each `FD`/`SD` entry in the FILE SECTION except the first, and before each `SELECT` entry in FILE-CONTROL except the first, to separate the file descriptions and the file-control blocks.
 
 ## [1.18.0] - 2026-07-17
 

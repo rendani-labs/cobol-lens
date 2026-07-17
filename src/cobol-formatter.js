@@ -1072,6 +1072,8 @@ function applyStage2(out, lines, procDefLines, opts) {
     let blankAfterHeader = false;// va inserita una riga vuota dopo l'header di paragrafo
     let inFileSection = false;   // dentro la FILE SECTION
     let fdSeen = false;          // gia' visto un FD/SD nella FILE SECTION corrente
+    let inFileControl = false;   // dentro il paragrafo FILE-CONTROL
+    let selectSeen = false;      // gia' visto un SELECT nel FILE-CONTROL corrente
 
     const prevNonBlank = () => {
         for (let k = result.length - 1; k >= 0; k--) {
@@ -1116,6 +1118,7 @@ function applyStage2(out, lines, procDefLines, opts) {
             resetStmt();
             blankAfterHeader = opts.blankLines && div === 'PROCEDURE';
             inFileSection = false; fdSeen = false;
+            inFileControl = false; selectSeen = false;
             continue;
         }
         // --- SECTION header ---
@@ -1127,6 +1130,7 @@ function applyStage2(out, lines, procDefLines, opts) {
             result.push(fmt);
             resetStmt(); blankAfterHeader = false;
             inFileSection = (firstWord === 'FILE'); fdSeen = false;
+            inFileControl = false; selectSeen = false;
             continue;
         }
         // --- PROCEDURE paragraph header ---
@@ -1198,6 +1202,18 @@ function applyStage2(out, lines, procDefLines, opts) {
             result.push(fmt);
             prevBaseKind = null;
             continue;
+        }
+
+        // --- ENVIRONMENT / FILE-CONTROL: separa i blocchi SELECT. ---
+        if (division === 'ENVIRONMENT') {
+            if (firstWord === 'FILE-CONTROL') {
+                inFileControl = true; selectSeen = false;
+            } else if (ENV_PARAGRAPHS.has(firstWord)) {
+                inFileControl = false;
+            } else if (inFileControl && firstWord === 'SELECT') {
+                if (opts.blankLines && selectSeen) pushBlankIfNeeded();
+                selectSeen = true;
+            }
         }
 
         // --- altre righe (ID/ENV/DATA): invariate ---
