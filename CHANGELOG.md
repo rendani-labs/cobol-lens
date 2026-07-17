@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.15.0] - 2026-07-17
+
+### Added
+- Formatter, structural spacing (opt-in, whole-document only). Two new settings add the visual structure typical of the target style without ever touching a line of code: `cobolLens.format.sectionSeparators` inserts a comment separator line (`*----`) before each DIVISION (except IDENTIFICATION), before the WORKING-STORAGE/LINKAGE/FILE sections and before each main PROCEDURE paragraph (exit paragraphs such as `-EX`/`-EXIT` get a blank line instead of a separator); `cobolLens.format.blankLines` inserts blank lines in the PROCEDURE DIVISION to separate logical blocks (after a main paragraph header, before an exit paragraph, and between two consecutive base-level statements when at least one is `IF`/`EVALUATE`/`PERFORM`/`SET`/`SEARCH`, while consecutive `MOVE`/`ADD`/... stay grouped). Both are off by default.
+- Both features are insert-only and idempotent (existing separators and blank lines are never duplicated) and are protected by a safety invariant: before applying them the formatter verifies that the sequence of real code lines is unchanged; if anything would differ it falls back to the plain (Stage 1) formatting, so code can never be corrupted. Structural spacing is applied only when formatting the whole document (not a selection).
+
 ## [1.14.0] - 2026-07-17
 
 ### Added

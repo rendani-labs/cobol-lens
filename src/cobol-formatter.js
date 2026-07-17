@@ -52,6 +52,8 @@ const CLAUSE_KW = /^(PIC|PICTURE|VALUE|VALUES|OCCURS|REDEFINES|RENAMES|USAGE|COM
  * @property {number} indentStep - passo di indentazione (dati e blocchi PROCEDURE).
  * @property {boolean} alignMoveTo - allinea il TO di MOVE/ADD alla colonna PIC.
  * @property {boolean} indentThru - indenta THRU/THROUGH sotto il PERFORM.
+ * @property {boolean} sectionSeparators - inserisce righe separatore *---- (Stage 2).
+ * @property {boolean} blankLines - inserisce righe vuote tra blocchi (Stage 2).
  */
 
 /** @type {FormatOptions} */
@@ -60,6 +62,8 @@ const DEFAULT_OPTIONS = {
     indentStep: INDENT,
     alignMoveTo: true,
     indentThru: true,
+    sectionSeparators: false,
+    blankLines: false,
 };
 
 /**
@@ -73,6 +77,8 @@ function normalizeOptions(options) {
     if (!(o.indentStep >= 1)) o.indentStep = INDENT;
     o.alignMoveTo = o.alignMoveTo !== false;
     o.indentThru = o.indentThru !== false;
+    o.sectionSeparators = o.sectionSeparators === true;
+    o.blankLines = o.blankLines === true;
     return o;
 }
 
@@ -744,6 +750,220 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
     return buildLine(seq, idArea, col, outText);
 }
 
+// ---------------------------------------------------------------------------
+// STAGE 2 (opt-in): inserimento di righe separatore e righe vuote tra blocchi.
+// Opera sull'array 1:1 prodotto da computeFormatted e restituisce un nuovo
+// array (le voci inserite sono '' o la riga separatore). E' insert-only e
+// idempotente; la sicurezza (nessuna riga di codice alterata/persa) e'
+// verificata a valle in formatDocument tramite codeSignature.
+// ---------------------------------------------------------------------------
+
+/** Riga separatore: '*' in col 7 seguito da trattini fino alla col 72. */
+const SEPARATOR = '      *' + '-'.repeat(CODE_END - 7);
+
+/** Sezioni della DATA DIVISION che ricevono un separatore (scelta utente). */
+const DATA_SEP_SECTIONS = new Set(['WORKING-STORAGE', 'LINKAGE', 'FILE', 'LOCAL-STORAGE']);
+
+/** Verbi di blocco/enfasi: separano i loro statement con una riga vuota. */
+const BLOCK_VERBS = new Set(['IF', 'EVALUATE', 'PERFORM', 'SET', 'SEARCH']);
+
+/** Suffissi dei paragrafi di uscita (nessun separatore, solo riga vuota). */
+const EXIT_SUFFIX = /-(EX|EXIT|FINE|END|X|USCITA)$/;
+
+/**
+ * Colonna 1-based del primo carattere non-spazio di una riga (0 se vuota).
+ * @param {string} line
+ * @returns {number}
+ */
+function firstNonSpaceCol(line) {
+    const m = line.match(/^(\s*)\S/);
+    return m ? m[1].length + 1 : 0;
+}
+
+/**
+ * Indica se la riga e' un separatore commento (col 7 = '*' e resto solo trattini).
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isSeparatorLine(line) {
+    if (line.length < 8) return false;
+    if (line.charAt(6) !== '*') return false;
+    const rest = line.substring(7).trim();
+    return rest.length > 0 && /^-+$/.test(rest);
+}
+
+/**
+ * Estrae la "firma" del codice: righe non vuote e non commento, con gli spazi
+ * finali rimossi. Serve a garantire che lo Stage 2 non alteri nessuna riga di
+ * codice reale (solo inserimento di righe vuote/commento).
+ * @param {string[]} physLines
+ * @returns {string[]}
+ */
+function codeSignature(physLines) {
+    const sig = [];
+    for (const l of physLines) {
+        if (l.trim() === '') continue;
+        const ind = l.length > 6 ? l.charAt(6) : '';
+        if (ind === '*' || ind === '/') continue;
+        sig.push(l.replace(/\s+$/, ''));
+    }
+    return sig;
+}
+
+/**
+ * Applica lo Stage 2 (separatori + righe vuote tra blocchi) all'array 1:1
+ * prodotto da computeFormatted.
+ * @param {string[]} out - array formattato 1:1 (le voci possono essere multi-riga)
+ * @param {string[]} lines - righe di input originali (stesso indice di out)
+ * @param {Set<number>} procDefLines - indici di riga con paragrafo/sezione PROCEDURE
+ * @param {FormatOptions} opts
+ * @returns {string[]}
+ */
+function applyStage2(out, lines, procDefLines, opts) {
+    /** @type {string[]} */
+    const result = [];
+    let division = '';
+    let inProc = false;
+    let stmtOpen = false;        // uno statement (sentence) e' aperto e prosegue
+    let stmtStartKind = null;    // verbo iniziale della sentence corrente
+    let stmtStartBase = false;   // la sentence corrente inizia a livello base (col 12)
+    let prevBaseKind = null;     // verbo dell'ultima sentence base-level adiacente
+    let blankAfterHeader = false;// va inserita una riga vuota dopo l'header di paragrafo
+
+    const prevNonBlank = () => {
+        for (let k = result.length - 1; k >= 0; k--) {
+            const parts = result[k].split('\n');
+            const t = parts[parts.length - 1];
+            if (t.trim() !== '') return t;
+        }
+        return '';
+    };
+    const pushBlankIfNeeded = () => {
+        if (result.length === 0) return;
+        const parts = result[result.length - 1].split('\n');
+        const last = parts[parts.length - 1];
+        if (last.trim() !== '') result.push('');
+    };
+    const pushSepIfNeeded = () => {
+        if (!isSeparatorLine(prevNonBlank())) result.push(SEPARATOR);
+    };
+    const resetStmt = () => {
+        stmtOpen = false; stmtStartKind = null; stmtStartBase = false; prevBaseKind = null;
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        const fmt = out[i];
+        const indicator = raw.length > 6 ? raw.charAt(6) : '';
+        const isComment = indicator === '*' || indicator === '/';
+        const isBlank = raw.trim() === '';
+        const isCont = indicator === '-';
+        const codeText = (raw.length > 7 ? raw.substring(7, CODE_END) : '').trim();
+        const upper = stripLit(codeText).toUpperCase();
+        const firstWord = (upper.match(/^[A-Z0-9][A-Z0-9-]*/) || [''])[0];
+
+        const div = (!isComment && !isBlank && codeText) ? divisionOf(upper) : null;
+        const isSection = (!isComment && !isBlank && codeText) ? isSectionHeader(upper) : false;
+
+        // --- DIVISION header ---
+        if (div) {
+            if (opts.sectionSeparators && div !== 'IDENTIFICATION') pushSepIfNeeded();
+            result.push(fmt);
+            division = div; inProc = (div === 'PROCEDURE');
+            resetStmt(); blankAfterHeader = false;
+            continue;
+        }
+        // --- SECTION header ---
+        if (isSection) {
+            if (opts.sectionSeparators
+                && (DATA_SEP_SECTIONS.has(firstWord) || division === 'PROCEDURE')) {
+                pushSepIfNeeded();
+            }
+            result.push(fmt);
+            resetStmt(); blankAfterHeader = false;
+            continue;
+        }
+        // --- PROCEDURE paragraph header ---
+        if (inProc && !isComment && !isBlank && codeText && procDefLines.has(i)) {
+            const isExit = EXIT_SUFFIX.test(firstWord);
+            if (isExit) {
+                // Un paragrafo di uscita non riceve il separatore ma una riga
+                // vuota (fa parte della delimitazione visiva del paragrafo).
+                if (opts.sectionSeparators || opts.blankLines) pushBlankIfNeeded();
+            } else if (opts.sectionSeparators) {
+                pushSepIfNeeded();
+            }
+            result.push(fmt);
+            resetStmt();
+            blankAfterHeader = opts.blankLines && !isExit;
+            continue;
+        }
+        // --- righe vuote / commento: passano invariate, azzerano l'adiacenza ---
+        if (isBlank || isComment) {
+            result.push(fmt);
+            prevBaseKind = null; blankAfterHeader = false;
+            continue;
+        }
+        // --- riga di continuazione: parte dello statement aperto ---
+        if (isCont) { result.push(fmt); continue; }
+
+        // --- riga di statement PROCEDURE ---
+        if (inProc) {
+            const firstPhys = fmt.split('\n')[0];
+            const baseLevel = firstNonSpaceCol(firstPhys) === AREA_B;
+            if (!stmtOpen) {
+                // inizio di una nuova sentence
+                if (blankAfterHeader) { pushBlankIfNeeded(); blankAfterHeader = false; }
+                stmtStartKind = firstWord;
+                stmtStartBase = baseLevel;
+                if (opts.blankLines && baseLevel && prevBaseKind !== null
+                    && (BLOCK_VERBS.has(firstWord) || BLOCK_VERBS.has(prevBaseKind))) {
+                    pushBlankIfNeeded();
+                }
+            }
+            result.push(fmt);
+            if (endsWithTerminator(codeText)) {
+                if (stmtStartBase && stmtStartKind) prevBaseKind = stmtStartKind;
+                stmtOpen = false; stmtStartKind = null; stmtStartBase = false;
+            } else {
+                stmtOpen = true;
+            }
+            continue;
+        }
+
+        // --- altre righe (ID/ENV/DATA): invariate ---
+        result.push(fmt);
+        prevBaseKind = null;
+    }
+    return result;
+}
+
+/**
+ * Formatta l'intero documento restituendo le righe fisiche finali. Se lo Stage 2
+ * e' attivo applica separatori/righe vuote, ma solo dopo aver verificato che la
+ * firma del codice non cambi (fail-safe: in caso contrario restituisce il
+ * risultato del solo Stage 1).
+ * @param {string[]} lines
+ * @param {Set<number>} procDefLines
+ * @param {Partial<FormatOptions>} [options]
+ * @returns {string[]}
+ */
+function formatDocument(lines, procDefLines, options) {
+    const opts = normalizeOptions(options);
+    const formatted = computeFormatted(lines, procDefLines, opts);
+    const stage1 = formatted.join('\n').split('\n');
+    if (!opts.sectionSeparators && !opts.blankLines) return stage1;
+
+    const stage2 = applyStage2(formatted, lines, procDefLines, opts).join('\n').split('\n');
+    const before = codeSignature(stage1);
+    const after = codeSignature(stage2);
+    if (before.length !== after.length) return stage1;
+    for (let k = 0; k < before.length; k++) {
+        if (before[k] !== after[k]) return stage1;
+    }
+    return stage2;
+}
+
 /**
  * Rileva se il file usa un formato diverso da 'fixed' tramite direttiva $SET.
  * @param {string[]} lines
@@ -795,12 +1015,33 @@ class CobolFormattingProvider {
             }
         }
 
-        const formatted = computeFormatted(lines, procDefLines, {
+        /** @type {Partial<FormatOptions>} */
+        const opts = {
             pictureColumn: cfg.get('format.pictureColumn', ALIGN_COL),
             indentStep: cfg.get('format.indentStep', INDENT),
             alignMoveTo: cfg.get('format.alignMoveTo', true),
             indentThru: cfg.get('format.indentThru', true),
-        });
+            sectionSeparators: cfg.get('format.sectionSeparators', false),
+            blankLines: cfg.get('format.blankLines', false),
+        };
+
+        // Stage 2 (separatori / righe vuote) solo sul documento intero: inserisce
+        // righe, quindi non e' compatibile con l'edit riga-per-riga usato per le
+        // selezioni. Per la formattazione di una selezione resta attivo il solo
+        // Stage 1 (indentazione/allineamento), che non cambia il numero di righe.
+        const stage2 = (opts.sectionSeparators || opts.blankLines) && range === null;
+        if (stage2) {
+            const finalLines = formatDocument(lines, procDefLines, opts);
+            const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+            const newText = finalLines.join(eol);
+            if (newText === document.getText()) return [];
+            const fullRange = new vscode.Range(
+                document.positionAt(0),
+                document.positionAt(document.getText().length));
+            return [vscode.TextEdit.replace(fullRange, newText)];
+        }
+
+        const formatted = computeFormatted(lines, procDefLines, opts);
 
         const startLine = range ? range.start.line : 0;
         const endLine = range ? range.end.line : lines.length - 1;
@@ -855,4 +1096,4 @@ class CobolFormattingProvider {
     }
 }
 
-module.exports = { CobolFormattingProvider, computeFormatted };
+module.exports = { CobolFormattingProvider, computeFormatted, formatDocument };
