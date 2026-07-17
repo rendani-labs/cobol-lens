@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.17.0] - 2026-07-17
+
+### Added
+- Formatter, long literal continuation: when a `VALUE` literal is too long to fit on one line even starting at the variable name column, it is now split across multiple lines using fixed-format continuation (a hyphen in column 7 and a quotation mark in Area B). The literal content is preserved exactly (intermediate lines are filled through column 72 and the fragments concatenate back to the original). Only simple single literals are split (no embedded quotes, nothing after the closing quote); anything else is left on one best-effort line rather than risk altering the value. In the rare boundary case where the content would exactly fill the lines and leave an empty closing fragment, the literal is left intact instead of being split.
+
 ## [1.16.0] - 2026-07-17
 
 ### Changed

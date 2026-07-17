@@ -325,7 +325,7 @@ function joinAligned(before, after, col, alignCol = ALIGN_COL) {
  * @param {string} codeText - testo codice (con numero di livello gia' normalizzato)
  * @param {number} col - colonna 1-based di inizio della voce
  * @param {number} [alignCol] - colonna 1-based di allineamento della clausola
- * @returns {{ col: number, text: string }[]}
+ * @returns {{ col?: number, text?: string, raw?: string }[]}
  */
 function alignDataClauses(codeText, col, alignCol = ALIGN_COL) {
     const collapsed = collapseSpaces(codeText.replace(/^\s+/, ''));
@@ -362,7 +362,7 @@ function alignDataClauses(codeText, col, alignCol = ALIGN_COL) {
  * @param {number} col - colonna 1-based di inizio della voce
  * @param {number} [alignCol] - colonna 1-based di allineamento dell'ancora
  * @param {number} [gap] - spazi tra `before` e l'ancora (per tenere l'ancora a alignCol)
- * @returns {{ col: number, text: string }[]}
+ * @returns {{ col?: number, text?: string, raw?: string }[]}
  */
 function splitDataClauses(before, after, col, alignCol = ALIGN_COL, gap) {
     // Colonna iniziale del nome della variabile (il letterale va sotto il nome).
@@ -389,19 +389,96 @@ function splitDataClauses(before, after, col, alignCol = ALIGN_COL, gap) {
     const line1 = before + ' '.repeat(gap) + head;
     // Il letterale a capo parte dalla colonna dell'ancora (col 45) se ci sta;
     // altrimenti dalla colonna del nome (piu' spazio a disposizione).
-    const operandCol = (alignCol + operand.length - 1) <= CODE_END ? alignCol : nameCol;
-    return [{ col, text: line1 }, { col: operandCol, text: operand }];
+    if ((alignCol + operand.length - 1) <= CODE_END) {
+        return [{ col, text: line1 }, { col: alignCol, text: operand }];
+    }
+    if ((nameCol + operand.length - 1) <= CODE_END) {
+        return [{ col, text: line1 }, { col: nameCol, text: operand }];
+    }
+    // Troppo lungo anche dalla colonna del nome: se e' un singolo letterale
+    // semplice, lo si spezza su piu' righe con la continuazione fixed (col 7 = '-').
+    const cont = continuationSegments(operand, nameCol);
+    if (cont) return [{ col, text: line1 }, ...cont];
+    // Altrimenti best-effort su una riga (potrebbe eccedere la col 72).
+    return [{ col, text: line1 }, { col: nameCol, text: operand }];
+}
+
+/**
+ * Costruisce una riga fisica per la continuazione di un letterale: area
+ * sequenza vuota, indicatore ('-' per le righe di continuazione, spazio per la
+ * riga sorgente), quindi il testo a partire dalla colonna `anchor`. Le righe
+ * intermedie arrivano esattamente alla colonna 72 (il contenuto non viene mai
+ * troncato).
+ * @param {boolean} isCont - true se e' una riga di continuazione (indicatore '-')
+ * @param {number} anchor - colonna 1-based di inizio del testo (l'apice)
+ * @param {string} codeStr - testo (apice + contenuto, con eventuale chiusura)
+ * @returns {string}
+ */
+function buildContLine(isCont, anchor, codeStr) {
+    return '      ' + (isCont ? '-' : ' ') + ' '.repeat(anchor - AREA_A) + codeStr;
+}
+
+/**
+ * Spezza un singolo letterale non-numerico troppo lungo su piu' righe usando la
+ * continuazione fixed (indicatore '-' in colonna 7, apice in Area B). Gestisce
+ * SOLO un letterale semplice (nessun apice nel contenuto e nessun altro valore
+ * dopo la chiusura); negli altri casi restituisce null (best-effort a monte).
+ * Il contenuto viene preservato esattamente: le righe intermedie riempiono fino
+ * alla colonna 72 e la concatenazione dei frammenti riproduce il letterale.
+ * @param {string} operand - es. "'AAA...'." (apice + contenuto + apice + coda)
+ * @param {number} startCol - colonna di partenza preferita (portata in Area B)
+ * @returns {{ raw: string }[] | null}
+ */
+function continuationSegments(operand, startCol) {
+    const q = operand.charAt(0);
+    if (q !== "'" && q !== '"') return null;
+    const close = operand.indexOf(q, 1);
+    if (close < 0) return null;
+    const content = operand.substring(1, close);
+    const tail = operand.substring(close + 1);
+    // Solo letterali semplici: niente apici nel contenuto o dopo la chiusura.
+    if (content.indexOf(q) >= 0 || tail.indexOf("'") >= 0 || tail.indexOf('"') >= 0) {
+        return null;
+    }
+    // La continuazione richiede l'apice in Area B (colonna >= 12).
+    const anchor = Math.max(startCol, AREA_B);
+    const lineCap = CODE_END - anchor;          // contenuto per riga piena (fino a col 72)
+    const lastCap = lineCap - 1 - tail.length;  // contenuto sull'ultima riga (con chiusura + coda)
+    if (lineCap < 2 || lastCap < 1) return null;
+
+    /** @type {{ raw: string }[]} */
+    const segs = [];
+    if (content.length <= lastCap) {
+        // Sta su una sola riga di continuazione (caso di confine).
+        segs.push({ raw: buildContLine(false, anchor, q + content + q + tail) });
+        return segs;
+    }
+    // Righe "piene" (riempite fino alla col 72) prima della riga di chiusura.
+    const full = Math.ceil((content.length - lastCap) / lineCap);
+    const closing = content.length - full * lineCap;
+    // "Zona morta": l'ultima riga resterebbe senza contenuto (o eccederebbe).
+    // In quel caso NON si spezza (best-effort a monte) per non corrompere il valore.
+    if (closing < 1 || closing > lastCap) return null;
+
+    let idx = 0;
+    for (let f = 0; f < full; f++) {
+        segs.push({ raw: buildContLine(f > 0, anchor, q + content.substr(idx, lineCap)) });
+        idx += lineCap;
+    }
+    segs.push({ raw: buildContLine(full > 0, anchor, q + content.substring(idx) + q + tail) });
+    return segs;
 }
 
 /**
  * Restituisce la colonna 1-based della keyword VALUE nei segmenti renderizzati,
  * oppure 0 se non presente. Serve ad allineare i VALUE degli 88 a quello del
  * livello superiore.
- * @param {{ col: number, text: string }[]} segments
+ * @param {{ col?: number, text?: string, raw?: string }[]} segments
  * @returns {number}
  */
 function valueColumnOf(segments) {
     for (const s of segments) {
+        if (s.text === undefined) continue;
         const stripped = stripLit(s.text).toUpperCase();
         const m = stripped.match(/\bVALUES?\b/);
         if (m) return s.col + m.index;
@@ -429,15 +506,16 @@ function alignProcedureTo(codeText, col, alignCol = ALIGN_COL) {
 /**
  * Rende uno o piu' segmenti come righe fisiche. Solo il primo segmento
  * conserva l'area sequenza (col 1-6) e l'area di identificazione (col 73+).
- * @param {{ col: number, text: string }[]} segments
+ * @param {{ col?: number, text?: string, raw?: string }[]} segments
  * @param {string} seq
  * @param {string} idArea
  * @returns {string}
  */
 function renderSegments(segments, seq, idArea) {
-    return segments.map((s, k) =>
-        buildLine(k === 0 ? seq : '', k === 0 ? idArea : '', s.col, s.text)
-    ).join('\n');
+    return segments.map((s, k) => {
+        if (s.raw !== undefined) return s.raw;
+        return buildLine(k === 0 ? seq : '', k === 0 ? idArea : '', s.col, s.text);
+    }).join('\n');
 }
 
 /**
@@ -647,7 +725,8 @@ function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
             if (pv > 0) alignCol = pv;
         }
         const segments = alignDataClauses(normalized, col, alignCol);
-        const lastText = segments[segments.length - 1].text;
+        const last = segments[segments.length - 1];
+        const lastText = last.text !== undefined ? last.text : last.raw;
         setPending(!endsWithTerminator(lastText));
         setContIndent(col + indent);
         // Memorizza la colonna del VALUE del livello superiore (non degli 88,
