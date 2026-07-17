@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.14.0] - 2026-07-17
+
+### Added
+- Configurable fixed-format formatter. Four new settings let you tailor the layout without giving up the sensible defaults: `cobolLens.format.pictureColumn` (column where the `PIC`/`VALUE` clause is aligned, default 45), `cobolLens.format.indentStep` (spaces per indentation level for both data nesting and PROCEDURE blocks, default 3), `cobolLens.format.alignMoveTo` (align the `TO` of `MOVE`/`ADD` to the PIC column, default on), and `cobolLens.format.indentThru` (indent a `THRU`/`THROUGH` continuation one level below its `PERFORM`, default on).
+- Procedure copybooks: a copybook made of statements only (no `DIVISION` headers) is now detected and formatted as PROCEDURE code (Area B plus block indentation), instead of being treated as a data record. Detection scans the first non-comment lines for a leading COBOL verb. Data copybooks keep their previous behavior.
+
+### Changed
+- The `SET` statement is now always kept tight (single spaces): its `TO` is no longer pushed to the PIC column, while `MOVE`/`ADD` alignment stays configurable via `cobolLens.format.alignMoveTo`.
+
 ## [1.13.0] - 2026-07-17
 
 ### Added

@@ -44,6 +44,78 @@ const ALIGN_COL = 45; // colonna di allineamento per PIC / TO / VALUE (88)
 /** Keyword che, a inizio riga di continuazione dati, si allineano a col 45. */
 const CLAUSE_KW = /^(PIC|PICTURE|VALUE|VALUES|OCCURS|REDEFINES|RENAMES|USAGE|COMP|COMP-1|COMP-2|COMP-3|COMP-4|COMP-5|COMP-X|BINARY|PACKED-DECIMAL|SIGN|SYNC|SYNCHRONIZED|JUST|JUSTIFIED|BLANK|INDEXED)\b/;
 
+/**
+ * Opzioni di formattazione. I valori riflettono le impostazioni
+ * `cobolLens.format.*`; i default corrispondono allo stile predefinito.
+ * @typedef {Object} FormatOptions
+ * @property {number} pictureColumn - colonna 1-based di allineamento PIC/VALUE.
+ * @property {number} indentStep - passo di indentazione (dati e blocchi PROCEDURE).
+ * @property {boolean} alignMoveTo - allinea il TO di MOVE/ADD alla colonna PIC.
+ * @property {boolean} indentThru - indenta THRU/THROUGH sotto il PERFORM.
+ */
+
+/** @type {FormatOptions} */
+const DEFAULT_OPTIONS = {
+    pictureColumn: ALIGN_COL,
+    indentStep: INDENT,
+    alignMoveTo: true,
+    indentThru: true,
+};
+
+/**
+ * Riempie le opzioni mancanti con i default e valida i valori numerici.
+ * @param {Partial<FormatOptions>} [options]
+ * @returns {FormatOptions}
+ */
+function normalizeOptions(options) {
+    const o = Object.assign({}, DEFAULT_OPTIONS, options || {});
+    if (!(o.pictureColumn >= AREA_B)) o.pictureColumn = ALIGN_COL;
+    if (!(o.indentStep >= 1)) o.indentStep = INDENT;
+    o.alignMoveTo = o.alignMoveTo !== false;
+    o.indentThru = o.indentThru !== false;
+    return o;
+}
+
+/**
+ * Verbi che, a inizio riga, indicano contenuto di PROCEDURE. Servono a
+ * riconoscere un copybook di soli statement (privo di intestazioni di DIVISION)
+ * per formattarlo come PROCEDURE anziche' come tracciato dati.
+ */
+const PROC_VERBS = new Set([
+    'PERFORM', 'MOVE', 'IF', 'ELSE', 'EVALUATE', 'WHEN', 'SET', 'ADD',
+    'SUBTRACT', 'MULTIPLY', 'DIVIDE', 'COMPUTE', 'DISPLAY', 'ACCEPT', 'CALL',
+    'GO', 'GOBACK', 'STOP', 'READ', 'WRITE', 'REWRITE', 'DELETE', 'START',
+    'OPEN', 'CLOSE', 'INITIALIZE', 'STRING', 'UNSTRING', 'INSPECT', 'SEARCH',
+    'EXEC', 'CONTINUE', 'EXIT', 'RETURN', 'INVOKE', 'CANCEL', 'NEXT',
+    'END-IF', 'END-EVALUATE', 'END-PERFORM', 'END-READ', 'END-CALL',
+    'END-STRING', 'END-UNSTRING', 'END-SEARCH',
+]);
+
+/**
+ * Euristica: un copybook senza intestazioni di DIVISION e' considerato di
+ * PROCEDURE se tra le prime righe di codice significative (max 20) compare un
+ * verbo COBOL a inizio riga. Altrimenti e' trattato come tracciato dati.
+ * @param {string[]} lines
+ * @returns {boolean}
+ */
+function detectCopybookProcedure(lines) {
+    let scanned = 0;
+    for (let i = 0; i < lines.length && scanned < 20; i++) {
+        const raw = lines[i];
+        if (raw.trim() === '') continue;
+        const indicator = raw.length > 6 ? raw.charAt(6) : '';
+        if (indicator === '*' || indicator === '/' || indicator === '-'
+            || indicator === 'D' || indicator === 'd'
+            || raw.trim().toUpperCase().startsWith('$SET')) continue;
+        const code = (raw.length > 7 ? raw.substring(7, CODE_END) : '').trim();
+        if (code === '') continue;
+        scanned++;
+        const fw = (stripLit(code).toUpperCase().match(/^[A-Z0-9][A-Z0-9-]*/) || [''])[0];
+        if (PROC_VERBS.has(fw)) return true;
+    }
+    return false;
+}
+
 /** Paragrafi standard della IDENTIFICATION DIVISION (Area A). */
 const ID_PARAGRAPHS = new Set([
     'PROGRAM-ID', 'AUTHOR', 'INSTALLATION', 'DATE-WRITTEN',
@@ -287,19 +359,20 @@ function valueColumnOf(segments) {
 }
 
 /**
- * Allinea la keyword TO (per MOVE/SET/ADD) alla colonna ALIGN_COL.
+ * Allinea la keyword TO (per MOVE/ADD) alla colonna di allineamento.
  * @param {string} codeText
  * @param {number} col
+ * @param {number} [alignCol]
  * @returns {string|null} testo allineato, oppure null se non applicabile
  */
-function alignProcedureTo(codeText, col) {
+function alignProcedureTo(codeText, col, alignCol = ALIGN_COL) {
     const collapsed = collapseSpaces(codeText);
     const stripped = stripLit(collapsed).toUpperCase();
     const m = stripped.match(/\bTO\b/);
     if (!m || m.index === 0) return null;
     const before = collapsed.substring(0, m.index).replace(/\s+$/, '');
     const after = collapsed.substring(m.index);
-    return joinAligned(before, after, col).text;
+    return joinAligned(before, after, col, alignCol).text;
 }
 
 /**
@@ -322,11 +395,23 @@ function renderSegments(segments, seq, idArea) {
  * partire dalla prima riga, indipendentemente dall'eventuale range richiesto.
  * @param {string[]} lines
  * @param {Set<number>} procDefLines - righe con definizione paragrafo/sezione (PROCEDURE)
+ * @param {Partial<FormatOptions>} [options] - impostazioni di formattazione
  * @returns {string[]} testo formattato per ciascuna riga
  */
-function computeFormatted(lines, procDefLines) {
+function computeFormatted(lines, procDefLines, options) {
+    const opts = normalizeOptions(options);
     /** @type {string[]} */
     const out = new Array(lines.length);
+
+    // Determina, per i copybook privi di intestazioni di DIVISION, se il
+    // frammento e' di PROCEDURE (statement) o di dati (tracciato).
+    const hasDivisionHeader = lines.some(l => {
+        const ind = l.length > 6 ? l.charAt(6) : '';
+        if (ind === '*' || ind === '/' || ind === '-' || ind === 'D' || ind === 'd') return false;
+        const code = l.length > 7 ? l.substring(7, CODE_END) : '';
+        return divisionOf(stripLit(code).toUpperCase()) !== null;
+    });
+    const headerlessProcedure = !hasDivisionHeader && detectCopybookProcedure(lines);
 
     let division = '';
     /** @type {number[]} */
@@ -336,7 +421,7 @@ function computeFormatted(lines, procDefLines) {
     let dataPending = false;
     let dataContIndent = AREA_B;
     let dataValueCol = 0;
-    const procState = { varyingActive: false, varyingEndCol: 0 };
+    const procState = { varyingActive: false, varyingEndCol: 0, performCol: 0 };
 
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
@@ -363,7 +448,7 @@ function computeFormatted(lines, procDefLines) {
         if (div) {
             division = div;
             dataStack = []; procStack = []; dataPending = false;
-            dataValueCol = 0; procState.varyingActive = false;
+            dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
             continue;
         }
@@ -371,7 +456,7 @@ function computeFormatted(lines, procDefLines) {
         // --- Intestazioni di SECTION (qualsiasi division) ---
         if (isSectionHeader(upper)) {
             dataStack = []; procStack = []; dataPending = false;
-            dataValueCol = 0; procState.varyingActive = false;
+            dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
             continue;
         }
@@ -394,7 +479,7 @@ function computeFormatted(lines, procDefLines) {
             out[i] = formatDataLine(seq, idArea, codeText, upper, firstWord,
                 dataStack, () => dataPending, v => { dataPending = v; },
                 () => dataContIndent, v => { dataContIndent = v; },
-                () => dataValueCol, v => { dataValueCol = v; });
+                () => dataValueCol, v => { dataValueCol = v; }, opts);
             continue;
         }
 
@@ -402,24 +487,36 @@ function computeFormatted(lines, procDefLines) {
             // Definizione di paragrafo/sezione -> Area A, azzera i blocchi.
             if (procDefLines.has(i)) {
                 procStack = [];
-                procState.varyingActive = false;
+                procState.varyingActive = false; procState.performCol = 0;
                 out[i] = buildLine(seq, idArea, AREA_A, codeText);
                 continue;
             }
-            out[i] = formatProcedureLine(seq, idArea, codeText, upper, procStack, procState);
+            out[i] = formatProcedureLine(seq, idArea, codeText, upper, procStack, procState, opts);
             continue;
         }
 
-        // Copybook senza intestazioni di DIVISION: se la riga e' una voce dati
-        // (numero di livello / FD-SD / continuazione di clausola aperta), la si
-        // formatta come nella DATA DIVISION (indentazione gerarchica + PIC a
-        // colonna 45), altrimenti si lascia in Area A.
-        if (division === '' && looksLikeDataItem(upper, firstWord, dataPending)) {
-            out[i] = formatDataLine(seq, idArea, codeText, upper, firstWord,
-                dataStack, () => dataPending, v => { dataPending = v; },
-                () => dataContIndent, v => { dataContIndent = v; },
-                () => dataValueCol, v => { dataValueCol = v; });
-            continue;
+        // Copybook senza intestazioni di DIVISION.
+        if (division === '') {
+            // Frammento di soli statement -> formattazione PROCEDURE.
+            if (headerlessProcedure) {
+                if (procDefLines.has(i)) {
+                    procStack = [];
+                    procState.varyingActive = false; procState.performCol = 0;
+                    out[i] = buildLine(seq, idArea, AREA_A, codeText);
+                    continue;
+                }
+                out[i] = formatProcedureLine(seq, idArea, codeText, upper, procStack, procState, opts);
+                continue;
+            }
+            // Tracciato dati: numero di livello / FD-SD / continuazione di
+            // clausola aperta -> indentazione gerarchica + PIC a colonna PIC.
+            if (looksLikeDataItem(upper, firstWord, dataPending)) {
+                out[i] = formatDataLine(seq, idArea, codeText, upper, firstWord,
+                    dataStack, () => dataPending, v => { dataPending = v; },
+                    () => dataContIndent, v => { dataContIndent = v; },
+                    () => dataValueCol, v => { dataValueCol = v; }, opts);
+                continue;
+            }
         }
 
         // Fuori da qualsiasi division nota: Area A.
@@ -443,17 +540,19 @@ function computeFormatted(lines, procDefLines) {
  * @param {(v: number) => void} setContIndent
  * @param {() => number} getValueCol
  * @param {(v: number) => void} setValueCol
+ * @param {FormatOptions} opts
  * @returns {string}
  */
 function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
-    getPending, setPending, getContIndent, setContIndent, getValueCol, setValueCol) {
+    getPending, setPending, getContIndent, setContIndent, getValueCol, setValueCol, opts) {
+    const indent = opts.indentStep;
     const ends = endsWithTerminator(codeText);
 
     // Voci FD/SD/RD/CD -> Area A, con 1 solo spazio prima del nome.
     if (/^(FD|SD|RD|CD)$/.test(firstWord)) {
         dataStack.length = 0;
         setPending(!ends);
-        setContIndent(AREA_A + INDENT);
+        setContIndent(AREA_A + indent);
         setValueCol(0);
         const normalizedFd = codeText.replace(/^(FD|SD|RD|CD)\s+/, '$1 ');
         return buildLine(seq, idArea, AREA_A, normalizedFd);
@@ -473,17 +572,17 @@ function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
         } else if (level === 66) {
             col = AREA_A;
         } else if (level === 88) {
-            col = AREA_A + dataStack.length * INDENT;
+            col = AREA_A + dataStack.length * indent;
         } else {
             while (dataStack.length && dataStack[dataStack.length - 1] >= level) {
                 dataStack.pop();
             }
-            col = AREA_A + dataStack.length * INDENT;
+            col = AREA_A + dataStack.length * indent;
             dataStack.push(level);
         }
         // Gli 88 allineano il VALUE a quello del livello superiore (se presente);
-        // gli altri livelli allineano il PIC (o il proprio VALUE) alla colonna 45.
-        let alignCol = ALIGN_COL;
+        // gli altri livelli allineano il PIC (o il proprio VALUE) alla colonna PIC.
+        let alignCol = opts.pictureColumn;
         if (level === 88) {
             const pv = getValueCol();
             if (pv > 0) alignCol = pv;
@@ -491,7 +590,7 @@ function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
         const segments = alignDataClauses(normalized, col, alignCol);
         const lastText = segments[segments.length - 1].text;
         setPending(!endsWithTerminator(lastText));
-        setContIndent(col + INDENT);
+        setContIndent(col + indent);
         // Memorizza la colonna del VALUE del livello superiore (non degli 88,
         // cosi' piu' 88 fratelli restano allineati allo stesso VALUE).
         if (level !== 88) setValueCol(valueColumnOf(segments));
@@ -500,7 +599,7 @@ function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
 
     // Riga di continuazione o voce varia (es. COPY) nella DATA DIVISION.
     const clauseCont = getPending() && CLAUSE_KW.test(firstWord);
-    const col = clauseCont ? ALIGN_COL : (getPending() ? getContIndent() : AREA_B);
+    const col = clauseCont ? opts.pictureColumn : (getPending() ? getContIndent() : AREA_B);
     const contText = clauseCont ? collapseSpaces(codeText) : codeText;
     if (ends) setPending(false);
     return buildLine(seq, idArea, col, contText);
@@ -515,10 +614,12 @@ function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
  * @param {string} codeText
  * @param {string} upper - testo in MAIUSCOLO senza letterali
  * @param {string[]} procStack
- * @param {{ varyingActive: boolean, varyingEndCol: number }} procState
+ * @param {{ varyingActive: boolean, varyingEndCol: number, performCol: number }} procState
+ * @param {FormatOptions} opts
  * @returns {string}
  */
-function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState) {
+function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState, opts) {
+    const indent = opts.indentStep;
     const tokens = upper.match(/[A-Z0-9][A-Z0-9-]*/g) || [];
     const fw = tokens[0] || '';
 
@@ -535,6 +636,20 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState)
     }
     // Qualsiasi altra riga termina la modalita' di continuazione VARYING.
     procState.varyingActive = false;
+
+    // Continuazione THRU/THROUGH di un PERFORM out-of-line su riga precedente:
+    // si indenta di un passo sotto la colonna del PERFORM.
+    if (procState.performCol && opts.indentThru
+        && (fw === 'THRU' || fw === 'THROUGH')) {
+        const thruCol = procState.performCol + indent;
+        if (endsWithTerminator(codeText)) {
+            procStack.length = 0;
+            procState.performCol = 0;
+        }
+        return buildLine(seq, idArea, thruCol, collapseSpaces(codeText));
+    }
+    // Qualsiasi altra riga chiude l'attesa di un THRU.
+    procState.performCol = 0;
 
     let drawDepth;
     let scanFrom;
@@ -564,7 +679,7 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState)
         scanFrom = 0;
     }
 
-    const col = AREA_B + drawDepth * INDENT;
+    const col = AREA_B + drawDepth * indent;
 
     // Aggiorna lo stack con gli ambiti aperti/chiusi nel resto della riga.
     for (let t = scanFrom; t < tokens.length; t++) {
@@ -596,10 +711,13 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState)
     // Il punto di fine frase chiude tutti gli ambiti aperti.
     if (endsWithTerminator(codeText)) procStack.length = 0;
 
-    // Allineamento della keyword TO alla colonna 45 (MOVE/SET/ADD).
+    // Allineamento della keyword TO. Per MOVE/ADD (configurabile) si porta il TO
+    // alla colonna PIC; il SET resta sempre ravvicinato (spazi compressi).
     let outText = codeText;
-    if (fw === 'MOVE' || fw === 'SET' || fw === 'ADD') {
-        const aligned = alignProcedureTo(codeText, col);
+    if (fw === 'SET') {
+        outText = collapseSpaces(codeText);
+    } else if ((fw === 'MOVE' || fw === 'ADD') && opts.alignMoveTo) {
+        const aligned = alignProcedureTo(codeText, col, opts.pictureColumn);
         if (aligned !== null) outText = aligned;
     }
 
@@ -611,6 +729,16 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState)
             procState.varyingActive = true;
             procState.varyingEndCol = col + vm.index + 6; // 'G' di VARYING (7 lettere)
         }
+    }
+
+    // PERFORM out-of-line (verso un paragrafo) senza THRU e non terminato:
+    // memorizza la colonna per indentare l'eventuale THRU sulla riga seguente.
+    if (fw === 'PERFORM' && !endsWithTerminator(codeText)) {
+        const nxt = tokens[1] || '';
+        const inlineOrVarying = nxt === '' || nxt === 'UNTIL' || nxt === 'VARYING'
+            || (/^\d+$/.test(nxt) && tokens[2] === 'TIMES');
+        const hasThru = tokens.includes('THRU') || tokens.includes('THROUGH');
+        if (!inlineOrVarying && !hasThru) procState.performCol = col;
     }
 
     return buildLine(seq, idArea, col, outText);
@@ -667,7 +795,12 @@ class CobolFormattingProvider {
             }
         }
 
-        const formatted = computeFormatted(lines, procDefLines);
+        const formatted = computeFormatted(lines, procDefLines, {
+            pictureColumn: cfg.get('format.pictureColumn', ALIGN_COL),
+            indentStep: cfg.get('format.indentStep', INDENT),
+            alignMoveTo: cfg.get('format.alignMoveTo', true),
+            indentThru: cfg.get('format.indentThru', true),
+        });
 
         const startLine = range ? range.start.line : 0;
         const endLine = range ? range.end.line : lines.length - 1;

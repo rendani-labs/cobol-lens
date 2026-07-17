@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 48-rule integrated linter. No compiler required.",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -425,6 +425,30 @@
           "type": "boolean",
           "default": false,
           "description": "%cobolLens.format.enabled.description%"
+        },
+        "cobolLens.format.pictureColumn": {
+          "type": "integer",
+          "default": 45,
+          "minimum": 12,
+          "maximum": 72,
+          "description": "%cobolLens.format.pictureColumn.description%"
+        },
+        "cobolLens.format.indentStep": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "%cobolLens.format.indentStep.description%"
+        },
+        "cobolLens.format.alignMoveTo": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.format.alignMoveTo.description%"
+        },
+        "cobolLens.format.indentThru": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.format.indentThru.description%"
         },
         "cobolLens.inlayHints.enabled": {
           "type": "boolean",
