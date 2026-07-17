@@ -134,6 +134,86 @@ const ENV_PARAGRAPHS = new Set([
     'FILE-CONTROL', 'I-O-CONTROL', 'REPOSITORY',
 ]);
 
+/** Colonna 1-based del valore dei paragrafi IDENTIFICATION (dopo "DATE-WRITTEN. "). */
+const ID_VALUE_COL = 22;
+
+/** Colonna 1-based delle clausole SELECT (ASSIGN/ORGANIZATION/...). */
+const SELECT_CLAUSE_COL = 29;
+/** Colonna 1-based del valore delle clausole SELECT. */
+const SELECT_VALUE_COL = 42;
+
+/**
+ * Clausole della SELECT riconosciute, in ordine di priorita' (i prefissi piu'
+ * lunghi vanno prima). `kw` e' la forma normalizzata; `strip` rimuove il
+ * prefisso della clausola (incluso IS/MODE) lasciando il valore.
+ */
+const SELECT_CLAUSES = [
+    { re: /^ASSIGN\s+TO\b/i, kw: 'ASSIGN TO', strip: /^ASSIGN\s+TO\s+/i },
+    { re: /^ASSIGN\b/i, kw: 'ASSIGN TO', strip: /^ASSIGN\s+/i },
+    { re: /^ALTERNATE\s+RECORD\s+KEY\b/i, kw: 'ALTERNATE RECORD KEY', strip: /^ALTERNATE\s+RECORD\s+KEY\s+(IS\s+)?/i },
+    { re: /^RECORD\s+KEY\b/i, kw: 'RECORD KEY', strip: /^RECORD\s+KEY\s+(IS\s+)?/i },
+    { re: /^FILE\s+STATUS\b/i, kw: 'STATUS', strip: /^FILE\s+STATUS\s+(IS\s+)?/i },
+    { re: /^STATUS\b/i, kw: 'STATUS', strip: /^STATUS\s+(IS\s+)?/i },
+    { re: /^ORGANIZATION\b/i, kw: 'ORGANIZATION', strip: /^ORGANIZATION\s+(IS\s+)?/i },
+    { re: /^ACCESS\b/i, kw: 'ACCESS', strip: /^ACCESS\s+(MODE\s+)?(IS\s+)?/i },
+    { re: /^RESERVE\b/i, kw: 'RESERVE', strip: /^RESERVE\s+/i },
+    { re: /^LOCK\s+MODE\b/i, kw: 'LOCK MODE', strip: /^LOCK\s+MODE\s+(IS\s+)?/i },
+    { re: /^PADDING\b/i, kw: 'PADDING', strip: /^PADDING\s+(CHARACTER\s+)?(IS\s+)?/i },
+];
+
+/**
+ * Allinea una clausola SELECT: keyword normalizzata a `SELECT_CLAUSE_COL` e
+ * valore a `SELECT_VALUE_COL` (con IS/MODE omessi). Restituisce la stringa
+ * clausola posizionata a partire dalla colonna della keyword, oppure null se la
+ * clausola non e' riconosciuta.
+ * @param {string} clauseText
+ * @returns {string|null}
+ */
+function alignSelectClause(clauseText) {
+    const t = collapseSpaces(clauseText);
+    for (const c of SELECT_CLAUSES) {
+        if (c.re.test(t)) {
+            const value = t.replace(c.strip, '').trim();
+            let gap = (SELECT_VALUE_COL - SELECT_CLAUSE_COL) - c.kw.length;
+            if (gap < 1) gap = 1;
+            return value ? c.kw + ' '.repeat(gap) + value : c.kw;
+        }
+    }
+    return null;
+}
+
+/**
+ * Formatta una riga di FILE-CONTROL: SELECT a col 12 (con il nome file), la
+ * clausola eventualmente presente sulla stessa riga e le clausole di
+ * continuazione a `SELECT_CLAUSE_COL`. Se una clausola non e' riconosciuta la
+ * riga viene lasciata in Area B (best-effort, nessuna perdita di token).
+ * @param {string} seq
+ * @param {string} idArea
+ * @param {string} codeText
+ * @param {boolean} isSelect - true se la riga inizia con SELECT
+ * @returns {string}
+ */
+function formatSelectLine(seq, idArea, codeText, isSelect) {
+    const collapsed = collapseSpaces(codeText);
+    if (isSelect) {
+        const m = collapsed.match(/^SELECT\s+(\S+)\s*(.*)$/i);
+        if (!m) return buildLine(seq, idArea, AREA_B, collapsed);
+        let text = 'SELECT ' + m[1];
+        const clauseText = m[2].trim();
+        if (clauseText) {
+            const cl = alignSelectClause(clauseText);
+            if (cl === null) return buildLine(seq, idArea, AREA_B, collapsed);
+            let gap = SELECT_CLAUSE_COL - (AREA_B + text.length);
+            if (gap < 1) gap = 1;
+            text = text + ' '.repeat(gap) + cl;
+        }
+        return buildLine(seq, idArea, AREA_B, text);
+    }
+    const cl = alignSelectClause(collapsed);
+    if (cl === null) return buildLine(seq, idArea, AREA_B, collapsed);
+    return buildLine(seq, idArea, SELECT_CLAUSE_COL, cl);
+}
+
 /**
  * Rimuove il contenuto dei letterali stringa (sostituendolo con spazi) per
  * non far rilevare keyword/punti che si trovano dentro gli apici.
@@ -550,6 +630,8 @@ function computeFormatted(lines, procDefLines, options) {
     let dataPending = false;
     let dataContIndent = AREA_B;
     let dataValueCol = 0;
+    let envFileControl = false;
+    let envSelect = false;
     const procState = { varyingActive: false, varyingEndCol: 0, performCol: 0 };
 
     for (let i = 0; i < lines.length; i++) {
@@ -586,6 +668,7 @@ function computeFormatted(lines, procDefLines, options) {
             division = div;
             dataStack = []; procStack = []; dataPending = false;
             dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
+            envFileControl = false; envSelect = false;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
             continue;
         }
@@ -594,6 +677,7 @@ function computeFormatted(lines, procDefLines, options) {
         if (isSectionHeader(upper)) {
             dataStack = []; procStack = []; dataPending = false;
             dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
+            envFileControl = false; envSelect = false;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
             continue;
         }
@@ -601,14 +685,37 @@ function computeFormatted(lines, procDefLines, options) {
         const firstWord = (upper.match(/^[A-Z0-9][A-Z0-9-]*/) || [''])[0];
 
         if (division === 'IDENTIFICATION') {
-            const col = ID_PARAGRAPHS.has(firstWord) ? AREA_A : AREA_B;
-            out[i] = buildLine(seq, idArea, col, codeText);
+            if (ID_PARAGRAPHS.has(firstWord)) {
+                // Allinea il valore del paragrafo alla colonna 22.
+                const m = codeText.match(/^([A-Z0-9][A-Z0-9-]*)\s*\.\s*(\S.*)$/i);
+                if (m) {
+                    const kw = m[1] + '.';
+                    let gap = (ID_VALUE_COL - AREA_A) - kw.length;
+                    if (gap < 1) gap = 1;
+                    out[i] = buildLine(seq, idArea, AREA_A,
+                        kw + ' '.repeat(gap) + collapseSpaces(m[2]));
+                } else {
+                    out[i] = buildLine(seq, idArea, AREA_A, codeText);
+                }
+            } else {
+                out[i] = buildLine(seq, idArea, AREA_B, codeText);
+            }
             continue;
         }
 
         if (division === 'ENVIRONMENT') {
-            const col = ENV_PARAGRAPHS.has(firstWord) ? AREA_A : AREA_B;
-            out[i] = buildLine(seq, idArea, col, codeText);
+            if (ENV_PARAGRAPHS.has(firstWord)) {
+                envFileControl = (firstWord === 'FILE-CONTROL');
+                envSelect = false;
+                out[i] = buildLine(seq, idArea, AREA_A, codeText);
+                continue;
+            }
+            if (envFileControl && (firstWord === 'SELECT' || envSelect)) {
+                out[i] = formatSelectLine(seq, idArea, codeText, firstWord === 'SELECT');
+                envSelect = !endsWithTerminator(codeText);
+                continue;
+            }
+            out[i] = buildLine(seq, idArea, AREA_B, codeText);
             continue;
         }
 
@@ -963,6 +1070,8 @@ function applyStage2(out, lines, procDefLines, opts) {
     let stmtStartBase = false;   // la sentence corrente inizia a livello base (col 12)
     let prevBaseKind = null;     // verbo dell'ultima sentence base-level adiacente
     let blankAfterHeader = false;// va inserita una riga vuota dopo l'header di paragrafo
+    let inFileSection = false;   // dentro la FILE SECTION
+    let fdSeen = false;          // gia' visto un FD/SD nella FILE SECTION corrente
 
     const prevNonBlank = () => {
         for (let k = result.length - 1; k >= 0; k--) {
@@ -1006,6 +1115,7 @@ function applyStage2(out, lines, procDefLines, opts) {
             division = div; inProc = (div === 'PROCEDURE');
             resetStmt();
             blankAfterHeader = opts.blankLines && div === 'PROCEDURE';
+            inFileSection = false; fdSeen = false;
             continue;
         }
         // --- SECTION header ---
@@ -1016,6 +1126,7 @@ function applyStage2(out, lines, procDefLines, opts) {
             }
             result.push(fmt);
             resetStmt(); blankAfterHeader = false;
+            inFileSection = (firstWord === 'FILE'); fdSeen = false;
             continue;
         }
         // --- PROCEDURE paragraph header ---
@@ -1076,6 +1187,16 @@ function applyStage2(out, lines, procDefLines, opts) {
             } else {
                 stmtOpen = true;
             }
+            continue;
+        }
+
+        // --- FD/SD/RD/CD nella FILE SECTION: riga vuota prima (tranne il primo). ---
+        if (inFileSection && (firstWord === 'FD' || firstWord === 'SD'
+            || firstWord === 'RD' || firstWord === 'CD')) {
+            if (opts.blankLines && fdSeen) pushBlankIfNeeded();
+            fdSeen = true;
+            result.push(fmt);
+            prevBaseKind = null;
             continue;
         }
 
