@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.19.1] - 2026-07-17
+
+### Fixed
+- Linter `missing-level`: an isolated literal on its own line after a completed data item (the previous line ends with a period) in `WORKING-STORAGE`/`LINKAGE`/`FILE SECTION` is now flagged as an invalid data entry (a level number is missing). Previously the rule only caught lines that start with a name; a stray literal such as `'ABC'.` was silently ignored. A valid multi-line `VALUE` continuation (where the previous line has no period) is still not flagged.
+
 ## [1.19.0] - 2026-07-17
 
 ### Added

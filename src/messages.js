@@ -208,6 +208,10 @@ const MESSAGES = {
         it: (name) => `Definizione variabile '${name}' senza numero di livello (01-49, 66, 77, 88)`,
         en: (name) => `Variable definition '${name}' has no level number (01-49, 66, 77, 88)`,
     },
+    orphanLiteral: {
+        it: () => 'Letterale isolato senza voce dati: manca il numero di livello (voce non valida in DATA DIVISION)',
+        en: () => 'Isolated literal with no data item: level number missing (invalid DATA DIVISION entry)',
+    },
     charsAfterPeriod: {
         it: () => 'Contenuto non valido dopo il punto terminatore della riga COBOL',
         en: () => 'Invalid content after the COBOL statement period',

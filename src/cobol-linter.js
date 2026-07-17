@@ -2799,6 +2799,12 @@ function checkMissingLevel(lines) {
                     msg('missingLevel', firstWord),
                     undefined, undefined, firstWord));
             }
+        } else if (/^['"]/.test(upper)) {
+            // Letterale isolato dopo un punto terminatore: non e' una voce dati
+            // valida (manca il numero di livello). La continuazione valida di un
+            // VALUE non arriva qui perche' la riga precedente non ha il punto.
+            diags.push(makeDiag(i, cfg.severity, 'missing-level',
+                msg('orphanLiteral')));
         }
 
         prevLineHasPeriod = stripLiterals(upper).includes('.');
