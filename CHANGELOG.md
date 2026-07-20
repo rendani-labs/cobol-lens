@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.20.2] - 2026-07-20
+
+### Fixed
+- Formatter, data items with a `VALUE` clause written on a separate continuation line: the item is now treated as a single logical entry. Previously each physical line was formatted on its own, so a `VALUE` clause on the following line was left isolated at the picture column (and could even run past column 72 when the literal was long). The formatter now rejoins the clause with its data item, keeps the clause keyword next to the `PICTURE` (`PIC X(42) VALUE`), and wraps only the long literal onto the next line under the variable name, so the result stays within column 72 and looks like a normal split item. The change is idempotent (a re-format is a no-op, because the wrapped literal line starts with a quote and is preserved) and falls back to the previous line-by-line behavior when a clean rejoin is not representable without removing lines.
+
 ## [1.20.1] - 2026-07-20
 
 ### Fixed

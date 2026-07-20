@@ -599,6 +599,87 @@ function renderSegments(segments, seq, idArea) {
 }
 
 /**
+ * Descrive la voce dati logica in corso di riunione tra piu' righe fisiche.
+ * @typedef {Object} DataItemMerge
+ * @property {number[]} indices - indici delle righe fisiche della voce.
+ * @property {string} text - testo logico (livello + nome + clausole) riunito.
+ * @property {number} col - colonna 1-based di inizio della voce.
+ * @property {number} alignCol - colonna di allineamento della clausola.
+ * @property {string} seq - area sequenza (col 1-6) della prima riga fisica.
+ * @property {string} idArea - area di identificazione (col 73+) della prima riga.
+ * @property {string[]} legacy - rendering "legacy" (per riga) da ripristinare.
+ */
+
+/**
+ * Distribuisce i segmenti di una voce dati (ottenuti riunendo le sue righe
+ * fisiche in un'unica riga logica e ri-spezzandola) sulle righe fisiche
+ * originali `indices`, riscrivendo `out` in-place. Restituisce false se i
+ * segmenti sono MENO delle righe fisiche: nel modello di edit riga-per-riga non
+ * e' possibile rimuovere righe, quindi il chiamante ripristina il rendering
+ * legacy. Se i segmenti sono di piu', quelli in eccedenza confluiscono
+ * (multi-riga) sull'ultima riga fisica.
+ * @param {string[]} out
+ * @param {number[]} indices - indici fisici della voce (>= 2)
+ * @param {{col?:number,text?:string,raw?:string}[]} segments
+ * @param {string} seq
+ * @param {string} idArea
+ * @returns {boolean}
+ */
+function distributeDataSegments(out, indices, segments, seq, idArea) {
+    const n = indices.length;
+    if (segments.length < n) return false;
+    for (let k = 0; k < n; k++) {
+        const isFirst = k === 0;
+        const segs = (k === n - 1) ? segments.slice(k) : [segments[k]];
+        out[indices[k]] = renderSegments(segs, isFirst ? seq : '', isFirst ? idArea : '');
+    }
+    return true;
+}
+
+/**
+ * Riunisce le righe fisiche di una voce dati in un'unica riga logica: quando
+ * arriva una riga di continuazione di clausola (es. VALUE su riga separata), il
+ * suo testo viene riattaccato a quello della voce e l'insieme viene ri-spezzato
+ * con `alignDataClauses`. Cosi' la clausola resta accanto al PIC (colonna di
+ * allineamento) e l'eventuale letterale lungo va a capo sotto il nome, invece di
+ * restare isolato in colonna PIC ed eventualmente sforare la colonna 72. Se la
+ * riunione non e' rappresentabile senza rimuovere righe, ripristina il
+ * rendering legacy prodotto riga-per-riga.
+ * @param {string[]} out
+ * @param {number} i - indice fisico corrente
+ * @param {{role?:string,col?:number,alignCol?:number,logicalText?:string,contText?:string}} mc
+ * @param {DataItemMerge|null} dataItem
+ * @param {string} seq
+ * @param {string} idArea
+ * @returns {DataItemMerge|null}
+ */
+function mergeDataItem(out, i, mc, dataItem, seq, idArea) {
+    if (mc.role === 'level') {
+        return {
+            indices: [i], text: mc.logicalText || '', col: mc.col || AREA_A,
+            alignCol: mc.alignCol || ALIGN_COL, seq, idArea, legacy: [out[i]],
+        };
+    }
+    if (mc.role === 'cont' && dataItem) {
+        const indices = dataItem.indices.concat(i);
+        const legacy = dataItem.legacy.concat(out[i]);
+        const joined = dataItem.text + ' ' + (mc.contText || '');
+        const segs = alignDataClauses(joined, dataItem.col, dataItem.alignCol);
+        if (distributeDataSegments(out, indices, segs, dataItem.seq, dataItem.idArea)) {
+            if (endsWithTerminator(stripLit(joined).replace(/\s+$/, ''))) return null;
+            return {
+                indices, text: joined, col: dataItem.col, alignCol: dataItem.alignCol,
+                seq: dataItem.seq, idArea: dataItem.idArea, legacy,
+            };
+        }
+        // Riunione non rappresentabile: ripristina il rendering legacy.
+        for (let k = 0; k < indices.length; k++) out[indices[k]] = legacy[k];
+        return null;
+    }
+    return null;
+}
+
+/**
  * Calcola il testo formattato per ogni riga del documento.
  * Lo stato (division, annidamento dati, blocchi PROCEDURE) viene calcolato a
  * partire dalla prima riga, indipendentemente dall'eventuale range richiesto.
@@ -636,13 +717,18 @@ function computeFormatted(lines, procDefLines, options) {
     // fisiche successive (continuazione fixed): quelle righe vanno lasciate
     // invariate per non spostarle e restare idempotenti.
     let litOpen = false;
+    // Voce dati logica in corso di riunione tra piu' righe fisiche (es. una
+    // clausola VALUE mandata su una riga separata): consente di riattaccare la
+    // clausola alla voce e ri-spezzare l'insieme in modo coerente.
+    /** @type {DataItemMerge|null} */
+    let dataItem = null;
     const procState = { varyingActive: false, varyingEndCol: 0, performCol: 0 };
 
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
 
         // Righe vuote -> stringa vuota (rimuove spazi).
-        if (raw.trim() === '') { out[i] = ''; continue; }
+        if (raw.trim() === '') { out[i] = ''; dataItem = null; continue; }
 
         const indicator = raw.length > 6 ? raw.charAt(6) : '';
 
@@ -659,6 +745,10 @@ function computeFormatted(lines, procDefLines, options) {
         if (indicator !== '*' && indicator !== '/' && (litOpen || startsQuote)) {
             out[i] = raw.replace(/\s+$/, '');
             litOpen = hasUnterminatedLiteral(contTrim);
+            // La riga del letterale non e' catturata in `dataItem`: chiude la
+            // catena di riunione e, se termina la frase, azzera il pending.
+            dataItem = null;
+            if (!litOpen && endsWithTerminator(contTrim)) dataPending = false;
             continue;
         }
 
@@ -667,6 +757,7 @@ function computeFormatted(lines, procDefLines, options) {
             || indicator === 'D' || indicator === 'd'
             || raw.trim().toUpperCase().startsWith('$SET')) {
             out[i] = raw.replace(/\s+$/, '');
+            dataItem = null;
             continue;
         }
 
@@ -680,7 +771,7 @@ function computeFormatted(lines, procDefLines, options) {
             idArea = '';
         }
         const codeText = code.replace(/^\s+/, '').replace(/\s+$/, '');
-        if (codeText === '') { out[i] = ''; continue; }
+        if (codeText === '') { out[i] = ''; dataItem = null; continue; }
         const upper = stripLit(codeText).toUpperCase();
 
         // --- Intestazioni di DIVISION ---
@@ -689,7 +780,7 @@ function computeFormatted(lines, procDefLines, options) {
             division = div;
             dataStack = []; procStack = []; dataPending = false;
             dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
-            envFileControl = false; envSelect = false;
+            envFileControl = false; envSelect = false; dataItem = null;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
             continue;
         }
@@ -698,7 +789,7 @@ function computeFormatted(lines, procDefLines, options) {
         if (isSectionHeader(upper)) {
             dataStack = []; procStack = []; dataPending = false;
             dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
-            envFileControl = false; envSelect = false;
+            envFileControl = false; envSelect = false; dataItem = null;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
             continue;
         }
@@ -741,10 +832,12 @@ function computeFormatted(lines, procDefLines, options) {
         }
 
         if (division === 'DATA') {
+            const mc = { role: 'none' };
             out[i] = formatDataLine(seq, idArea, codeText, upper, firstWord,
                 dataStack, () => dataPending, v => { dataPending = v; },
                 () => dataContIndent, v => { dataContIndent = v; },
-                () => dataValueCol, v => { dataValueCol = v; }, opts);
+                () => dataValueCol, v => { dataValueCol = v; }, opts, mc);
+            dataItem = mergeDataItem(out, i, mc, dataItem, seq, idArea);
             continue;
         }
 
@@ -776,16 +869,19 @@ function computeFormatted(lines, procDefLines, options) {
             // Tracciato dati: numero di livello / FD-SD / continuazione di
             // clausola aperta -> indentazione gerarchica + PIC a colonna PIC.
             if (looksLikeDataItem(upper, firstWord, dataPending)) {
+                const mc = { role: 'none' };
                 out[i] = formatDataLine(seq, idArea, codeText, upper, firstWord,
                     dataStack, () => dataPending, v => { dataPending = v; },
                     () => dataContIndent, v => { dataContIndent = v; },
-                    () => dataValueCol, v => { dataValueCol = v; }, opts);
+                    () => dataValueCol, v => { dataValueCol = v; }, opts, mc);
+                dataItem = mergeDataItem(out, i, mc, dataItem, seq, idArea);
                 continue;
             }
         }
 
         // Fuori da qualsiasi division nota: Area A.
         out[i] = buildLine(seq, idArea, AREA_A, codeText);
+        dataItem = null;
     }
 
     return out;
@@ -806,12 +902,17 @@ function computeFormatted(lines, procDefLines, options) {
  * @param {() => number} getValueCol
  * @param {(v: number) => void} setValueCol
  * @param {FormatOptions} opts
+ * @param {{role?:string,col?:number,alignCol?:number,logicalText?:string,contText?:string}} [mc]
+ *   contesto di riunione (in output): descrive il ruolo della riga ('level' per
+ *   una voce con numero di livello, 'cont' per una continuazione di clausola,
+ *   'none' altrimenti) e i dati per riattaccare le clausole spezzate su piu' righe.
  * @returns {string}
  */
 function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
-    getPending, setPending, getContIndent, setContIndent, getValueCol, setValueCol, opts) {
+    getPending, setPending, getContIndent, setContIndent, getValueCol, setValueCol, opts, mc) {
     const indent = opts.indentStep;
     const ends = endsWithTerminator(codeText);
+    if (mc) mc.role = 'none';
 
     // Voci FD/SD/RD/CD -> Area A, con 1 solo spazio prima del nome.
     if (/^(FD|SD|RD|CD)$/.test(firstWord)) {
@@ -860,6 +961,12 @@ function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
         // Memorizza la colonna del VALUE del livello superiore (non degli 88,
         // cosi' piu' 88 fratelli restano allineati allo stesso VALUE).
         if (level !== 88) setValueCol(valueColumnOf(segments));
+        if (mc) {
+            mc.role = 'level';
+            mc.col = col;
+            mc.alignCol = alignCol;
+            mc.logicalText = normalized;
+        }
         return renderSegments(segments, seq, idArea);
     }
 
@@ -867,6 +974,10 @@ function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
     const clauseCont = getPending() && CLAUSE_KW.test(firstWord);
     const col = clauseCont ? opts.pictureColumn : (getPending() ? getContIndent() : AREA_B);
     const contText = clauseCont ? collapseSpaces(codeText) : codeText;
+    if (mc && clauseCont) {
+        mc.role = 'cont';
+        mc.contText = contText;
+    }
     if (ends) setPending(false);
     return buildLine(seq, idArea, col, contText);
 }
