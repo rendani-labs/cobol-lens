@@ -3,6 +3,7 @@ node_modules/
 .vscode-test/
 .vscode/
 tests/
+roadmap/
 
 # Copilot instructions - local only
 .github/copilot-instructions.md

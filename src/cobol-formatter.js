@@ -632,6 +632,10 @@ function computeFormatted(lines, procDefLines, options) {
     let dataValueCol = 0;
     let envFileControl = false;
     let envSelect = false;
+    // true quando un letterale non-numerico e' aperto e prosegue su righe
+    // fisiche successive (continuazione fixed): quelle righe vanno lasciate
+    // invariate per non spostarle e restare idempotenti.
+    let litOpen = false;
     const procState = { varyingActive: false, varyingEndCol: 0, performCol: 0 };
 
     for (let i = 0; i < lines.length; i++) {
@@ -641,6 +645,23 @@ function computeFormatted(lines, procDefLines, options) {
         if (raw.trim() === '') { out[i] = ''; continue; }
 
         const indicator = raw.length > 6 ? raw.charAt(6) : '';
+
+        // --- Continuazione di un letterale su piu' righe fisiche ---
+        // In COBOL nessuna voce dati o statement valido inizia con un apice:
+        // una riga il cui codice inizia con un apice e' quindi la continuazione
+        // di un letterale della riga precedente (operando VALUE mandato a capo o
+        // continuazione fixed con '-' in colonna 7). Tali righe, e quelle
+        // interne a un letterale ancora aperto, vanno lasciate invariate: non
+        // riposizionarle e' cio' che rende la formattazione idempotente.
+        const contCode = raw.length > 7 ? raw.substring(7, CODE_END) : '';
+        const contTrim = contCode.replace(/^\s+|\s+$/g, '');
+        const startsQuote = contTrim.charAt(0) === "'" || contTrim.charAt(0) === '"';
+        if (indicator !== '*' && indicator !== '/' && (litOpen || startsQuote)) {
+            out[i] = raw.replace(/\s+$/, '');
+            litOpen = hasUnterminatedLiteral(contTrim);
+            continue;
+        }
+
         // Commenti, continuazione, debug, direttive: invariati (solo trim finale).
         if (indicator === '*' || indicator === '/' || indicator === '-'
             || indicator === 'D' || indicator === 'd'

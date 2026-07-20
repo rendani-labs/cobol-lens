@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.20.1] - 2026-07-20
+
+### Fixed
+- Formatter idempotency (issue #1): re-formatting an already-formatted file is now a true no-op. A data item whose `VALUE` literal was wrapped onto a continuation line (either a closed literal placed under the variable name / at the picture column, or a long literal split across fixed-format continuation lines with a hyphen in column 7) was being shifted on a second pass, because the wrapped literal line was re-indented by the generic data-continuation logic. The formatter now recognizes that, in COBOL, no valid data item or statement can begin with a quotation mark: any line whose code starts with a quote is the continuation of a literal from the previous line and is left untouched, and lines inside a still-open literal are preserved as well. This keeps the layout stable across repeated formatting. Added a dedicated idempotency regression test covering copybook-only layouts, deep nesting, level-88 lists, `REDEFINES`/`OCCURS`/`OCCURS DEPENDING ON`, and data lines near/over column 72, for both the plain formatter and the structural-spacing (Stage 2) formatter.
+
 ## [1.20.0] - 2026-07-20
 
 ### Changed
