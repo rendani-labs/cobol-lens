@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 48-rule integrated linter. No compiler required.",
-  "version": "1.19.1",
+  "version": "1.20.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -148,29 +148,29 @@
       ],
       "editor/context": [
         {
-          "command": "cobolLens.toggleComment",
-          "when": "editorLangId == cobol",
-          "group": "1_modification@1"
-        },
-        {
-          "command": "cobolLens.formatSelection",
-          "when": "editorLangId == cobol && editorHasSelection",
-          "group": "1_modification@2"
-        },
-        {
-          "command": "cobolLens.formatDocument",
-          "when": "editorLangId == cobol",
-          "group": "1_modification@3"
-        },
-        {
           "command": "cobolLens.showRecordLayout",
           "when": "editorLangId == cobol",
-          "group": "navigation@9"
+          "group": "z_cobolLens@1"
         },
         {
           "command": "cobolLens.expandCopybook",
           "when": "editorLangId == cobol",
-          "group": "navigation@10"
+          "group": "z_cobolLens@2"
+        },
+        {
+          "command": "cobolLens.toggleComment",
+          "when": "editorLangId == cobol",
+          "group": "z_cobolLens@3"
+        },
+        {
+          "command": "cobolLens.formatSelection",
+          "when": "editorLangId == cobol && editorHasSelection",
+          "group": "z_cobolLens@4"
+        },
+        {
+          "command": "cobolLens.formatDocument",
+          "when": "editorLangId == cobol",
+          "group": "z_cobolLens@5"
         }
       ],
       "view/title": [
@@ -423,7 +423,7 @@
         },
         "cobolLens.format.enabled": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "%cobolLens.format.enabled.description%"
         },
         "cobolLens.format.pictureColumn": {

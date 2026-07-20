@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.20.0] - 2026-07-20
+
+### Changed
+- The fixed-format formatter is now enabled by default (`cobolLens.format.enabled` default changed from `false` to `true`), so `Format Document` (`Shift+Alt+F`) and format-on-save use the COBOL Lens formatter out of the box. The dedicated `COBOL Lens: Format Document` / `Format Selection` commands already worked regardless of this setting. Set `cobolLens.format.enabled` to `false` to opt out. Formatting still applies only to fixed-format source.
+- Editor context menu (right-click): all COBOL Lens commands are now grouped together in a single contiguous block (separated from the built-in entries), instead of being scattered among them. The block lists `COBOL Lens: Show Record Layout`, `COBOL Lens: Expand Copybooks (Preview)`, `COBOL Lens: Toggle Comment`, `COBOL Lens: Format Selection` and `COBOL Lens: Format Document`, each keeping the `COBOL Lens:` prefix so they are easy to tell apart from the native commands.
+
+### Fixed
+- Inlay hints (field position/size): when a data item's `VALUE` literal overflows past column 72, the `pos N, M byte(s)` hint is now anchored at the end of the whole line instead of at column 72, so the label no longer appears in the middle of the literal value. Normal lines (code within column 72, with or without a sequence area in columns 73+) are unchanged.
+
 ## [1.19.1] - 2026-07-17
 
 ### Fixed

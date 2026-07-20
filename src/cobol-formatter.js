@@ -1284,7 +1284,7 @@ class CobolFormattingProvider {
      */
     _computeEdits(document, range, force) {
         const cfg = vscode.workspace.getConfiguration('cobolLens');
-        if (!force && !cfg.get('format.enabled', false)) return [];
+        if (!force && !cfg.get('format.enabled', true)) return [];
         if (cfg.get('sourceFormat', 'fixed') !== 'fixed') return [];
 
         const lines = document.getText().split(/\r?\n/);

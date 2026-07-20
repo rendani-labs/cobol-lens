@@ -42,7 +42,7 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Go to Symbol in Workspace** | `Ctrl+T` | Fuzzy-search variables, paragraphs and sections across all COBOL files in the workspace |
 | **Reference CodeLens** | Above paragraphs | Show how many times a paragraph or section is used; click to peek the references (off by default) |
 | **Call Hierarchy** | `Ctrl+Alt+H` | Show incoming/outgoing `PERFORM` calls for a paragraph or section |
-| **Format Document** | `Shift+Alt+F` | Reindent fixed-format code (Area A/B, 3-space hierarchy, `EVALUATE`/`WHEN` aligned, PIC/TO/VALUE aligned to col 45, col 72 overflow handling, trailing trim); also Format Selection (off by default) |
+| **Format Document** | `Shift+Alt+F` | Reindent fixed-format code (Area A/B, 3-space hierarchy, `EVALUATE`/`WHEN` aligned, PIC/TO/VALUE aligned to col 45, col 72 overflow handling, trailing trim); also Format Selection (on by default) |
 | **Format Document / Selection (commands)** | Context menu / Command Palette | `COBOL Lens: Format Document` and `COBOL Lens: Format Selection` run the formatter explicitly (Format Selection touches only the selected lines), regardless of the `cobolLens.format.enabled` toggle |
 | **Toggle COBOL Comment** | `Ctrl+K Ctrl+/` (`oem_2` key; on an Italian keyboard this key is the one labelled with the u-grave accent) | Comment/uncomment the selected lines (or cursor line): `*` in column 7 for fixed format, inline `*>` for variable/free |
 | **Field Inlay Hints** | Automatic | Show the byte position and size of each DATA DIVISION field at end of line (computed from PIC/USAGE/OCCURS; on by default) |
@@ -142,6 +142,12 @@ As you type (or with `Ctrl+Space`), IntelliSense suggests symbols from the curre
 
 The existing `COPY ` copybook completion is unaffected. Controlled by `cobolLens.completion.enabled` (default `on`), with per-category toggles `cobolLens.completion.variables`, `cobolLens.completion.paragraphs` and `cobolLens.completion.keywords`.
 
+### Editor Context Menu
+
+The main COBOL Lens actions are grouped together in the editor **right-click menu**, in their own block below the built-in commands, so they are easy to find and tell apart (each keeps the `COBOL Lens:` prefix): **Show Record Layout**, **Expand Copybooks (Preview)**, **Toggle Comment**, **Format Selection** (shown only when text is selected) and **Format Document**. The same commands are also available from the Command Palette.
+
+<img src="media/images/right-click-menu.png" alt="Editor right-click menu with the COBOL Lens commands grouped in a single block: Show Record Layout, Expand Copybooks (Preview), Toggle Comment and Format Document" width="560">
+
 ## Supported File Types
 
 - `.CBL`, `.cbl` -- COBOL batch programs
@@ -206,7 +212,7 @@ Add these settings to your workspace `.vscode/settings.json`:
 | `cobolLens.signatureHelp.enabled` | `true` | Show parameter hints for COBOL intrinsic functions while typing FUNCTION calls |
 | `cobolLens.programFolders` | `["", "src", "Source", ...]` | Folders (relative to the workspace root) searched to resolve programs called via `CALL` |
 | `cobolLens.programExtensions` | `[".CBL", ".cbl", ...]` | Extensions to try when resolving called programs |
-| `cobolLens.format.enabled` | `false` | Enable the fixed-format formatter (Format Document / Format Selection) |
+| `cobolLens.format.enabled` | `true` | Enable the fixed-format formatter (Format Document / Format Selection) |
 | `cobolLens.inlayHints.enabled` | `true` | Show inlay hints with byte position and size of DATA DIVISION fields |
 | `cobolLens.inlayHints.display` | `inline` | Where to show field position/size: `inline` (inlay hints) or `hover` (symbol tooltip, less intrusive) |
 | `cobolLens.recordLayout.enabled` | `false` | Enable the "Show Record Layout" command (byte offsets/size of each record field) |

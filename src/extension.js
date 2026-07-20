@@ -1657,6 +1657,26 @@ class CobolFoldingProvider {
 // InlayHintsProvider - offset e dimensione dei campi della DATA DIVISION
 // ============================================================================
 
+/**
+ * Indica se il testo contiene un letterale stringa non chiuso (apice singolo o
+ * doppio ancora aperto a fine testo). Serve a capire se la coda in colonna 73+
+ * e' codice sbordato oltre la col 72 anziche' area di identificazione.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasUnterminatedLiteral(text) {
+    let quote = null;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (quote) {
+            if (ch === quote) quote = null;
+        } else if (ch === "'" || ch === '"') {
+            quote = ch;
+        }
+    }
+    return quote !== null;
+}
+
 class CobolInlayHintsProvider {
     constructor() {
         /** @type {vscode.EventEmitter<void>} */
@@ -1673,15 +1693,24 @@ class CobolInlayHintsProvider {
     /**
      * Posizione 0-based del carattere dove agganciare l'inlay hint: subito dopo
      * il codice (entro la colonna 72), prima dell'eventuale area sequenza (73+).
+     * Eccezione: se alla colonna 72 c'e' un letterale ancora aperto, le colonne
+     * 73+ sono la coda del letterale (codice sbordato, non area sequenza); in
+     * quel caso si aggancia in fondo alla riga intera, cosi' l'etichetta non
+     * finisce in mezzo al valore.
      * @param {vscode.TextDocument} document
      * @param {number} line
      * @returns {vscode.Position}
      */
     _anchor(document, line) {
         const text = document.lineAt(line).text;
-        const codeArea = text.length > 72 ? text.substring(0, 72) : text;
-        const ch = codeArea.replace(/\s+$/, '').length;
-        return new vscode.Position(line, ch);
+        if (text.length > 72) {
+            const codeArea = text.substring(0, 72);
+            if (hasUnterminatedLiteral(codeArea)) {
+                return new vscode.Position(line, text.replace(/\s+$/, '').length);
+            }
+            return new vscode.Position(line, codeArea.replace(/\s+$/, '').length);
+        }
+        return new vscode.Position(line, text.replace(/\s+$/, '').length);
     }
 
     /**
