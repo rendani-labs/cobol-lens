@@ -54,6 +54,20 @@ function maskStrings(line) {
 }
 
 /**
+ * Marca con spazi la stringa di PICTURE (dopo PIC/PICTURE) cosi' i suoi
+ * caratteri (X, A, N, 9, S, V, ...) non vengano colorati come variabili quando
+ * coincidono con il nome di un simbolo del programma (es. una variabile chiamata
+ * `X`). La lunghezza della riga e' preservata per non alterare le colonne.
+ * @param {string} line
+ * @returns {string}
+ */
+function maskPicture(line) {
+    return line.replace(
+        /(\bPIC(?:TURE)?\b(?:\s+IS)?\s+)([-+*/$,.()SVXAZ9BPGNEUWCRD0-9]+)/gi,
+        (m, p1, p2) => p1 + ' '.repeat(p2.length));
+}
+
+/**
  * Provider di semantic tokens "consapevole dei simboli": colora le occorrenze
  * di variabili, paragrafi/section e copybook usando l'indice dei simboli gia'
  * costruito dall'estensione. Si sovrappone alla grammatica TextMate di base.
@@ -99,7 +113,7 @@ class CobolSemanticTokensProvider {
             const raw = lines[lineNo];
             if (isComment(raw)) continue;
 
-            const text = maskStrings(stripInlineComment(raw));
+            const text = maskPicture(maskStrings(stripInlineComment(raw)));
             IDENTIFIER_REGEX.lastIndex = 0;
             let match;
             while ((match = IDENTIFIER_REGEX.exec(text)) !== null) {
@@ -116,5 +130,6 @@ class CobolSemanticTokensProvider {
 
 module.exports = {
     CobolSemanticTokensProvider,
-    SEMANTIC_LEGEND
+    SEMANTIC_LEGEND,
+    maskPicture
 };

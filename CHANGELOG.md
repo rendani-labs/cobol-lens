@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.22.1] - 2026-07-21
+
+### Fixed
+- Semantic highlighting: the characters of a `PICTURE` clause (for example the `X` in `PIC X(03)`) are no longer colored as a variable when they happen to match the name of a program symbol (such as a data item literally named `X`). The semantic layer now masks the picture string after `PIC`/`PICTURE`, so those characters keep the grammar color (numeric) instead of the variable color. Line length (and therefore token columns) is preserved.
+
 ## [1.22.0] - 2026-07-21
 
 ### Changed
