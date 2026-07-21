@@ -785,6 +785,14 @@ function computeFormatted(lines, procDefLines, options) {
             code = code + idArea;
             idArea = '';
         }
+        // Righe PROCEDURE che portano una condizione VARYING oltre la colonna
+        // 72: recupera la coda (codice finito in area identificazione) cosi' lo
+        // split della condizione lavora sul testo completo e non troncato.
+        if (idArea !== '' && division === 'PROCEDURE'
+            && /(?:^|[^A-Za-z0-9-])VARYING(?![A-Za-z0-9-])/i.test(stripLit(code).toUpperCase())) {
+            code = code + idArea;
+            idArea = '';
+        }
         const codeText = code.replace(/^\s+/, '').replace(/\s+$/, '');
         if (codeText === '') { out[i] = ''; dataItem = null; procItem = null; continue; }
         const upper = stripLit(codeText).toUpperCase();
@@ -1064,6 +1072,78 @@ function mergeProcMove(out, i, seq, idArea, codeText, firstWord, procState, proc
 }
 
 /**
+ * Indice (0-based) di `word` in `upper` come parola COBOL (delimitata da
+ * caratteri non alfanumerici e non trattino), a partire da `from`. -1 se assente.
+ * @param {string} upper - testo in MAIUSCOLO (idealmente gia' senza letterali)
+ * @param {string} word
+ * @param {number} [from]
+ * @returns {number}
+ */
+function cobolWordIndex(upper, word, from = 0) {
+    let idx = upper.indexOf(word, from);
+    while (idx >= 0) {
+        const b = idx > 0 ? upper[idx - 1] : ' ';
+        const a = idx + word.length < upper.length ? upper[idx + word.length] : ' ';
+        if (!/[A-Za-z0-9-]/.test(b) && !/[A-Za-z0-9-]/.test(a)) return idx;
+        idx = upper.indexOf(word, idx + 1);
+    }
+    return -1;
+}
+
+/**
+ * Spezza una condizione (che inizia con UNTIL) nei suoi segmenti a ogni parola
+ * UNTIL/AND/OR (parole COBOL, fuori dai letterali), preservando le parentesi
+ * dove compaiono. Ogni segmento inizia con la sua keyword.
+ * @param {string} condText
+ * @returns {string[]}
+ */
+function splitAnchorSegments(condText) {
+    const upper = stripLit(condText).toUpperCase();
+    const positions = [];
+    const re = /UNTIL|AND|OR/g;
+    let m;
+    while ((m = re.exec(upper)) !== null) {
+        const s = m.index;
+        const e = s + m[0].length;
+        const before = s > 0 ? upper[s - 1] : ' ';
+        const after = e < upper.length ? upper[e] : ' ';
+        if (!/[A-Za-z0-9-]/.test(before) && !/[A-Za-z0-9-]/.test(after)) positions.push(s);
+    }
+    if (positions.length === 0) return [condText.replace(/\s+$/, '')];
+    const segs = [];
+    for (let k = 0; k < positions.length; k++) {
+        const start = positions[k];
+        const end = k + 1 < positions.length ? positions[k + 1] : condText.length;
+        segs.push(condText.substring(start, end).replace(/\s+$/, ''));
+    }
+    return segs;
+}
+
+/**
+ * Costruisce una riga di clausola ancorata a destra: la keyword iniziale
+ * (UNTIL/AND/OR/INTO) termina alla colonna `anchorEndCol`; se dopo la keyword
+ * c'e' una parentesi aperta viene attaccata (senza spazio) cosi' l'operando
+ * resta allineato con quello delle altre clausole, altrimenti un solo spazio.
+ * @param {string} seq
+ * @param {string} idArea
+ * @param {string} segText - segmento (keyword + resto)
+ * @param {number} anchorEndCol - colonna 1-based dell'ultima lettera della keyword
+ * @returns {string}
+ */
+function buildAnchorLine(seq, idArea, segText, anchorEndCol) {
+    const collapsed = collapseSpaces(segText);
+    const m = collapsed.match(/^([A-Za-z]+)([\s\S]*)$/);
+    const kw = m ? m[1] : collapsed;
+    const rest = m ? m[2].replace(/^\s+/, '') : '';
+    const startCol = Math.max(AREA_B, anchorEndCol - kw.length + 1);
+    let text;
+    if (rest.startsWith('(')) text = kw + rest;
+    else if (rest) text = kw + ' ' + rest;
+    else text = kw;
+    return buildLine(seq, idArea, startCol, text);
+}
+
+/**
  * Formatta una riga della PROCEDURE DIVISION applicando l'indentazione dei
  * blocchi (IF/ELSE, EVALUATE/WHEN, PERFORM inline). Il punto di fine frase
  * chiude tutti gli ambiti aperti.
@@ -1086,12 +1166,18 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
     //  - dopo STRING/UNSTRING: INTO termina alla stessa colonna di STRING.
     // La parola viene allineata a destra sull'ancora memorizzata.
     if (procState.contAnchor && procState.contAnchor.words.indexOf(fw) >= 0) {
-        const startCol = Math.max(AREA_B, procState.contAnchor.endCol - fw.length + 1);
+        const anchorEndCol = procState.contAnchor.endCol;
         if (endsWithTerminator(codeText)) {
             procStack.length = 0;
             procState.contAnchor = null;
         }
-        return buildLine(seq, idArea, startCol, collapseSpaces(codeText));
+        // Spezza anche gli eventuali AND/OR presenti sulla stessa riga di
+        // continuazione, cosi' ogni clausola va su una riga propria allineata a
+        // destra (coerente con lo split del PERFORM VARYING su una riga sola).
+        const segs = splitAnchorSegments(codeText);
+        return segs.map((s, k) =>
+            buildAnchorLine(k === 0 ? seq : '', k === 0 ? idArea : '', s, anchorEndCol)
+        ).join('\n');
     }
     // Qualsiasi altra riga chiude l'ancoraggio di continuazione.
     procState.contAnchor = null;
@@ -1210,7 +1296,23 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
     const anchorUpper = stripLit(outText).toUpperCase();
     if (fw === 'VARYING' || (tokens.includes('PERFORM') && tokens.includes('VARYING'))) {
         const vm = anchorUpper.match(/\bVARYING\b/);
-        if (vm) procState.contAnchor = { endCol: col + vm.index + 6, words: ['UNTIL', 'AND', 'OR'] };
+        if (vm) {
+            const anchorEndCol = col + vm.index + 6;
+            const untilIdx = cobolWordIndex(anchorUpper, 'UNTIL', vm.index + 7);
+            if (untilIdx >= 0) {
+                // UNTIL sulla stessa riga: spezza la condizione su piu' righe
+                // fisiche, con UNTIL/OR/AND allineati a destra alla fine di
+                // VARYING (gli operandi risultano incolonnati).
+                const before = outText.substring(0, untilIdx).replace(/\s+$/, '');
+                const cond = outText.substring(untilIdx);
+                const segs = splitAnchorSegments(cond);
+                const physical = [buildLine(seq, idArea, col, collapseSpaces(before))];
+                for (const s of segs) physical.push(buildAnchorLine('', '', s, anchorEndCol));
+                if (endsWithTerminator(codeText)) procStack.length = 0;
+                return physical.join('\n');
+            }
+            procState.contAnchor = { endCol: anchorEndCol, words: ['UNTIL', 'AND', 'OR'] };
+        }
     } else if (fw === 'STRING' || fw === 'UNSTRING') {
         const sm = anchorUpper.match(/\b(UN)?STRING\b/);
         if (sm) {

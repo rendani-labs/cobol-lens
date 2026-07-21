@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.24.0] - 2026-07-21
+
+### Changed
+- Formatter: a `PERFORM ... VARYING ... UNTIL ...` condition is now laid out with `UNTIL`/`OR`/`AND` each on its own line, right-aligned to end at the same column as `VARYING`. This applies both when the condition is written on a single line (it is split) and when it is already on multiple lines (it is re-aligned); a compound clause such as `OR (a AND b)` is broken so the inner `AND` also goes on its own line. The open parenthesis is attached to the keyword so the operands stay column-aligned, and a condition that overflows column 72 is recovered and reflowed. The layout is idempotent.
+
 ## [1.23.0] - 2026-07-21
 
 ### Changed
