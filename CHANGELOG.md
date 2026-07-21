@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.22.0] - 2026-07-21
+
+### Changed
+- Formatter: when a statement is continued on the next physical line (the line has no leading verb and the previous line did not end with a period), the continuation operands are now aligned under the first operand of the opening line instead of falling back to the base column. For example an `INITIALIZE` whose operand list spills onto the next line keeps the operands aligned under the first one.
+- Formatter: a `MOVE`/`ADD` split across physical lines is now rejoined onto a single line with the `TO` clause aligned to the picture column (45) when it fits within column 72. When it does not fit, it stays on two lines with the `TO` aligned to column 45. The continuation line that is emptied is left blank (the line-by-line edit model does not remove lines).
+
 ## [1.21.0] - 2026-07-21
 
 ### Changed

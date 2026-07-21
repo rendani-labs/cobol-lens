@@ -98,6 +98,14 @@ const PROC_VERBS = new Set([
 ]);
 
 /**
+ * Verbi che aprono un ambito o una condizione: la loro continuazione su piu'
+ * righe non e' un semplice elenco di operandi da allineare sotto il primo
+ * operando (condizioni di IF/EVALUATE, VARYING/UNTIL di PERFORM, ecc.), quindi
+ * sono esclusi dall'allineamento degli operandi di continuazione.
+ */
+const SCOPE_VERBS = new Set(['IF', 'EVALUATE', 'PERFORM', 'SEARCH']);
+
+/**
  * Euristica: un copybook senza intestazioni di DIVISION e' considerato di
  * PROCEDURE se tra le prime righe di codice significative (max 20) compare un
  * verbo COBOL a inizio riga. Altrimenti e' trattato come tracciato dati.
@@ -722,13 +730,18 @@ function computeFormatted(lines, procDefLines, options) {
     // clausola alla voce e ri-spezzare l'insieme in modo coerente.
     /** @type {DataItemMerge|null} */
     let dataItem = null;
-    const procState = { varyingActive: false, varyingEndCol: 0, performCol: 0 };
+    // MOVE/ADD in sospeso la cui clausola TO/operando e' finita su una riga
+    // successiva: consente di riunirlo su una riga (TO a col 45) o, se non ci
+    // sta, di allineare il TO a col 45 sulla riga di continuazione.
+    /** @type {{first:number,col:number,seq:string,idArea:string,logical:string}|null} */
+    let procItem = null;
+    const procState = { varyingActive: false, varyingEndCol: 0, performCol: 0, stmtOpen: false, operandCol: 0 };
 
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
 
         // Righe vuote -> stringa vuota (rimuove spazi).
-        if (raw.trim() === '') { out[i] = ''; dataItem = null; continue; }
+        if (raw.trim() === '') { out[i] = ''; dataItem = null; procItem = null; continue; }
 
         const indicator = raw.length > 6 ? raw.charAt(6) : '';
 
@@ -748,6 +761,7 @@ function computeFormatted(lines, procDefLines, options) {
             // La riga del letterale non e' catturata in `dataItem`: chiude la
             // catena di riunione e, se termina la frase, azzera il pending.
             dataItem = null;
+            procItem = null;
             if (!litOpen && endsWithTerminator(contTrim)) dataPending = false;
             continue;
         }
@@ -758,6 +772,7 @@ function computeFormatted(lines, procDefLines, options) {
             || raw.trim().toUpperCase().startsWith('$SET')) {
             out[i] = raw.replace(/\s+$/, '');
             dataItem = null;
+            procItem = null;
             continue;
         }
 
@@ -771,7 +786,7 @@ function computeFormatted(lines, procDefLines, options) {
             idArea = '';
         }
         const codeText = code.replace(/^\s+/, '').replace(/\s+$/, '');
-        if (codeText === '') { out[i] = ''; dataItem = null; continue; }
+        if (codeText === '') { out[i] = ''; dataItem = null; procItem = null; continue; }
         const upper = stripLit(codeText).toUpperCase();
 
         // --- Intestazioni di DIVISION ---
@@ -780,7 +795,8 @@ function computeFormatted(lines, procDefLines, options) {
             division = div;
             dataStack = []; procStack = []; dataPending = false;
             dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
-            envFileControl = false; envSelect = false; dataItem = null;
+            procState.stmtOpen = false; procState.operandCol = 0;
+            envFileControl = false; envSelect = false; dataItem = null; procItem = null;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
             continue;
         }
@@ -789,7 +805,8 @@ function computeFormatted(lines, procDefLines, options) {
         if (isSectionHeader(upper)) {
             dataStack = []; procStack = []; dataPending = false;
             dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
-            envFileControl = false; envSelect = false; dataItem = null;
+            procState.stmtOpen = false; procState.operandCol = 0;
+            envFileControl = false; envSelect = false; dataItem = null; procItem = null;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
             continue;
         }
@@ -846,10 +863,13 @@ function computeFormatted(lines, procDefLines, options) {
             if (procDefLines.has(i)) {
                 procStack = [];
                 procState.varyingActive = false; procState.performCol = 0;
+                procState.stmtOpen = false; procState.operandCol = 0;
+                procItem = null;
                 out[i] = buildLine(seq, idArea, AREA_A, codeText);
                 continue;
             }
             out[i] = formatProcedureLine(seq, idArea, codeText, upper, procStack, procState, opts);
+            procItem = mergeProcMove(out, i, seq, idArea, codeText, firstWord, procState, procItem, opts);
             continue;
         }
 
@@ -860,10 +880,13 @@ function computeFormatted(lines, procDefLines, options) {
                 if (procDefLines.has(i)) {
                     procStack = [];
                     procState.varyingActive = false; procState.performCol = 0;
+                    procState.stmtOpen = false; procState.operandCol = 0;
+                    procItem = null;
                     out[i] = buildLine(seq, idArea, AREA_A, codeText);
                     continue;
                 }
                 out[i] = formatProcedureLine(seq, idArea, codeText, upper, procStack, procState, opts);
+                procItem = mergeProcMove(out, i, seq, idArea, codeText, firstWord, procState, procItem, opts);
                 continue;
             }
             // Tracciato dati: numero di livello / FD-SD / continuazione di
@@ -983,6 +1006,64 @@ function formatDataLine(seq, idArea, codeText, upper, firstWord, dataStack,
 }
 
 /**
+ * Unisce un MOVE/ADD spezzato su piu' righe fisiche riportando la clausola TO
+ * accanto agli operandi. Quando la riga di apertura (`MOVE ...`/`ADD ...`) non
+ * contiene ancora un `TO <operando>` e non termina con il punto, viene messa in
+ * sospeso; alla riga di continuazione successiva si prova a unire il tutto su
+ * una sola riga con il `TO` allineato alla colonna PIC (45). Se non ci sta entro
+ * la colonna 72, si resta su due righe con il `TO` comunque a colonna 45; la
+ * riga di continuazione svuotata resta vuota (il modello di edit 1:1 non rimuove
+ * righe). Vale solo per MOVE/ADD.
+ * @param {string[]} out
+ * @param {number} i - indice fisico corrente
+ * @param {string} seq
+ * @param {string} idArea
+ * @param {string} codeText
+ * @param {string} firstWord
+ * @param {{ stmtOpen: boolean }} procState
+ * @param {{first:number,col:number,seq:string,idArea:string,logical:string}|null} procItem
+ * @param {FormatOptions} opts
+ * @returns {{first:number,col:number,seq:string,idArea:string,logical:string}|null}
+ */
+function mergeProcMove(out, i, seq, idArea, codeText, firstWord, procState, procItem, opts) {
+    if (procItem) {
+        // Riga di continuazione del MOVE/ADD in sospeso: se ora compare il TO,
+        // unisci; altrimenti abbandona (nessun accumulo oltre una riga).
+        const collapsed = collapseSpaces(procItem.logical + ' ' + codeText);
+        const stripped = stripLit(collapsed).toUpperCase();
+        const mTo = stripped.match(/\bTO\b/);
+        if (mTo && mTo.index > 0) {
+            const before = collapsed.substring(0, mTo.index).replace(/\s+$/, '');
+            const after = collapsed.substring(mTo.index);
+            const joined = joinAligned(before, after, procItem.col, opts.pictureColumn);
+            if (!joined.overflow) {
+                // Ci sta su una riga: unisci sulla prima, svuota la continuazione.
+                out[procItem.first] = buildLine(procItem.seq, procItem.idArea, procItem.col, joined.text);
+                out[i] = '';
+            } else {
+                // Non ci sta: resta su due righe, con il TO a colonna PIC.
+                out[procItem.first] = buildLine(procItem.seq, procItem.idArea, procItem.col, before);
+                out[i] = buildLine(seq, idArea, opts.pictureColumn, after);
+            }
+        }
+        return null;
+    }
+    if ((firstWord === 'MOVE' || firstWord === 'ADD') && procState.stmtOpen) {
+        // Solo se il TO con operando NON e' gia' presente sulla riga.
+        if (!/\bTO\b\s+\S/.test(stripLit(codeText).toUpperCase())) {
+            const first = out[i].split('\n')[0];
+            // Colonna del codice: si cerca dal carattere 8 (col 8) in poi, per
+            // NON confondere l'area sequenza (col 1-6) con l'inizio del codice.
+            const rel = first.substring(7).search(/\S/);
+            if (rel >= 0) {
+                return { first: i, col: 8 + rel, seq, idArea, logical: collapseSpaces(codeText) };
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * Formatta una riga della PROCEDURE DIVISION applicando l'indentazione dei
  * blocchi (IF/ELSE, EVALUATE/WHEN, PERFORM inline). Il punto di fine frase
  * chiude tutti gli ambiti aperti.
@@ -1027,6 +1108,27 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
     }
     // Qualsiasi altra riga chiude l'attesa di un THRU.
     procState.performCol = 0;
+
+    // Continuazione di operandi di uno statement semplice aperto: la riga
+    // precedente era un verbo senza punto finale e questa riga non inizia con un
+    // verbo/delimitatore, quindi e' un operando (o una clausola come TO/FROM)
+    // che va allineato sotto il primo operando della riga di apertura.
+    const isStmtStartKw = PROC_VERBS.has(fw) || fw === 'ELSE' || fw === 'WHEN'
+        || fw.startsWith('END-');
+    if (procState.stmtOpen && procState.operandCol > 0 && !isStmtStartKw) {
+        const alignCol = procState.operandCol;
+        if (endsWithTerminator(codeText)) {
+            procState.stmtOpen = false;
+            procState.operandCol = 0;
+            procStack.length = 0;
+        }
+        return buildLine(seq, idArea, alignCol, collapseSpaces(codeText));
+    }
+    // Una qualsiasi altra riga (nuovo verbo o delimitatore) chiude l'eventuale
+    // statement semplice rimasto aperto; verra' riaperto in fondo se questa
+    // stessa riga e' un nuovo statement semplice non terminato.
+    procState.stmtOpen = false;
+    procState.operandCol = 0;
 
     let drawDepth;
     let scanFrom;
@@ -1129,6 +1231,16 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
             return buildLine(seq, idArea, col, p1) + '\n'
                 + buildLine('', '', col + indent, p2);
         }
+    }
+
+    // Statement semplice (non di ambito) non terminato dal punto: resta aperto
+    // e le eventuali righe successive di soli operandi si allineeranno sotto il
+    // primo operando (colonna = inizio codice + verbo + 1 spazio).
+    const isSimpleStmt = PROC_VERBS.has(fw) && !SCOPE_VERBS.has(fw)
+        && fw !== 'ELSE' && fw !== 'WHEN' && !fw.startsWith('END-');
+    if (isSimpleStmt && !endsWithTerminator(codeText)) {
+        procState.stmtOpen = true;
+        procState.operandCol = col + fw.length + 1;
     }
 
     return buildLine(seq, idArea, col, outText);
