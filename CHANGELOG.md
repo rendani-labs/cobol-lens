@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.20.3] - 2026-07-21
+
+### Fixed
+- Linter `chars-after-period`: a `COPY` statement written on the same line after a data item's terminating period (for example `01 COMM-AREA-08.  COPY MEMBER.`) is no longer flagged as invalid content. This is valid COBOL -- the period closes the group entry and the copybook brings in the subordinate fields -- so the `COPY` after the period is not spurious. Genuine spurious content after a real sentence-terminating period is still reported.
+
 ## [1.20.2] - 2026-07-20
 
 ### Fixed

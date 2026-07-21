@@ -2878,7 +2878,12 @@ function checkCharsAfterPeriod(lines) {
             const periodIdx = relIdx >= 0 ? searchStart + relIdx : -1;
             if (periodIdx >= 0) {
                 const afterPeriodRaw = codeNoLit.substring(periodIdx + 1);
-                if (/\S/.test(afterPeriodRaw)) {
+                // Uno statement COPY sulla stessa riga dopo il punto che chiude
+                // un data item (es. "01 GRUPPO.  COPY MEMBRO.") e' COBOL valido:
+                // il copybook porta i campi subordinati al gruppo. Non e'
+                // contenuto spurio, quindi non va segnalato.
+                const isCopyAfterPeriod = /^\s*COPY\b/.test(afterPeriodRaw);
+                if (/\S/.test(afterPeriodRaw) && !isCopyAfterPeriod) {
                     const nonSpaceOffset = afterPeriodRaw.search(/\S/);
                     const colStart = 7 + periodIdx + 1 + (nonSpaceOffset >= 0 ? nonSpaceOffset : 0);
                     const colEnd = colStart + 1;
