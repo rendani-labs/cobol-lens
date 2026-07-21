@@ -1088,12 +1088,13 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
     // Il punto di fine frase chiude tutti gli ambiti aperti.
     if (endsWithTerminator(codeText)) procStack.length = 0;
 
-    // Allineamento della keyword TO. Per MOVE/ADD (configurabile) si porta il TO
-    // alla colonna PIC; il SET resta sempre ravvicinato (spazi compressi).
-    let outText = codeText;
-    if (fw === 'SET') {
-        outText = collapseSpaces(codeText);
-    } else if ((fw === 'MOVE' || fw === 'ADD') && opts.alignMoveTo) {
+    // Compressione degli spazi interni (literal-aware) per tutti gli statement
+    // PROCEDURE: le parole restano separate da un solo spazio (es.
+    // "INITIALIZE   AREA" -> "INITIALIZE AREA"), preservando gli spazi dentro
+    // le stringhe. Per MOVE/ADD, se attivo l'allineamento del TO (che gestisce
+    // da se' la spaziatura fino alla colonna PIC) ha la priorita'.
+    let outText = collapseSpaces(codeText);
+    if ((fw === 'MOVE' || fw === 'ADD') && opts.alignMoveTo) {
         const aligned = alignProcedureTo(codeText, col, opts.pictureColumn);
         if (aligned !== null) outText = aligned;
     }
@@ -1195,11 +1196,13 @@ function codeSignature(physLines) {
 function applyStage2(out, lines, procDefLines, opts) {
     /** @type {string[]} */
     const result = [];
+    // Per ogni riga di input, indice (nell'array `result`) della sua voce
+    // formattata (dopo eventuali righe inserite prima di essa): serve a mappare
+    // una selezione sulle righe finali quando lo Stage 2 e' applicato a una
+    // selezione (Format Selection) e non solo al documento intero.
+    const entryStart = new Array(lines.length).fill(-1);
     let division = '';
     let inProc = false;
-    let stmtOpen = false;        // uno statement (sentence) e' aperto e prosegue
-    let stmtStartKind = null;    // verbo iniziale della sentence corrente
-    let stmtStartBase = false;   // la sentence corrente inizia a livello base (col 12)
     let prevBaseKind = null;     // verbo dell'ultima sentence base-level adiacente
     let blankAfterHeader = false;// va inserita una riga vuota dopo l'header di paragrafo
     let inFileSection = false;   // dentro la FILE SECTION
@@ -1225,7 +1228,7 @@ function applyStage2(out, lines, procDefLines, opts) {
         if (!isSeparatorLine(prevNonBlank())) result.push(SEPARATOR);
     };
     const resetStmt = () => {
-        stmtOpen = false; stmtStartKind = null; stmtStartBase = false; prevBaseKind = null;
+        prevBaseKind = null;
     };
 
     for (let i = 0; i < lines.length; i++) {
@@ -1245,7 +1248,7 @@ function applyStage2(out, lines, procDefLines, opts) {
         // --- DIVISION header ---
         if (div) {
             if (opts.sectionSeparators && div !== 'IDENTIFICATION') pushSepIfNeeded();
-            result.push(fmt);
+            entryStart[i] = result.length; result.push(fmt);
             division = div; inProc = (div === 'PROCEDURE');
             resetStmt();
             blankAfterHeader = opts.blankLines && div === 'PROCEDURE';
@@ -1259,7 +1262,7 @@ function applyStage2(out, lines, procDefLines, opts) {
                 && (DATA_SEP_SECTIONS.has(firstWord) || division === 'PROCEDURE')) {
                 pushSepIfNeeded();
             }
-            result.push(fmt);
+            entryStart[i] = result.length; result.push(fmt);
             resetStmt(); blankAfterHeader = false;
             inFileSection = (firstWord === 'FILE'); fdSeen = false;
             inFileControl = false; selectSeen = false;
@@ -1275,24 +1278,21 @@ function applyStage2(out, lines, procDefLines, opts) {
             } else if (opts.sectionSeparators) {
                 pushSepIfNeeded();
             }
-            result.push(fmt);
+            entryStart[i] = result.length; result.push(fmt);
             resetStmt();
             blankAfterHeader = opts.blankLines && !isExit;
             continue;
         }
         // --- righe vuote / commento: passano invariate, azzerano l'adiacenza ---
         if (isBlank || isComment) {
-            result.push(fmt);
+            entryStart[i] = result.length; result.push(fmt);
             prevBaseKind = null; blankAfterHeader = false;
             continue;
         }
-        // --- riga di continuazione: parte dello statement aperto ---
+        // --- riga di continuazione (trattino in col 7): parte dello statement
+        // precedente, passa invariata senza toccare l'adiacenza. ---
         if (isCont) {
-            result.push(fmt);
-            if (endsWithTerminator(codeText)) {
-                if (stmtStartBase && stmtStartKind) prevBaseKind = stmtStartKind;
-                stmtOpen = false; stmtStartKind = null; stmtStartBase = false;
-            }
+            entryStart[i] = result.length; result.push(fmt);
             continue;
         }
 
@@ -1303,26 +1303,27 @@ function applyStage2(out, lines, procDefLines, opts) {
             let cc = 7;
             while (cc < firstPhys.length && firstPhys[cc] === ' ') cc++;
             const baseLevel = (cc + 1) === AREA_B;
-            if (!stmtOpen) {
-                // inizio di una nuova sentence
+            // Una "sentence di primo livello" sta a colonna base, inizia con un
+            // verbo di statement noto e non e' un delimitatore di blocco
+            // (ELSE/WHEN/END-...). Su queste si decide la riga vuota, a
+            // prescindere dal punto finale: in COBOL un nuovo verbo apre una
+            // nuova istruzione anche se la riga precedente non terminava col
+            // punto (statement multi-riga senza punto).
+            const isBlockDelim = firstWord === 'ELSE' || firstWord === 'WHEN'
+                || firstWord.startsWith('END-');
+            const isTopStmt = baseLevel && PROC_VERBS.has(firstWord) && !isBlockDelim;
+            if (isTopStmt) {
                 if (blankAfterHeader) { pushBlankIfNeeded(); blankAfterHeader = false; }
-                stmtStartKind = firstWord;
-                stmtStartBase = baseLevel;
                 // Riga vuota tra due sentence base-level, a meno che abbiano lo
                 // stesso verbo NON di blocco (es. MOVE+MOVE, DISPLAY+DISPLAY
                 // restano ravvicinati; verbi diversi o di blocco si separano).
-                if (opts.blankLines && baseLevel && prevBaseKind !== null
+                if (opts.blankLines && prevBaseKind !== null
                     && (firstWord !== prevBaseKind || BLOCK_VERBS.has(firstWord))) {
                     pushBlankIfNeeded();
                 }
+                prevBaseKind = firstWord;
             }
-            result.push(fmt);
-            if (endsWithTerminator(codeText)) {
-                if (stmtStartBase && stmtStartKind) prevBaseKind = stmtStartKind;
-                stmtOpen = false; stmtStartKind = null; stmtStartBase = false;
-            } else {
-                stmtOpen = true;
-            }
+            entryStart[i] = result.length; result.push(fmt);
             continue;
         }
 
@@ -1331,7 +1332,7 @@ function applyStage2(out, lines, procDefLines, opts) {
             || firstWord === 'RD' || firstWord === 'CD')) {
             if (opts.blankLines && fdSeen) pushBlankIfNeeded();
             fdSeen = true;
-            result.push(fmt);
+            entryStart[i] = result.length; result.push(fmt);
             prevBaseKind = null;
             continue;
         }
@@ -1349,10 +1350,76 @@ function applyStage2(out, lines, procDefLines, opts) {
         }
 
         // --- altre righe (ID/ENV/DATA): invariate ---
-        result.push(fmt);
+        entryStart[i] = result.length; result.push(fmt);
         prevBaseKind = null;
     }
-    return result;
+    return { result, entryStart };
+}
+
+/**
+ * Formatta l'intero documento restituendo le righe fisiche finali. Se lo Stage 2
+ * e' attivo applica separatori/righe vuote, ma solo dopo aver verificato che la
+ * firma del codice non cambi (fail-safe: in caso contrario restituisce il
+ * risultato del solo Stage 1).
+ * @param {string[]} lines
+ * @param {Set<number>} procDefLines
+ * @param {Partial<FormatOptions>} [options]
+ * @returns {string[]}
+ */
+/**
+ * Formatta l'intero documento e restituisce, oltre alle righe fisiche finali,
+ * una mappa da ogni riga di input alla porzione di righe finali corrispondente
+ * ([lineStart, lineEndEx)). La mappa consente di formattare una SELEZIONE con
+ * lo Stage 2 (separatori/righe vuote) usando il contesto dell'intero documento,
+ * sostituendo solo il blocco selezionato. Se lo Stage 2 altererebbe una riga di
+ * codice (fail-safe via codeSignature) si ricade sul solo Stage 1.
+ * @param {string[]} lines
+ * @param {Set<number>} procDefLines
+ * @param {Partial<FormatOptions>} [options]
+ * @returns {{ finalLines: string[], lineStart: number[], lineEndEx: number[] }}
+ */
+function formatDocumentMapped(lines, procDefLines, options) {
+    const opts = normalizeOptions(options);
+    const formatted = computeFormatted(lines, procDefLines, opts);
+
+    // Somme prefisse delle righe fisiche prodotte da ogni voce (una voce puo'
+    // contenere '\n', es. letterale spezzato): entry index -> intervallo righe.
+    const flatMap = (entries) => {
+        const start = new Array(entries.length);
+        const endEx = new Array(entries.length);
+        let acc = 0;
+        for (let k = 0; k < entries.length; k++) {
+            start[k] = acc;
+            acc += entries[k].split('\n').length;
+            endEx[k] = acc;
+        }
+        return { start, endEx };
+    };
+
+    const stage1 = formatted.join('\n').split('\n');
+    const stage1Mapped = () => {
+        const m = flatMap(formatted);
+        return { finalLines: stage1, lineStart: m.start, lineEndEx: m.endEx };
+    };
+    if (!opts.sectionSeparators && !opts.blankLines) return stage1Mapped();
+
+    const { result, entryStart } = applyStage2(formatted, lines, procDefLines, opts);
+    const stage2 = result.join('\n').split('\n');
+    const before = codeSignature(stage1);
+    const after = codeSignature(stage2);
+    if (before.length !== after.length) return stage1Mapped();
+    for (let k = 0; k < before.length; k++) {
+        if (before[k] !== after[k]) return stage1Mapped();
+    }
+    const rm = flatMap(result);
+    const lineStart = new Array(lines.length);
+    const lineEndEx = new Array(lines.length);
+    for (let i = 0; i < lines.length; i++) {
+        const e = entryStart[i];
+        lineStart[i] = rm.start[e];
+        lineEndEx[i] = rm.endEx[e];
+    }
+    return { finalLines: stage2, lineStart, lineEndEx };
 }
 
 /**
@@ -1366,19 +1433,7 @@ function applyStage2(out, lines, procDefLines, opts) {
  * @returns {string[]}
  */
 function formatDocument(lines, procDefLines, options) {
-    const opts = normalizeOptions(options);
-    const formatted = computeFormatted(lines, procDefLines, opts);
-    const stage1 = formatted.join('\n').split('\n');
-    if (!opts.sectionSeparators && !opts.blankLines) return stage1;
-
-    const stage2 = applyStage2(formatted, lines, procDefLines, opts).join('\n').split('\n');
-    const before = codeSignature(stage1);
-    const after = codeSignature(stage2);
-    if (before.length !== after.length) return stage1;
-    for (let k = 0; k < before.length; k++) {
-        if (before[k] !== after[k]) return stage1;
-    }
-    return stage2;
+    return formatDocumentMapped(lines, procDefLines, options).finalLines;
 }
 
 /**
@@ -1458,6 +1513,29 @@ class CobolFormattingProvider {
             return [vscode.TextEdit.replace(fullRange, newText)];
         }
 
+        // Stage 2 su una SELEZIONE: formatta l'intero documento (contesto
+        // completo) e sostituisce solo il blocco selezionato con la sua versione
+        // formattata + spaziata, cosi' Format Selection si comporta come Format
+        // Document per il blocco scelto (righe vuote/separatori tra i blocchi).
+        // Le righe vuote/separatori inserite prima della selezione o subito dopo
+        // l'ultima riga non vengono aggiunte: solo quelle interne al blocco.
+        if ((opts.sectionSeparators || opts.blankLines) && range !== null) {
+            const { finalLines, lineStart, lineEndEx } =
+                formatDocumentMapped(lines, procDefLines, opts);
+            let s = range.start.line;
+            let e = range.end.line;
+            if (s < 0) s = 0;
+            if (e > lines.length - 1) e = lines.length - 1;
+            if (s > e) return [];
+            const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+            const replacement = finalLines.slice(lineStart[s], lineEndEx[e]).join(eol);
+            const startPos = new vscode.Position(s, 0);
+            const endPos = document.lineAt(e).range.end;
+            const selRange = new vscode.Range(startPos, endPos);
+            if (document.getText(selRange) === replacement) return [];
+            return [vscode.TextEdit.replace(selRange, replacement)];
+        }
+
         const formatted = computeFormatted(lines, procDefLines, opts);
 
         const startLine = range ? range.start.line : 0;
@@ -1513,4 +1591,4 @@ class CobolFormattingProvider {
     }
 }
 
-module.exports = { CobolFormattingProvider, computeFormatted, formatDocument };
+module.exports = { CobolFormattingProvider, computeFormatted, formatDocument, formatDocumentMapped };

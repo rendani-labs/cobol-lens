@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.21.0] - 2026-07-21
+
+### Changed
+- Formatter structural spacing (`cobolLens.format.blankLines` / `cobolLens.format.sectionSeparators`): blank lines and separators are now inserted between blocks even when the statements do not end with a period. A line at base column that starts with a known COBOL verb now opens a new sentence (in COBOL a new verb begins a new statement even if the previous line had no terminating period), while block delimiters (`ELSE`, `WHEN`, `END-...`) do not. Previously a multi-line statement without a period kept the "sentence" open and suppressed all the blank lines/separators for the rest of the paragraph.
+- Formatter structural spacing now also applies when formatting a SELECTION, not just the whole document. Format Selection formats the whole document internally (to get the correct block/adjacency context) and replaces only the selected block with its spaced version; blank lines/separators before the selection or right after its last line are not added, only those internal to the block. Format Document and Format Selection now behave the same way.
+- Formatter: internal whitespace in PROCEDURE statements is now collapsed to a single space (for example `INITIALIZE   AREA` becomes `INITIALIZE AREA`), preserving spaces inside string literals. For `MOVE`/`ADD`, the `TO` alignment to the picture column keeps priority when enabled.
+
 ## [1.20.3] - 2026-07-21
 
 ### Fixed
