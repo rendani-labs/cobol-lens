@@ -785,11 +785,11 @@ function computeFormatted(lines, procDefLines, options) {
             code = code + idArea;
             idArea = '';
         }
-        // Righe PROCEDURE che portano una condizione VARYING oltre la colonna
-        // 72: recupera la coda (codice finito in area identificazione) cosi' lo
-        // split della condizione lavora sul testo completo e non troncato.
+        // Righe PROCEDURE che portano una condizione VARYING/IF oltre la
+        // colonna 72: recupera la coda (codice finito in area identificazione)
+        // cosi' lo split/reflow della condizione lavora sul testo completo.
         if (idArea !== '' && division === 'PROCEDURE'
-            && /(?:^|[^A-Za-z0-9-])VARYING(?![A-Za-z0-9-])/i.test(stripLit(code).toUpperCase())) {
+            && /(?:^|[^A-Za-z0-9-])(VARYING|IF)(?![A-Za-z0-9-])/i.test(stripLit(code).toUpperCase())) {
             code = code + idArea;
             idArea = '';
         }
@@ -875,6 +875,18 @@ function computeFormatted(lines, procDefLines, options) {
                 procItem = null;
                 out[i] = buildLine(seq, idArea, AREA_A, codeText);
                 continue;
+            }
+            // IF con condizione composta: riformatta l'intero blocco condizione
+            // (AND in coda, OR a inizio, operandi/operatori incolonnati).
+            if (firstWord === 'IF') {
+                const consumed = tryReflowIf(lines, i, out, procStack, procDefLines, opts, seq, idArea, codeText);
+                if (consumed >= 0) {
+                    procState.contAnchor = null; procState.performCol = 0;
+                    procState.stmtOpen = false; procState.operandCol = 0;
+                    procItem = null;
+                    i = consumed;
+                    continue;
+                }
             }
             out[i] = formatProcedureLine(seq, idArea, codeText, upper, procStack, procState, opts);
             procItem = mergeProcMove(out, i, seq, idArea, codeText, firstWord, procState, procItem, opts);
@@ -1141,6 +1153,181 @@ function buildAnchorLine(seq, idArea, segText, anchorEndCol) {
     else if (rest) text = kw + ' ' + rest;
     else text = kw;
     return buildLine(seq, idArea, startCol, text);
+}
+
+/**
+ * Riformatta una condizione IF composta (con AND/OR) nello stile richiesto:
+ *  - ogni sotto-condizione su una riga, con gli operandi allineati alla colonna
+ *    OP_COL (subito dopo "IF ");
+ *  - AND in coda alla riga precedente, OR a inizio riga;
+ *  - parentesi aperta "sospesa" a OP_COL-1 (l'operando resta a OP_COL).
+ * Restituisce un array di righe logiche { col, text } (senza area sequenza/id),
+ * oppure null se la condizione e' semplice (nessun AND/OR di primo livello) e
+ * non richiede riformattazione. NOTA: prima versione (solo struttura); l'ulteriore
+ * incolonnamento di operatori/valori sara' aggiunto in un passo successivo.
+ * @param {string} condText - testo della condizione (senza "IF" iniziale)
+ * @param {number} ifCol - colonna 1-based della parola IF
+ * @returns {{col:number,text:string}[]|null}
+ */
+function reflowIfCondition(condText, ifCol) {
+    const OP_COL = ifCol + 3; // colonna degli operandi (dopo "IF ")
+    const upper = stripLit(condText).toUpperCase();
+    // Connettori AND/OR come parole COBOL.
+    const conns = [];
+    const re = /AND|OR/g;
+    let m;
+    while ((m = re.exec(upper)) !== null) {
+        const s = m.index;
+        const e = s + m[0].length;
+        const b = s > 0 ? upper[s - 1] : ' ';
+        const a = e < upper.length ? upper[e] : ' ';
+        if (/[A-Za-z0-9-]/.test(b) || /[A-Za-z0-9-]/.test(a)) continue;
+        conns.push({ s, e, kind: upper.substring(s, e) });
+    }
+    if (conns.length === 0) return null;
+    // Sotto-condizioni (testo tra i connettori).
+    const conds = [];
+    let last = 0;
+    for (const c of conns) { conds.push(collapseSpaces(condText.substring(last, c.s)).trim()); last = c.e; }
+    conds.push(collapseSpaces(condText.substring(last)).trim());
+
+    // Parse di ogni sotto-condizione in operando / NOT / operatore / valore
+    // (parentesi aperta iniziale a parte). Serve a incolonnare =/EQUAL e valori.
+    const parsed = conds.map((cond) => {
+        const leadParen = /^\(/.test(cond);
+        const core = leadParen ? cond.replace(/^\(\s*/, '') : cond;
+        const mm = core.match(/^(.*?)\s+(NOT\s+)?(<>|>=|<=|=|>|<|EQUALS?|UNEQUAL)\s+(.+)$/i);
+        if (mm) {
+            return {
+                leadParen, hasOp: true,
+                operand: mm[1].trim(),
+                notKw: mm[2] ? 'NOT' : '',
+                op: mm[3].trim(),
+                value: mm[4].trim(),
+            };
+        }
+        return { leadParen, hasOp: false, operand: core.trim(), notKw: '', op: '', value: '' };
+    });
+
+    // Colonne di allineamento operatore/valore (assolute), su tutte le
+    // sotto-condizioni con operatore. L'operando parte sempre a OP_COL.
+    let operCol = 0;
+    let maxOp = 0;
+    for (const p of parsed) {
+        if (!p.hasOp) continue;
+        const notLen = p.notKw ? p.notKw.length + 1 : 0; // "NOT "
+        operCol = Math.max(operCol, OP_COL + p.operand.length + 1 + notLen);
+        maxOp = Math.max(maxOp, p.op.length);
+    }
+    const valCol = operCol > 0 ? operCol + maxOp + 1 : 0;
+
+    // Corpo (a partire dall'operando in OP_COL) con operatore/valore incolonnati.
+    const buildCore = (p) => {
+        let core = p.operand;
+        if (p.hasOp) {
+            const opRel = (p.notKw ? operCol - (p.notKw.length + 1) : operCol) - OP_COL;
+            while (core.length < opRel) core += ' ';
+            if (p.notKw) core += p.notKw + ' ';
+            core += p.op;
+            const valRel = valCol - OP_COL;
+            while (core.length < valRel) core += ' ';
+            core += p.value;
+        }
+        return core;
+    };
+
+    const lines = [];
+    for (let i = 0; i < parsed.length; i++) {
+        const p = parsed[i];
+        const connBefore = i > 0 ? conns[i - 1].kind : null;
+        const connAfter = i < conns.length ? conns[i].kind : null;
+        const core = buildCore(p);
+        let col;
+        let text;
+        if (i === 0) {
+            col = ifCol; text = 'IF ' + core;
+        } else if (connBefore === 'OR') {
+            col = ifCol; text = 'OR ' + core;
+        } else { // AND era in coda alla riga precedente
+            if (p.leadParen) { col = OP_COL - 1; text = '(' + core; }
+            else { col = OP_COL; text = core; }
+        }
+        if (connAfter === 'AND') text = text + ' AND';
+        lines.push({ col, text });
+    }
+    return lines;
+}
+
+/**
+ * Prova a riformattare un blocco IF con condizione composta: raccoglie la
+ * condizione dalla riga IP e dalle sue righe di continuazione, la riformatta con
+ * `reflowIfCondition` e distribuisce le righe risultanti sulle righe fisiche
+ * raccolte (riscrivendo `out` in-place). Apre l'ambito IF sullo stack.
+ * Restituisce l'indice dell'ultima riga consumata, oppure -1 se non applicabile
+ * (condizione semplice, statement in linea, o non rappresentabile senza
+ * rimuovere righe): in tal caso il chiamante formatta la riga IF normalmente.
+ * @param {string[]} lines
+ * @param {number} i - indice della riga IF
+ * @param {string[]} out
+ * @param {string[]} procStack
+ * @param {Set<number>} procDefLines
+ * @param {FormatOptions} opts
+ * @param {string} seq
+ * @param {string} idArea
+ * @param {string} ifCodeText - codice (trimmato) della riga IF
+ * @returns {number}
+ */
+function tryReflowIf(lines, i, out, procStack, procDefLines, opts, seq, idArea, ifCodeText) {
+    const indent = opts.indentStep;
+    const ifCol = AREA_B + procStack.length * indent;
+    const mIf = ifCodeText.match(/^IF\b\s*/i);
+    if (!mIf) return -1;
+    const cond0 = ifCodeText.substring(mIf[0].length);
+    // Niente reflow se sulla riga IF c'e' un verbo (statement in linea) o
+    // THEN/ELSE/END-... (troppo rischioso da riformattare).
+    const tokens0 = stripLit(cond0).toUpperCase().match(/[A-Z0-9][A-Z0-9-]*/g) || [];
+    for (const t of tokens0) {
+        if (PROC_VERBS.has(t) || t === 'THEN' || t === 'ELSE' || t.startsWith('END-')) return -1;
+    }
+    const gathered = [i];
+    const parts = [cond0.replace(/\s+$/, '')];
+    let ended = endsWithTerminator(cond0);
+    let j = i + 1;
+    while (!ended && j < lines.length) {
+        const raw = lines[j];
+        if (raw.trim() === '') break;
+        const ind = raw.length > 6 ? raw.charAt(6) : '';
+        if (ind === '*' || ind === '/' || ind === '-' || ind === 'D' || ind === 'd') break;
+        if (raw.trim().toUpperCase().startsWith('$SET')) break;
+        if (procDefLines.has(j)) break;
+        let code = raw.length > 7 ? raw.substring(7, CODE_END) : '';
+        const idA = raw.length > CODE_END ? raw.substring(CODE_END) : '';
+        if (idA !== '' && hasUnterminatedLiteral(code)) code = code + idA;
+        const ct = code.replace(/^\s+|\s+$/g, '');
+        if (ct === '') break;
+        const up = stripLit(ct).toUpperCase();
+        const fw = (up.match(/^[A-Z0-9][A-Z0-9-]*/) || [''])[0];
+        if (PROC_VERBS.has(fw) || fw === 'ELSE' || fw === 'WHEN' || fw.startsWith('END-')
+            || divisionOf(up) || isSectionHeader(up)) break;
+        parts.push(ct.replace(/\s+$/, ''));
+        gathered.push(j);
+        if (endsWithTerminator(ct)) ended = true;
+        j++;
+    }
+    const fullCond = parts.join(' ').trim();
+    const reflowed = reflowIfCondition(fullCond, ifCol);
+    if (!reflowed) return -1;
+    const phys = reflowed.map((l, k) =>
+        buildLine(k === 0 ? seq : '', k === 0 ? idArea : '', l.col, l.text));
+    // Il modello di edit 1:1 non rimuove righe: servono almeno tante righe
+    // fisiche quante le righe raccolte.
+    if (phys.length < gathered.length) return -1;
+    for (let k = 0; k < gathered.length; k++) {
+        out[gathered[k]] = (k === gathered.length - 1) ? phys.slice(k).join('\n') : phys[k];
+    }
+    procStack.push('IF');
+    if (ended) procStack.length = 0;
+    return gathered[gathered.length - 1];
 }
 
 /**
@@ -1828,4 +2015,4 @@ class CobolFormattingProvider {
     }
 }
 
-module.exports = { CobolFormattingProvider, computeFormatted, formatDocument, formatDocumentMapped };
+module.exports = { CobolFormattingProvider, computeFormatted, formatDocument, formatDocumentMapped, reflowIfCondition };

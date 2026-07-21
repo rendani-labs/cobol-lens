@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.0] - 2026-07-21
+
+### Changed
+- Formatter: a compound `IF` condition (one that contains `AND`/`OR`) is now reformatted into an aligned multi-line layout: each sub-condition on its own line with the operands aligned just after `IF`, `AND` placed at the end of the line and `OR` at the start of the next line, the opening parenthesis hanging one column to the left of the operand, and the comparison operators (`=`/`EQUAL`) and their values column-aligned within the same `IF`. This applies both to conditions already split across several lines (they are re-aligned) and to a compound condition written on a single line (it is split). Simple `IF` conditions, and `IF`s that carry an inline statement, are left untouched; the body stays indented inside the `IF` and the layout is idempotent.
+
 ## [1.24.0] - 2026-07-21
 
 ### Changed
