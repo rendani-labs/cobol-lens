@@ -735,7 +735,7 @@ function computeFormatted(lines, procDefLines, options) {
     // sta, di allineare il TO a col 45 sulla riga di continuazione.
     /** @type {{first:number,col:number,seq:string,idArea:string,logical:string}|null} */
     let procItem = null;
-    const procState = { varyingActive: false, varyingEndCol: 0, performCol: 0, stmtOpen: false, operandCol: 0 };
+    const procState = { contAnchor: null, performCol: 0, stmtOpen: false, operandCol: 0 };
 
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
@@ -794,7 +794,7 @@ function computeFormatted(lines, procDefLines, options) {
         if (div) {
             division = div;
             dataStack = []; procStack = []; dataPending = false;
-            dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
+            dataValueCol = 0; procState.contAnchor = null; procState.performCol = 0;
             procState.stmtOpen = false; procState.operandCol = 0;
             envFileControl = false; envSelect = false; dataItem = null; procItem = null;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
@@ -804,7 +804,7 @@ function computeFormatted(lines, procDefLines, options) {
         // --- Intestazioni di SECTION (qualsiasi division) ---
         if (isSectionHeader(upper)) {
             dataStack = []; procStack = []; dataPending = false;
-            dataValueCol = 0; procState.varyingActive = false; procState.performCol = 0;
+            dataValueCol = 0; procState.contAnchor = null; procState.performCol = 0;
             procState.stmtOpen = false; procState.operandCol = 0;
             envFileControl = false; envSelect = false; dataItem = null; procItem = null;
             out[i] = buildLine(seq, idArea, AREA_A, codeText);
@@ -862,7 +862,7 @@ function computeFormatted(lines, procDefLines, options) {
             // Definizione di paragrafo/sezione -> Area A, azzera i blocchi.
             if (procDefLines.has(i)) {
                 procStack = [];
-                procState.varyingActive = false; procState.performCol = 0;
+                procState.contAnchor = null; procState.performCol = 0;
                 procState.stmtOpen = false; procState.operandCol = 0;
                 procItem = null;
                 out[i] = buildLine(seq, idArea, AREA_A, codeText);
@@ -879,7 +879,7 @@ function computeFormatted(lines, procDefLines, options) {
             if (headerlessProcedure) {
                 if (procDefLines.has(i)) {
                     procStack = [];
-                    procState.varyingActive = false; procState.performCol = 0;
+                    procState.contAnchor = null; procState.performCol = 0;
                     procState.stmtOpen = false; procState.operandCol = 0;
                     procItem = null;
                     out[i] = buildLine(seq, idArea, AREA_A, codeText);
@@ -1072,7 +1072,7 @@ function mergeProcMove(out, i, seq, idArea, codeText, firstWord, procState, proc
  * @param {string} codeText
  * @param {string} upper - testo in MAIUSCOLO senza letterali
  * @param {string[]} procStack
- * @param {{ varyingActive: boolean, varyingEndCol: number, performCol: number }} procState
+ * @param {{ contAnchor: ({endCol:number,words:string[]}|null), performCol: number, stmtOpen: boolean, operandCol: number }} procState
  * @param {FormatOptions} opts
  * @returns {string}
  */
@@ -1081,19 +1081,20 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
     const tokens = upper.match(/[A-Z0-9][A-Z0-9-]*/g) || [];
     const fw = tokens[0] || '';
 
-    // Continuazione della condizione di un PERFORM VARYING: UNTIL si allinea
-    // alla 'R' di VARYING, mentre AND/OR si allineano in modo che la fine della
-    // parola coincida con la fine di VARYING.
-    if (procState.varyingActive && (fw === 'UNTIL' || fw === 'AND' || fw === 'OR')) {
-        const startCol = Math.max(AREA_B, procState.varyingEndCol - fw.length + 1);
+    // Continuazione di una clausola ancorata a destra su righe successive:
+    //  - dopo VARYING: UNTIL/AND/OR terminano alla stessa colonna di VARYING;
+    //  - dopo STRING/UNSTRING: INTO termina alla stessa colonna di STRING.
+    // La parola viene allineata a destra sull'ancora memorizzata.
+    if (procState.contAnchor && procState.contAnchor.words.indexOf(fw) >= 0) {
+        const startCol = Math.max(AREA_B, procState.contAnchor.endCol - fw.length + 1);
         if (endsWithTerminator(codeText)) {
             procStack.length = 0;
-            procState.varyingActive = false;
+            procState.contAnchor = null;
         }
-        return buildLine(seq, idArea, startCol, codeText);
+        return buildLine(seq, idArea, startCol, collapseSpaces(codeText));
     }
-    // Qualsiasi altra riga termina la modalita' di continuazione VARYING.
-    procState.varyingActive = false;
+    // Qualsiasi altra riga chiude l'ancoraggio di continuazione.
+    procState.contAnchor = null;
 
     // Continuazione THRU/THROUGH di un PERFORM out-of-line su riga precedente:
     // si indenta di un passo sotto la colonna del PERFORM.
@@ -1201,13 +1202,19 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
         if (aligned !== null) outText = aligned;
     }
 
-    // Attiva la modalita' di continuazione se la riga apre un PERFORM VARYING:
-    // memorizza la colonna dell'ultima lettera di VARYING.
-    if (tokens.includes('PERFORM') && tokens.includes('VARYING')) {
-        const vm = stripLit(outText).toUpperCase().match(/\bVARYING\b/);
-        if (vm) {
-            procState.varyingActive = true;
-            procState.varyingEndCol = col + vm.index + 6; // 'G' di VARYING (7 lettere)
+    // Imposta l'ancoraggio di continuazione per l'allineamento a destra delle
+    // clausole portate su righe successive:
+    //  - PERFORM ... VARYING (o riga che inizia con VARYING): UNTIL/AND/OR si
+    //    allineano a destra alla fine di VARYING;
+    //  - STRING/UNSTRING: INTO si allinea a destra alla fine di STRING/UNSTRING.
+    const anchorUpper = stripLit(outText).toUpperCase();
+    if (fw === 'VARYING' || (tokens.includes('PERFORM') && tokens.includes('VARYING'))) {
+        const vm = anchorUpper.match(/\bVARYING\b/);
+        if (vm) procState.contAnchor = { endCol: col + vm.index + 6, words: ['UNTIL', 'AND', 'OR'] };
+    } else if (fw === 'STRING' || fw === 'UNSTRING') {
+        const sm = anchorUpper.match(/\b(UN)?STRING\b/);
+        if (sm) {
+            procState.contAnchor = { endCol: col + sm.index + (sm[0] === 'UNSTRING' ? 7 : 5), words: ['INTO'] };
         }
     }
 
@@ -1315,7 +1322,10 @@ function applyStage2(out, lines, procDefLines, opts) {
     const entryStart = new Array(lines.length).fill(-1);
     let division = '';
     let inProc = false;
-    let prevBaseKind = null;     // verbo dell'ultima sentence base-level adiacente
+    // Ultimo verbo di statement visto per ciascuna colonna (livello di
+    // indentazione): serve a decidere la riga vuota tra statement adiacenti
+    // anche dentro i blocchi (IF/EVALUATE), non solo a livello base.
+    const lastVerbAtCol = new Map();
     let blankAfterHeader = false;// va inserita una riga vuota dopo l'header di paragrafo
     let inFileSection = false;   // dentro la FILE SECTION
     let fdSeen = false;          // gia' visto un FD/SD nella FILE SECTION corrente
@@ -1340,7 +1350,7 @@ function applyStage2(out, lines, procDefLines, opts) {
         if (!isSeparatorLine(prevNonBlank())) result.push(SEPARATOR);
     };
     const resetStmt = () => {
-        prevBaseKind = null;
+        lastVerbAtCol.clear();
     };
 
     for (let i = 0; i < lines.length; i++) {
@@ -1398,7 +1408,7 @@ function applyStage2(out, lines, procDefLines, opts) {
         // --- righe vuote / commento: passano invariate, azzerano l'adiacenza ---
         if (isBlank || isComment) {
             entryStart[i] = result.length; result.push(fmt);
-            prevBaseKind = null; blankAfterHeader = false;
+            lastVerbAtCol.clear(); blankAfterHeader = false;
             continue;
         }
         // --- riga di continuazione (trattino in col 7): parte dello statement
@@ -1414,26 +1424,39 @@ function applyStage2(out, lines, procDefLines, opts) {
             // Colonna del codice ignorando l'indicatore in col 7 (es. 'D' debug).
             let cc = 7;
             while (cc < firstPhys.length && firstPhys[cc] === ' ') cc++;
-            const baseLevel = (cc + 1) === AREA_B;
-            // Una "sentence di primo livello" sta a colonna base, inizia con un
-            // verbo di statement noto e non e' un delimitatore di blocco
-            // (ELSE/WHEN/END-...). Su queste si decide la riga vuota, a
-            // prescindere dal punto finale: in COBOL un nuovo verbo apre una
-            // nuova istruzione anche se la riga precedente non terminava col
-            // punto (statement multi-riga senza punto).
+            const col = cc + 1;
+            // Delimitatori di blocco: non sono statement e non ricevono riga vuota.
             const isBlockDelim = firstWord === 'ELSE' || firstWord === 'WHEN'
                 || firstWord.startsWith('END-');
-            const isTopStmt = baseLevel && PROC_VERBS.has(firstWord) && !isBlockDelim;
-            if (isTopStmt) {
+            // Uno statement e' un verbo noto non delimitatore. La riga vuota si
+            // decide per COLONNA (livello di indentazione), cosi' vale anche
+            // dentro i blocchi IF/EVALUATE e non solo a livello base. Un nuovo
+            // verbo apre una nuova istruzione anche senza punto sulla precedente.
+            const isStmt = PROC_VERBS.has(firstWord) && !isBlockDelim;
+            if (isStmt) {
                 if (blankAfterHeader) { pushBlankIfNeeded(); blankAfterHeader = false; }
-                // Riga vuota tra due sentence base-level, a meno che abbiano lo
-                // stesso verbo NON di blocco (es. MOVE+MOVE, DISPLAY+DISPLAY
+                // Riga vuota tra due statement adiacenti allo stesso livello, a
+                // meno che abbiano lo stesso verbo NON di blocco (es. MOVE+MOVE
                 // restano ravvicinati; verbi diversi o di blocco si separano).
-                if (opts.blankLines && prevBaseKind !== null
-                    && (firstWord !== prevBaseKind || BLOCK_VERBS.has(firstWord))) {
+                const prev = lastVerbAtCol.get(col);
+                if (opts.blankLines && prev !== undefined
+                    && (firstWord !== prev || BLOCK_VERBS.has(firstWord))) {
                     pushBlankIfNeeded();
                 }
-                prevBaseKind = firstWord;
+                // Rientro: gli statement di un blocco piu' interno (colonne
+                // maggiori) sono conclusi, si scartano dalla mappa.
+                for (const c of Array.from(lastVerbAtCol.keys())) {
+                    if (c > col) lastVerbAtCol.delete(c);
+                }
+                lastVerbAtCol.set(col, firstWord);
+            } else if (isBlockDelim) {
+                // ELSE/WHEN/END-...: chiudono il blocco piu' interno (colonne
+                // maggiori della propria); la propria colonna resta, cosi' lo
+                // statement successivo allo stesso livello riceve la riga vuota
+                // rispetto al verbo di blocco (es. una riga vuota dopo END-IF).
+                for (const c of Array.from(lastVerbAtCol.keys())) {
+                    if (c > col) lastVerbAtCol.delete(c);
+                }
             }
             entryStart[i] = result.length; result.push(fmt);
             continue;
@@ -1445,7 +1468,7 @@ function applyStage2(out, lines, procDefLines, opts) {
             if (opts.blankLines && fdSeen) pushBlankIfNeeded();
             fdSeen = true;
             entryStart[i] = result.length; result.push(fmt);
-            prevBaseKind = null;
+            lastVerbAtCol.clear();
             continue;
         }
 
@@ -1463,7 +1486,7 @@ function applyStage2(out, lines, procDefLines, opts) {
 
         // --- altre righe (ID/ENV/DATA): invariate ---
         entryStart[i] = result.length; result.push(fmt);
-        prevBaseKind = null;
+        lastVerbAtCol.clear();
     }
     return { result, entryStart };
 }

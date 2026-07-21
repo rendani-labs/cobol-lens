@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.0] - 2026-07-21
+
+### Changed
+- Formatter: the `UNTIL`/`AND`/`OR` continuation lines of a `PERFORM ... VARYING` are now right-aligned to end at the same column as `VARYING` even when `VARYING` is on its own line (after a `PERFORM ... THRU` split across lines). Previously the right-alignment only applied when `PERFORM` and `VARYING` were on the same line.
+- Formatter: the `INTO` clause of a `STRING`/`UNSTRING` placed on the next line is now right-aligned to end at the same column as `STRING`/`UNSTRING`, matching the `VARYING`/`UNTIL` style.
+- Formatter structural spacing (`cobolLens.format.blankLines`): a blank line between two adjacent statements with a different verb (or a block verb) is now inserted also inside blocks (for example inside an `IF`), not only at the base column. The adjacency is now tracked per indentation level; consecutive statements with the same non-block verb still stay grouped.
+
 ## [1.22.1] - 2026-07-21
 
 ### Fixed
