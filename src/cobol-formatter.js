@@ -1172,17 +1172,40 @@ function buildAnchorLine(seq, idArea, segText, anchorEndCol) {
 function reflowIfCondition(condText, ifCol) {
     const OP_COL = ifCol + 3; // colonna degli operandi (dopo "IF ")
     const upper = stripLit(condText).toUpperCase();
-    // Connettori AND/OR come parole COBOL.
+    // Connettori AND/OR come parole COBOL, ignorando i letterali e mantenendo
+    // la separazione anche quando i connettori compaiono dentro gruppi tra
+    // parentesi (es. (A = 1 OR B = 2)).
     const conns = [];
-    const re = /AND|OR/g;
-    let m;
-    while ((m = re.exec(upper)) !== null) {
-        const s = m.index;
-        const e = s + m[0].length;
-        const b = s > 0 ? upper[s - 1] : ' ';
-        const a = e < upper.length ? upper[e] : ' ';
-        if (/[A-Za-z0-9-]/.test(b) || /[A-Za-z0-9-]/.test(a)) continue;
-        conns.push({ s, e, kind: upper.substring(s, e) });
+    let depth = 0;
+    let quote = null;
+    let i = 0;
+    while (i < upper.length) {
+        const ch = upper[i];
+        if (quote) {
+            if (ch === quote) quote = null;
+            i++;
+            continue;
+        }
+        if (ch === "'" || ch === '"') {
+            quote = ch;
+            i++;
+            continue;
+        }
+        if (ch === '(') { depth++; i++; continue; }
+        if (ch === ')') { depth = Math.max(0, depth - 1); i++; continue; }
+        const next = upper.slice(i).match(/^(AND|OR)\b/i);
+        if (next) {
+            const s = i;
+            const e = i + next[1].length;
+            const b = s > 0 ? upper[s - 1] : ' ';
+            const a = e < upper.length ? upper[e] : ' ';
+            if (!/[A-Za-z0-9-]/.test(b) && !/[A-Za-z0-9-]/.test(a)) {
+                conns.push({ s, e, kind: next[1].toUpperCase() });
+                i = e;
+                continue;
+            }
+        }
+        i++;
     }
     if (conns.length === 0) return null;
     // Sotto-condizioni (testo tra i connettori).
@@ -1245,9 +1268,11 @@ function reflowIfCondition(condText, ifCol) {
         let col;
         let text;
         if (i === 0) {
-            col = ifCol; text = 'IF ' + core;
+            if (p.leadParen) { col = ifCol; text = 'IF(' + core; }
+            else { col = ifCol; text = 'IF ' + core; }
         } else if (connBefore === 'OR') {
-            col = ifCol; text = 'OR ' + core;
+            if (p.leadParen) { col = ifCol; text = 'OR(' + core; }
+            else { col = ifCol; text = 'OR ' + core; }
         } else { // AND era in coda alla riga precedente
             if (p.leadParen) { col = OP_COL - 1; text = '(' + core; }
             else { col = OP_COL; text = core; }

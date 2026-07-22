@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.2] - 2026-07-22
+
+### Fixed
+- Formatter: in a compound `IF` condition the opening parenthesis of the first parenthesized sub-condition is no longer dropped. For example `IF (A NOT = SPACE AND LOW-VALUE)` is now reformatted keeping the leading parenthesis (`IF(A NOT = SPACE AND` / `LOW-VALUE)`), with the operands still aligned and the layout idempotent.
+
 ## [1.25.1] - 2026-07-22
 
 ### Fixed
