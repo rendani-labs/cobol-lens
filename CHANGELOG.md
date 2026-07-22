@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.1] - 2026-07-22
+
+### Fixed
+- `undefined-variable`: variables defined in a copybook that is included with an inline `COPY` on the same line as a data item (for example `01 COMM-AREA-08. COPY PGCYCOMS.`) are no longer reported as undefined. The linter previously only detected `COPY` statements anchored at the start of the line, so the copybook symbols were not loaded; it now also recognizes a `COPY` that follows a period on the same line. String literals are stripped before the search so a `VALUE` containing the word `COPY` does not produce a false copybook reference.
+
 ## [1.25.0] - 2026-07-21
 
 ### Changed

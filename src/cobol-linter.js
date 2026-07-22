@@ -2164,7 +2164,12 @@ function collectCopyStatements(lines) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
         const code = getCodeContent(raw).trim().toUpperCase();
-        const m = code.match(/^\s*COPY\s+([A-Z0-9][\w-]*)/);
+        // La direttiva COPY puo' comparire dopo altro codice sulla stessa riga
+        // (es. "01 COMM-AREA-08. COPY PGCYCOMS."). Si riconosce quindi COPY sia
+        // a inizio riga sia subito dopo un punto (fine frase/voce), non solo
+        // ancorata all'inizio. I letterali stringa vengono rimossi prima della
+        // ricerca per evitare falsi positivi (ad esempio VALUE '... COPY ...').
+        const m = stripLiterals(code).match(/(?:^|\.\s+)COPY\s+([A-Z0-9][\w-]*)/);
         if (!m) continue;
         const copyName = m[1];
 
