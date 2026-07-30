@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.25.4] - 2026-07-30
+
+### Fixed
+- `pic-missing`: level 78 items (constants defined with `VALUE`, e.g. `78 MAX-ELETAB VALUE 100.`) are no longer reported as missing a PIC clause. A level 78 is a constant and never carries a PIC. The rule now also skips COBOL 2002 `CONSTANT` items. This aligns the check with the standard cases that legitimately omit PIC (levels 66/78/88, group items, `USAGE INDEX`/`POINTER`, `COMP-1`/`COMP-2`).
+
+## [1.25.3] - 2026-07-30
+
+### Fixed
+- Formatter: the `INTO` clause of a `STRING`/`UNSTRING` is now right-aligned to end at the same column as `STRING` even when the source operands span several continuation lines before `INTO`. Previously the operand continuation lines reset the right-align anchor, so `INTO` was aligned under the first operand instead of under `STRING`.
+
 ## [1.25.2] - 2026-07-22
 
 ### Fixed

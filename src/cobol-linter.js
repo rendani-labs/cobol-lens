@@ -1156,8 +1156,10 @@ function checkPicMissing(lines) {
         const hasIndex = /\bINDEX\b/.test(fullUpper);
         // Tipi USAGE che non richiedono la clausola PIC.
         const hasNoPicUsage = /(?<![A-Z0-9-])(POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|COMP-1|COMPUTATIONAL-1|COMP-2|COMPUTATIONAL-2|OBJECT\s+REFERENCE)(?![A-Z0-9-])/.test(fullUpper);
+        // COBOL 2002: costante dichiarata con la parola chiave CONSTANT.
+        const hasConstant = /\bCONSTANT\b/.test(fullUpper);
 
-        dataItems.push({ line: lineNum, level, name, hasPic, hasRedefines, hasRenames, hasIndex, hasNoPicUsage });
+        dataItems.push({ line: lineNum, level, name, hasPic, hasRedefines, hasRenames, hasIndex, hasNoPicUsage, hasConstant });
         i = j > i + 1 ? j : i + 1;
     }
 
@@ -1182,8 +1184,12 @@ function checkPicMissing(lines) {
     for (let idx = 0; idx < dataItems.length; idx++) {
         const item = dataItems[idx];
         if (item.name === 'FILLER') continue;
-        if (item.level === 88 || item.level === 66) continue;
+        // Livelli speciali che non ammettono mai la clausola PIC:
+        //  66 = RENAMES, 78 = costante (VALUE), 88 = condition-name.
+        if (item.level === 88 || item.level === 66 || item.level === 78) continue;
         if (item.hasRenames || item.hasIndex || item.hasPic || item.hasNoPicUsage) continue;
+        // COBOL 2002: '01 NOME CONSTANT AS ...' e' una costante, niente PIC.
+        if (item.hasConstant) continue;
 
         // Se seguito da COPY, e' un gruppo la cui struttura e' nella copybook
         if (linesFollowedByCopy.has(item.line)) continue;

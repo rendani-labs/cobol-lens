@@ -1391,8 +1391,17 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
             buildAnchorLine(k === 0 ? seq : '', k === 0 ? idArea : '', s, anchorEndCol)
         ).join('\n');
     }
-    // Qualsiasi altra riga chiude l'ancoraggio di continuazione.
-    procState.contAnchor = null;
+    // Gli operandi di continuazione di uno statement semplice ancora aperto
+    // (es. gli operandi di uno STRING elencati prima dell'INTO) NON chiudono
+    // l'ancoraggio: l'INTO puo' trovarsi su una riga successiva e deve restare
+    // allineato a destra sotto STRING. Qualsiasi altra riga lo chiude.
+    const isStmtStartKw = PROC_VERBS.has(fw) || fw === 'ELSE' || fw === 'WHEN'
+        || fw.startsWith('END-');
+    const isOperandCont = procState.stmtOpen && procState.operandCol > 0
+        && !isStmtStartKw;
+    if (!isOperandCont) {
+        procState.contAnchor = null;
+    }
 
     // Continuazione THRU/THROUGH di un PERFORM out-of-line su riga precedente:
     // si indenta di un passo sotto la colonna del PERFORM.
@@ -1412,9 +1421,7 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
     // precedente era un verbo senza punto finale e questa riga non inizia con un
     // verbo/delimitatore, quindi e' un operando (o una clausola come TO/FROM)
     // che va allineato sotto il primo operando della riga di apertura.
-    const isStmtStartKw = PROC_VERBS.has(fw) || fw === 'ELSE' || fw === 'WHEN'
-        || fw.startsWith('END-');
-    if (procState.stmtOpen && procState.operandCol > 0 && !isStmtStartKw) {
+    if (isOperandCont) {
         const alignCol = procState.operandCol;
         if (endsWithTerminator(codeText)) {
             procState.stmtOpen = false;
