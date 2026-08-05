@@ -202,7 +202,11 @@ class AnalysisContext {
      * @param {string} code
      */
     update(line, code) {
-        const upper = code.trim().toUpperCase();
+        // "ID DIVISION." e' un alias valido di "IDENTIFICATION DIVISION." (COBOL
+        // standard): normalizzato qui cosi' tutte le regole a valle (divisione
+        // corrente, chars-after-period, ecc.) lo riconoscono allo stesso modo.
+        const upper = code.trim().toUpperCase()
+            .replace(/\bID\s+DIVISION\b/, 'IDENTIFICATION DIVISION');
 
         // Track EXEC CICS / EXEC SQL ... END-EXEC blocks
         if (/\bEXEC\s+(CICS|SQL)\b/.test(upper)) this.inExecBlock = true;
@@ -1275,7 +1279,9 @@ function checkSectionOrder(lines) {
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
-        const code = getCodeContent(raw).trim().toUpperCase();
+        // "ID DIVISION." e' un alias valido di "IDENTIFICATION DIVISION.".
+        const code = getCodeContent(raw).trim().toUpperCase()
+            .replace(/\bID\s+DIVISION\b/, 'IDENTIFICATION DIVISION');
         for (const div of expectedOrder) {
             if (code.includes(div)) {
                 found.push({ line: i, div });
@@ -1878,7 +1884,7 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'ALSO', 'ALTER', 'ALTERNATE', 'AND', 'ANY', 'ARE', 'AREA', 'AREAS',
     'ASCENDING', 'ASSIGN', 'AT', 'AUTHOR',
     'BEFORE', 'BINARY', 'BLANK', 'BLOCK', 'BOTTOM', 'BY',
-    'CALL', 'CANCEL', 'CHARACTER', 'CHARACTERS', 'CLASS', 'CLOSE',
+    'CALL', 'CANCEL', 'CHANGED', 'CHARACTER', 'CHARACTERS', 'CLASS', 'CLOSE',
     'COBOL', 'CODE', 'COLLATING', 'COMMA', 'COMMIT', 'COMMON',
     'COMP', 'COMP-1', 'COMP-2', 'COMP-3', 'COMP-4', 'COMP-5',
     'COMPUTATIONAL', 'COMPUTATIONAL-1', 'COMPUTATIONAL-2', 'COMPUTATIONAL-3',
@@ -1897,7 +1903,7 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'END-RECEIVE', 'END-RETURN', 'END-REWRITE', 'END-SEARCH',
     'END-START', 'END-STRING', 'END-SUBTRACT', 'END-UNSTRING', 'END-WRITE',
     'ENTER', 'ENTRY', 'ENVIRONMENT', 'EQUAL', 'EQUALS', 'ERROR',
-    'EVALUATE', 'EVERY', 'EXCEPTION', 'EXIT', 'EXTEND', 'EXTERNAL',
+    'EVALUATE', 'EVERY', 'EXCEPTION', 'EXHIBIT', 'EXIT', 'EXTEND', 'EXTERNAL',
     'FALSE', 'FD', 'FILE', 'FILE-CONTROL', 'FILLER', 'FINAL', 'FIRST',
     'FOOTING', 'FOR', 'FROM', 'FUNCTION',
     'GENERATE', 'GIVING', 'GLOBAL', 'GO', 'GOBACK', 'GREATER', 'GROUP',
@@ -1912,7 +1918,7 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'LOCK', 'LOW-VALUE', 'LOW-VALUES',
     'MEMORY', 'MERGE', 'MODE',
     'MOVE', 'MULTIPLE', 'MULTIPLY',
-    'NATIVE', 'NEGATIVE', 'NEXT', 'NO', 'NOT', 'NULL', 'NULLS', 'NUMBER',
+    'NAMED', 'NATIVE', 'NEGATIVE', 'NEXT', 'NO', 'NOT', 'NULL', 'NULLS', 'NUMBER',
     'NUMERIC', 'NUMERIC-EDITED',
     'OBJECT', 'OBJECT-COMPUTER', 'OCCURS', 'OF', 'OFF', 'OMITTED', 'ON',
     'OPEN', 'OPTIONAL', 'OR', 'ORDER', 'ORGANIZATION', 'OTHER', 'OUTPUT',
@@ -1921,7 +1927,7 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'PIC', 'PICTURE', 'PLUS', 'POINTER', 'POSITION', 'POSITIVE',
     'PROCEDURE', 'PROCEDURES', 'PROCEED', 'PROGRAM', 'PROGRAM-ID',
     'QUOTE', 'QUOTES',
-    'RANDOM', 'RD', 'READ', 'RECEIVE', 'RECORD', 'RECORDS',
+    'RANDOM', 'RD', 'READ', 'READY', 'RECEIVE', 'RECORD', 'RECORDS',
     'REDEFINES', 'REEL', 'REFERENCE', 'RELATIVE',
     'RELEASE', 'REMAINDER', 'RENAMES', 'REPLACE',
     'REPLACING', 'REPORT', 'REPORTS', 'REPOSITORY',
@@ -1936,7 +1942,7 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'START', 'STATUS', 'STOP', 'STRING',
     'SUBTRACT', 'SUM', 'SUPER', 'SUPPRESS', 'SYNC', 'SYNCHRONIZED',
     'TABLE', 'TALLY', 'TALLYING', 'TAPE', 'TERMINAL', 'TERMINATE',
-    'TEST', 'THAN', 'THEN', 'THROUGH', 'THRU', 'TIME', 'TIMES',
+    'TEST', 'THAN', 'THEN', 'THROUGH', 'THRU', 'TIME', 'TIMES', 'TRACE',
     'TITLE', 'TO', 'TOP', 'TRAILING', 'TRUE', 'TYPE',
     'UNIT', 'UNLOCK', 'UNSTRING', 'UNTIL', 'UP', 'UPON',
     'USAGE', 'USE', 'USING',
@@ -1947,8 +1953,12 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'EXEC', 'END-EXEC', 'CICS', 'SQL',
     'ABEND', 'ABCODE', 'ASKTIME', 'ASSIGN', 'CANCEL',
     'COMMAREA', 'CHANNEL', 'CONTAINER', 'CONVID',
-    'DELETEQ', 'DEQUEUE', 'DFHCOMMAREA', 'DFHRESP',
-    'EIBCALEN', 'EIBAID', 'EIBTRNID', 'EIBTRMID', 'ENDBR', 'ENQUEUE',
+    'DELETEQ', 'DEQUEUE', 'DFHCOMMAREA', 'DFHRESP', 'DFHVALUE',
+    'EIBAID', 'EIBATT', 'EIBCALEN', 'EIBCOMPL', 'EIBCONF', 'EIBCPOSN',
+    'EIBDATE', 'EIBDS', 'EIBEOC', 'EIBERR', 'EIBERRCD', 'EIBFMH', 'EIBFN',
+    'EIBFREE', 'EIBNODAT', 'EIBRCODE', 'EIBRECV', 'EIBRESP', 'EIBRESP2',
+    'EIBRLDBK', 'EIBRSRCE', 'EIBSIG', 'EIBSYNC', 'EIBSYNRB', 'EIBTASKN',
+    'EIBTIME', 'EIBTRMID', 'EIBTRNID', 'ENDBR', 'ENQUEUE',
     'FORMATTIME', 'FREEMAIN', 'GETMAIN', 'HANDLE',
     'IGNORE', 'INVOKINGPROG', 'ISSUE',
     'JOURNAL', 'KEYLENGTH', 'LINK', 'LOAD',
@@ -1960,7 +1970,7 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'TRANSID', 'TS', 'TD',
     'WAIT', 'WRITEQ', 'XCTL',
     // COBOL open modes e Micro Focus special registers
-    'I-O', 'TIME-OF-DAY', 'WHEN-COMPILED', 'LINAGE-COUNTER'
+    'I-O', 'TIME-OF-DAY', 'WHEN-COMPILED', 'LINAGE-COUNTER', 'CURRENT-DATE'
 ]);
 
 /**
@@ -2125,6 +2135,10 @@ function extractVariableRefs(lines) {
         if (inlinePos >= 0) cleaned = cleaned.substring(0, inlinePos);
         cleaned = cleaned.replace(/<[^>]*>/g, ' ');
         cleaned = cleaned.replace(/\bFUNCTION\s+[A-Z][A-Z0-9-]*/g, ' ');
+        // DFHRESP(NORMAL)/DFHVALUE(NOTFND): l'argomento e' una condizione di
+        // ritorno CICS (costante), non una variabile del programma: va rimosso
+        // insieme alla macro prima dell'estrazione dei token.
+        cleaned = cleaned.replace(/\b(?:DFHRESP|DFHVALUE)\s*\([^)]*\)/g, ' ');
         cleaned = cleaned.replace(/\bPERFORM\s+([A-Z0-9][\w-]*)/g, 'PERFORM');
         cleaned = cleaned.replace(/\bTHRU\s+([A-Z0-9][\w-]*)/g, 'THRU');
         cleaned = cleaned.replace(/\bCOPY\s+([A-Z0-9][\w-]*)/g, 'COPY');

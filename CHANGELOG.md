@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.25.6] - 2026-08-05
+
+### Fixed
+- `undefined-variable`: no longer flags COBOL/CICS constructs that are not program variables: the `EXHIBIT [CHANGED] NAMED`, `READY TRACE` and `RESET TRACE` debugging statements; the `CURRENT-DATE` special register; the CICS EIB fields (`EIBRCODE`, `EIBRESP`, `EIBTIME`, etc., full field set); and the condition name argument of `DFHRESP(...)`/`DFHVALUE(...)` (e.g. `DFHRESP(NORMAL)`, `DFHVALUE(NOTFND)`). These keywords/registers are now also syntax-highlighted as reserved words instead of plain identifiers.
+- `chars-after-period`: `ID DIVISION.` (the standard abbreviation for `IDENTIFICATION DIVISION.`) is now recognized as a valid division header, so lines like `PROGRAM-ID.`/`AUTHOR.` right after it are no longer flagged as invalid content after the period terminator. The same alias is now understood by the Go to Definition / symbol parser.
+
+## [1.25.5] - 2026-08-05
+
+### Fixed
+- IF block scope bar: the vertical guide no longer has a gap on blank/short lines inside the block. It is now anchored at column 0 (always valid) and positioned with a `left: <col>ch` CSS offset instead of anchoring directly at the IF's column, which does not exist on lines shorter than that column.
+
 ## [1.25.4] - 2026-07-30
 
 ### Fixed

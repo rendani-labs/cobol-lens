@@ -2151,12 +2151,19 @@ function applyIfBlockDecorations(editor) {
             if (cursorLine < block.ifLine || cursorLine > block.endLine) continue;
             const colorIdx = block.level % numColors;
             const col = block.ifCol;
+            const color = IF_BLOCK_COLORS[colorIdx].color;
             for (let line = block.ifLine; line <= block.endLine; line++) {
-                // La barra si appoggia alla colonna `col`: se la riga e' piu'
-                // corta la salto per evitare disallineamenti.
-                if (editor.document.lineAt(line).text.length < col) continue;
+                // Ancorata SEMPRE a colonna 0 (esiste su ogni riga, comprese quelle
+                // vuote) e riposizionata con `left: <col>ch`: cosi' la barra resta
+                // continua anche sulle righe piu' corte di `col` o senza testo.
                 scopeBarsByLevel[colorIdx].push({
-                    range: new vscode.Range(line, col, line, col)
+                    range: new vscode.Range(line, 0, line, 0),
+                    renderOptions: {
+                        before: {
+                            contentText: '\u00a0',
+                            textDecoration: `none; position: absolute; z-index: 1; height: 100%; border-left: 1px solid ${color}; pointer-events: none; left: ${col}ch;`
+                        }
+                    }
                 });
             }
         }

@@ -113,7 +113,9 @@ function isComment(line) {
  */
 function detectDivision(line, currentDivision) {
     const upper = line.toUpperCase();
+    // "ID DIVISION." e' un alias valido di "IDENTIFICATION DIVISION.".
     if (upper.includes('IDENTIFICATION') && upper.includes('DIVISION')) return 'IDENTIFICATION';
+    if (/\bID\s+DIVISION\b/.test(upper)) return 'IDENTIFICATION';
     if (upper.includes('ENVIRONMENT') && upper.includes('DIVISION')) return 'ENVIRONMENT';
     if (upper.includes('DATA') && upper.includes('DIVISION')) return 'DATA';
     if (upper.includes('PROCEDURE') && upper.includes('DIVISION')) return 'PROCEDURE';
