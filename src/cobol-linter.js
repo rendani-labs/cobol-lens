@@ -2216,7 +2216,7 @@ function collectCopyStatements(lines) {
             });
         }
 
-        copies.push({ name: copyName, replacements });
+        copies.push({ name: copyName, replacements, line: i });
         i = endIdx;
     }
     return copies;
@@ -2683,6 +2683,10 @@ function checkDuplicateVariable(lines, workspaceRoot) {
     // Definizioni dalle copy
     const copyVarSources = new Map(); // name -> [copyName, ...]
     const copyStmts = collectCopyStatements(lines);
+    const copyStmtLines = new Map(); // copyName -> riga (0-based) della prima COPY
+    for (const cs of copyStmts) {
+        if (!copyStmtLines.has(cs.name)) copyStmtLines.set(cs.name, cs.line);
+    }
 
     if (workspaceRoot) {
         for (const cs of copyStmts) {

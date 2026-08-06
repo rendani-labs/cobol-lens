@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.7] - 2026-08-06
+
+### Fixed
+- `duplicate-variable`: fixed a `ReferenceError: copyStmtLines is not defined` that crashed the whole extension activation (not just the linter) when a variable name was defined in two or more different copybooks with the same name. This is more likely to happen on large real-world programs with many `COPY` statements, where it silently left every COBOL Lens feature (linter, navigation, hover, etc.) disabled for the workspace with no visible error. `updateDiagnostics` now also wraps the linter call in a try/catch and logs any future failure to the console instead of failing silently.
+
 ## [1.25.6] - 2026-08-05
 
 ### Fixed

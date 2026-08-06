@@ -2333,7 +2333,15 @@ function updateDiagnostics(document) {
     const { fsPath: workspaceRoot } = getWorkspaceRoot(document);
 
     // Esegue il linter integrato (include gia' il check mismatched-copy)
-    const diagnostics = runLinter(document.getText(), workspaceRoot);
+    let diagnostics;
+    try {
+        diagnostics = runLinter(document.getText(), workspaceRoot);
+    } catch (e) {
+        // Senza questo try/catch un'eccezione nel linter lascia il Problems
+        // panel silenziosamente vuoto, senza alcuna traccia visibile.
+        console.error(`COBOL Lens: errore nel linter per ${document.uri.fsPath}:`, e);
+        return;
+    }
 
     diagnosticCollection.set(document.uri, diagnostics);
 }
