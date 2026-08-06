@@ -1443,16 +1443,34 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
         drawDepth = idx >= 0 ? idx : procStack.length;
         scanFrom = 1;
     } else if (fw === 'WHEN') {
-        // WHEN si allinea alla stessa colonna del suo EVALUATE; gli statement
-        // del ramo WHEN rientrano di un livello (lo slot EVALUATE sullo stack).
-        const idx = lastIndexOfKind(procStack, 'EVALUATE');
-        if (idx >= 0) {
-            drawDepth = idx;
-            procStack.length = idx + 1; // mantiene EVALUATE, scarta il ramo WHEN precedente
+        // WHEN si allinea alla stessa colonna del suo EVALUATE (gli statement
+        // del ramo rientrano di un livello, lo slot EVALUATE resta sullo
+        // stack); se invece appartiene a una SEARCH, si indenta di un livello
+        // sotto la SEARCH stessa (come AT END) e il suo ramo rientra di un
+        // livello ulteriore.
+        const idxEval = lastIndexOfKind(procStack, 'EVALUATE');
+        const idxSearch = lastIndexOfKind(procStack, 'SEARCH');
+        if (idxSearch > idxEval) {
+            drawDepth = idxSearch + 1;
+            procStack.length = idxSearch + 2;
+        } else if (idxEval >= 0) {
+            drawDepth = idxEval;
+            procStack.length = idxEval + 1; // mantiene EVALUATE, scarta il ramo WHEN precedente
         } else {
             drawDepth = procStack.length;
         }
         scanFrom = 1;
+    } else if (fw === 'AT' && tokens[1] === 'END') {
+        // AT END (clausola di SEARCH): si indenta di un livello sotto la
+        // SEARCH; gli statement del ramo rientrano di un livello ulteriore.
+        const idxSearch = lastIndexOfKind(procStack, 'SEARCH');
+        if (idxSearch >= 0) {
+            drawDepth = idxSearch + 1;
+            procStack.length = idxSearch + 2;
+        } else {
+            drawDepth = procStack.length;
+        }
+        scanFrom = 2;
     } else if (fw.startsWith('END-')) {
         const kind = fw.substring(4);
         const idx = lastIndexOfKind(procStack, kind);
@@ -1478,6 +1496,8 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
             const inline = nxt === '' || nxt === 'UNTIL' || nxt === 'VARYING'
                 || (/^\d+$/.test(nxt) && tokens[t + 2] === 'TIMES');
             if (inline) procStack.push('PERFORM');
+        } else if (w === 'SEARCH') {
+            procStack.push('SEARCH');
         } else if (w === 'END-IF') {
             const idx = lastIndexOfKind(procStack, 'IF');
             if (idx >= 0) procStack.length = idx;
@@ -1487,9 +1507,14 @@ function formatProcedureLine(seq, idArea, codeText, upper, procStack, procState,
         } else if (w === 'END-PERFORM') {
             const idx = lastIndexOfKind(procStack, 'PERFORM');
             if (idx >= 0) procStack.length = idx;
+        } else if (w === 'END-SEARCH') {
+            const idx = lastIndexOfKind(procStack, 'SEARCH');
+            if (idx >= 0) procStack.length = idx;
         } else if (w === 'WHEN') {
-            const idx = lastIndexOfKind(procStack, 'EVALUATE');
-            if (idx >= 0) procStack.length = idx + 1;
+            const idxEval = lastIndexOfKind(procStack, 'EVALUATE');
+            const idxSearch = lastIndexOfKind(procStack, 'SEARCH');
+            if (idxSearch > idxEval) procStack.length = idxSearch + 2;
+            else if (idxEval >= 0) procStack.length = idxEval + 1;
         }
     }
 
@@ -1747,8 +1772,10 @@ function applyStage2(out, lines, procDefLines, opts) {
             while (cc < firstPhys.length && firstPhys[cc] === ' ') cc++;
             const col = cc + 1;
             // Delimitatori di blocco: non sono statement e non ricevono riga vuota.
+            // AT END e' la clausola di SEARCH (non un nuovo statement).
             const isBlockDelim = firstWord === 'ELSE' || firstWord === 'WHEN'
-                || firstWord.startsWith('END-');
+                || firstWord.startsWith('END-')
+                || (firstWord === 'AT' && /^AT\s+END\b/.test(upper));
             // Uno statement e' un verbo noto non delimitatore. La riga vuota si
             // decide per COLONNA (livello di indentazione), cosi' vale anche
             // dentro i blocchi IF/EVALUATE e non solo a livello base. Un nuovo

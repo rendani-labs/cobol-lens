@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.25.8] - 2026-08-06
+
+### Fixed
+- Format Document: `SEARCH ALL`/`SEARCH` with `AT END` and `WHEN` clauses is now indented correctly instead of collapsing every line (`AT END`, `WHEN`, `END-SEARCH`, and the statements inside each branch) to the same column with spurious blank lines in between. `AT END` and `WHEN` now indent one level under `SEARCH`, the statements of each branch indent one level further, and `END-SEARCH` aligns back with `SEARCH`. Blank-line insertion (Stage 2) no longer treats `AT END` as a new statement, so no blank lines are inserted inside the `SEARCH` block.
+
 ## [1.25.7] - 2026-08-06
 
 ### Fixed
