@@ -1616,8 +1616,10 @@ const DATA_SEP_SECTIONS = new Set(['WORKING-STORAGE', 'LINKAGE', 'FILE', 'LOCAL-
 /** Verbi di blocco/enfasi: separano i loro statement con una riga vuota. */
 const BLOCK_VERBS = new Set(['IF', 'EVALUATE', 'PERFORM', 'SET', 'SEARCH']);
 
-/** Suffissi dei paragrafi di uscita (nessun separatore, solo riga vuota). */
+/** Prefissi/suffissi dei paragrafi di uscita (nessun separatore, solo riga vuota). */
+const EXIT_PREFIX = /^(EX|EXIT|USCITA)-/;
 const EXIT_SUFFIX = /-(EX|EXIT|USCITA)$/;
+const isExitParagraph = (firstWord) => EXIT_PREFIX.test(firstWord) || EXIT_SUFFIX.test(firstWord);
 
 /**
  * Indica se la riga e' un separatore commento (col 7 = '*' e resto solo trattini).
@@ -1666,6 +1668,19 @@ function applyStage2(out, lines, procDefLines, opts) {
     // una selezione sulle righe finali quando lo Stage 2 e' applicato a una
     // selezione (Format Selection) e non solo al documento intero.
     const entryStart = new Array(lines.length).fill(-1);
+    // Bersagli di PERFORM ... THRU/THROUGH <nome>: terminatore di un range,
+    // trattato come paragrafo di uscita anche senza seguire la convenzione
+    // di nome (stessa euristica di checkEmptyParagraph nel linter).
+    const thruTargets = new Set();
+    for (const raw of lines) {
+        const indicator = raw.length > 6 ? raw.charAt(6) : '';
+        if (indicator === '*' || indicator === '/' || raw.trim() === '') continue;
+        const codeText = raw.length > 7 ? raw.substring(7, CODE_END) : '';
+        const upper = stripLit(codeText).toUpperCase();
+        const thruRe = /\b(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/g;
+        let tm;
+        while ((tm = thruRe.exec(upper)) !== null) thruTargets.add(tm[1]);
+    }
     let division = '';
     let inProc = false;
     // Ultimo verbo di statement visto per ciascuna colonna (livello di
@@ -1738,7 +1753,7 @@ function applyStage2(out, lines, procDefLines, opts) {
         }
         // --- PROCEDURE paragraph header ---
         if (inProc && !isComment && !isBlank && codeText && procDefLines.has(i)) {
-            const isExit = EXIT_SUFFIX.test(firstWord);
+            const isExit = isExitParagraph(firstWord) || thruTargets.has(firstWord);
             if (isExit) {
                 // Un paragrafo di uscita non riceve il separatore ma una riga
                 // vuota (fa parte della delimitazione visiva del paragrafo).
