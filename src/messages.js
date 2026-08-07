@@ -256,9 +256,13 @@ const MESSAGES = {
         it: (name) => `Il livello 88 '${name}' non e' subordinato ad alcun campo: manca la variabile padre a cui la condizione si riferisce.`,
         en: (name) => `Level 88 '${name}' is not subordinate to any field: the parent data item the condition refers to is missing.`,
     },
-    moveTruncation: {
-        it: (src, srcSize, dest, destSize) => `MOVE da '${src}' (${srcSize}) a '${dest}' (${destSize}): il valore viene troncato silenziosamente perche' la destinazione e' piu' piccola.`,
-        en: (src, srcSize, dest, destSize) => `MOVE from '${src}' (${srcSize}) to '${dest}' (${destSize}): the value is silently truncated because the destination is smaller.`,
+    moveTruncationAlpha: {
+        it: (src, srcPic, srcSize, dest, destPic, destSize) => `MOVE da '${src}' (PIC ${srcPic}, ${srcSize} caratteri) a '${dest}' (PIC ${destPic}, ${destSize} caratteri): i ${srcSize - destSize} caratteri finali vengono troncati silenziosamente.`,
+        en: (src, srcPic, srcSize, dest, destPic, destSize) => `MOVE from '${src}' (PIC ${srcPic}, ${srcSize} characters) to '${dest}' (PIC ${destPic}, ${destSize} characters): the last ${srcSize - destSize} characters are silently truncated.`,
+    },
+    moveTruncationNumeric: {
+        it: (src, srcPic, srcInt, dest, destPic, destInt) => `MOVE da '${src}' (PIC ${srcPic}, ${srcInt} cifre intere) a '${dest}' (PIC ${destPic}, ${destInt} cifre intere): allineando la virgola decimale, le ${srcInt - destInt} cifre piu' significative vengono perse silenziosamente.`,
+        en: (src, srcPic, srcInt, dest, destPic, destInt) => `MOVE from '${src}' (PIC ${srcPic}, ${srcInt} integer digits) to '${dest}' (PIC ${destPic}, ${destInt} integer digits): after decimal point alignment, the ${srcInt - destInt} most significant digits are silently lost.`,
     },
 
     // --- Hover (provider) ---

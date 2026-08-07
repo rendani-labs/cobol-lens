@@ -15,6 +15,7 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 const { isComment, resolveCopybookPath, COPY_REGEX, COBOL_RESERVED, REPLACING_PAIR_REGEX } = require('./cobol-parser');
+const { expandPicture } = require('./cobol-layout');
 const { msg, getLang, setLang } = require('./messages');
 
 // ============================================================================
@@ -1611,29 +1612,17 @@ function checkAndOrIf(lines) {
  */
 function computePicSize(pic, usage) {
     if (!pic) return 0;
-    let p = pic.toUpperCase()
-        .replace(/^S/, '')   // segno
-        .replace(/V/g, '');  // virgola implicita, non occupa storage
+    const expanded = expandPicture(pic);
 
-    let digits = 0;
-    let alphas = 0;
-    let i = 0;
-    while (i < p.length) {
-        const ch = p[i];
-        // Controlla ripetizione: X(8), 9(08)
-        if (i + 1 < p.length && p[i + 1] === '(') {
-            const end = p.indexOf(')', i + 1);
-            if (end >= 0) {
-                const count = parseInt(p.substring(i + 2, end), 10) || 1;
-                if ('9ZP'.includes(ch)) digits += count;
-                else if ('XAB'.includes(ch)) alphas += count;
-                i = end + 1;
-                continue;
-            }
-        }
-        if ('9ZP'.includes(ch)) digits++;
-        else if ('XAB'.includes(ch)) alphas++;
-        i++;
+    let digits = 0;     // cifre numeriche (per COMP/COMP-3)
+    let positions = 0;  // posizioni di storage (per DISPLAY)
+    for (const ch of expanded) {
+        // S (segno in overpunch), V (virgola implicita) e P (scaling) non occupano byte
+        if (ch === 'S' || ch === 'V') continue;
+        if (ch === 'P') { digits++; continue; }
+        if (ch === '9' || ch === 'Z') digits++;
+        // Tutti gli altri simboli (X A B , . / 0 + - * $ CR DB) occupano 1 byte
+        positions++;
     }
 
     const u = (usage || 'DISPLAY').toUpperCase().replace(/\s+/g, '-');
@@ -1650,7 +1639,7 @@ function computePicSize(pic, usage) {
             return 8;
         case 'COMP-1': return 4;
         case 'COMP-2': return 8;
-        default: return digits + alphas;
+        default: return positions;
     }
 }
 
@@ -1696,9 +1685,10 @@ function parseDataItems(lines) {
 
         const upper = fullStmt.toUpperCase();
 
-        // PIC
-        const picMatch = upper.match(/\bPIC(?:TURE)?\s+(?:IS\s+)?([^\s,]+)/);
-        const pic = picMatch ? picMatch[1].replace(/\.$/, '') : null;
+        // PIC: la virgola puo' essere un carattere di inserimento (es. 99,99),
+        // quindi si prende il token intero e si tolgono solo i separatori finali.
+        const picMatch = upper.match(/\bPIC(?:TURE)?\s+(?:IS\s+)?(\S+)/);
+        const pic = picMatch ? (picMatch[1].replace(/[.,;]$/, '') || null) : null;
 
         // USAGE (cercare solo DOPO il nome variabile per evitare match in nomi come WS-COMP-AREA)
         let usage = 'DISPLAY';
@@ -2111,6 +2101,38 @@ function collectPerformTargets(lines) {
 }
 
 /**
+ * Raccoglie target dei GO TO (incluso lo stile ALTER con piu' target + DEPENDING ON).
+ * @param {string[]} lines
+ * @returns {Array<{line: number, target: string}>}
+ */
+function collectGoToTargets(lines) {
+    const targets = [];
+    const ctx = new AnalysisContext();
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure) continue;
+        const upper = code.toUpperCase().replace(/<[^>]*>/g, 'PLACEHOLDER');
+        const goMatch = upper.match(/\bGO\s+TO\b|\bGOTO\b/);
+        if (!goMatch) continue;
+        let rest = upper.slice(goMatch.index + goMatch[0].length);
+        const dependIdx = rest.search(/\bDEPENDING\b/);
+        if (dependIdx >= 0) rest = rest.slice(0, dependIdx);
+        rest = rest.replace(/\.\s*$/, '');
+        const names = rest.match(/\b[A-Z][A-Z0-9-]*\b/g) || [];
+        for (const target of names) {
+            if (!COBOL_RESERVED_EXTENDED.has(target) && !/^\d+$/.test(target)) {
+                targets.push({ line: i, target });
+            }
+        }
+    }
+    return targets;
+}
+
+/**
  * Estrae riferimenti a variabili nella PROCEDURE DIVISION.
  * @param {string[]} lines
  * @returns {Array<{line: number, name: string}>}
@@ -2501,7 +2523,7 @@ function checkUndefinedParagraph(lines, workspaceRoot) {
             }
         }
     }
-    const targets = collectPerformTargets(lines);
+    const targets = collectPerformTargets(lines).concat(collectGoToTargets(lines));
     const reported = new Set();
 
     for (const { line, target } of targets) {
@@ -2523,7 +2545,7 @@ function checkUnusedParagraph(lines) {
     if (!cfg.enabled) return [];
     const diags = [];
     const defined = collectParagraphs(lines);
-    const targets = collectPerformTargets(lines);
+    const targets = collectPerformTargets(lines).concat(collectGoToTargets(lines));
     const called = new Set(targets.map(t => t.target));
     const minLine = Math.min(...defined.values());
 
@@ -3032,9 +3054,9 @@ function collectDataItemTypes(lines, isCopy) {
         di = j > di + 1 ? j : di + 1;
 
         const fullUpper = fullStmt.toUpperCase();
-        const picMatch = fullUpper.match(/\bPIC(?:TURE)?\s+(?:IS\s+)?([^\s,]+)/);
+        const picMatch = fullUpper.match(/\bPIC(?:TURE)?\s+(?:IS\s+)?(\S+)/);
         if (!picMatch) continue;
-        const pic = picMatch[1].replace(/\.$/, '').toUpperCase();
+        const pic = picMatch[1].replace(/[.,;]$/, '').toUpperCase();
 
         // Determina se alfanumerico: PIC contiene X o A
         // Numerico: PIC contiene solo 9, S, V, Z, P, etc.
@@ -3601,13 +3623,14 @@ function _expandPicRepeats(pic) {
  */
 function parsePicInfo(picRaw) {
     let pic = picRaw.toUpperCase().replace(/\.$/, '');
+    const picText = pic;
     pic = _expandPicRepeats(pic);
-    if (/^X+$/.test(pic)) return { category: 'alpha', size: pic.length };
-    if (/^A+$/.test(pic)) return { category: 'alpha', size: pic.length };
+    if (/^X+$/.test(pic)) return { category: 'alpha', size: pic.length, pic: picText };
+    if (/^A+$/.test(pic)) return { category: 'alpha', size: pic.length, pic: picText };
     const p = pic.replace(/^S/, '');
-    if (/^9+$/.test(p)) return { category: 'num', intDigits: p.length, fracDigits: 0 };
+    if (/^9+$/.test(p)) return { category: 'num', intDigits: p.length, fracDigits: 0, pic: picText };
     const vm = p.match(/^(9*)V(9*)$/);
-    if (vm) return { category: 'num', intDigits: vm[1].length, fracDigits: vm[2].length };
+    if (vm) return { category: 'num', intDigits: vm[1].length, fracDigits: vm[2].length, pic: picText };
     return { category: 'other' };
 }
 
@@ -3655,9 +3678,9 @@ function collectDataItemPics(lines, isCopy) {
 
         const fullUpper = fullStmt.toUpperCase();
         if (/\bOCCURS\b/.test(fullUpper)) continue; // subscript: risoluzione ambigua
-        const picMatch = fullUpper.match(/\bPIC(?:TURE)?\s+(?:IS\s+)?([^\s,]+)/);
+        const picMatch = fullUpper.match(/\bPIC(?:TURE)?\s+(?:IS\s+)?(\S+)/);
         if (!picMatch) continue;
-        const info = parsePicInfo(picMatch[1]);
+        const info = parsePicInfo(picMatch[1].replace(/[.,;]$/, ''));
         if (info.category === 'other') continue;
         if (!map.has(name)) map.set(name, info);
     }
@@ -3797,13 +3820,13 @@ function _checkMoveTruncationStatement(stmt, lineNum, picMap, diags, cfg) {
         if (srcInfo.category === 'alpha') {
             if (srcInfo.size > destInfo.size) {
                 diags.push(makeDiag(lineNum, cfg.severity, 'move-truncation',
-                    msg('moveTruncation', srcId, srcInfo.size, destId, destInfo.size),
+                    msg('moveTruncationAlpha', srcId, srcInfo.pic, srcInfo.size, destId, destInfo.pic, destInfo.size),
                     undefined, undefined, destId));
                 reported.add(destId);
             }
         } else if (srcInfo.intDigits > destInfo.intDigits) {
             diags.push(makeDiag(lineNum, cfg.severity, 'move-truncation',
-                msg('moveTruncation', srcId, srcInfo.intDigits, destId, destInfo.intDigits),
+                msg('moveTruncationNumeric', srcId, srcInfo.pic, srcInfo.intDigits, destId, destInfo.pic, destInfo.intDigits),
                 undefined, undefined, destId));
             reported.add(destId);
         }

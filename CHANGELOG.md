@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.25.10] - 2026-08-07
+
+### Fixed
+- `unused-paragraph`: a paragraph reached only via `GO TO` (no `PERFORM`) was wrongly flagged as "defined but never called". Both `unused-paragraph` and `undefined-paragraph` now also track `GO TO` targets (including the multi-target `GO TO ... DEPENDING ON` form), not just `PERFORM`/`PERFORM ... THRU`.
+
+### Changed
+- `move-truncation`: the diagnostic message now states the `PICTURE` of both fields and the unit being compared, instead of two bare numbers whose meaning changed with the field category. For alphanumeric moves it reports characters and how many trailing ones are cut; for numeric moves it reports integer digits and makes explicit that the loss happens on the most significant digits after decimal point alignment (so a `PIC S9(15) COMP-3` moved into a `PIC S9(11)V99` no longer looks like it is being compared against the field's 13-byte physical size).
+
+## [1.25.9] - 2026-08-07
+
+### Fixed
+- `redefines-size`: fixed false positives on numeric-edited PICTUREs. The clause was truncated at the first comma, so `PIC 99,99` was read as `PIC 99` (2 bytes instead of 5), and insertion characters (`,` `.` `/` `0` `+` `-` `*` `$` `CR` `DB`) were not counted at all in the size computation. Sizes are now computed with the same engine used by Show Record Layout, so a `REDEFINES` over fields with edited PICTUREs is no longer reported as mismatched.
+- `move-truncation`: the same PICTURE truncation made an edited field like `PIC 99,99` look like a plain numeric `PIC 99`, which could produce wrong truncation warnings. Edited PICTUREs are now correctly classified and skipped by the rule.
+
 ## [1.25.8] - 2026-08-06
 
 ### Fixed
