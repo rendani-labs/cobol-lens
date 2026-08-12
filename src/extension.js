@@ -2445,6 +2445,33 @@ async function applyTextEdits(editor, edits) {
 }
 
 /**
+ * Calcola le modifiche per rimuovere gli spazi (e i tab) a fine riga nel
+ * documento. In formato fixed salta le righe di codice con un letterale non
+ * chiuso nell'area codice (colonne 8-72): gli spazi finali fanno parte del
+ * valore che continua sulla riga successiva e non vanno toccati. Le righe di
+ * commento sono sempre trimmate (un apostrofo li' dentro non e' un letterale).
+ * @param {vscode.TextDocument} document
+ * @returns {vscode.TextEdit[]}
+ */
+function computeTrimTrailingWhitespaceEdits(document) {
+    const fixed = getDocumentSourceFormat(document) === 'fixed';
+    const edits = [];
+    for (let i = 0; i < document.lineCount; i++) {
+        const lineObj = document.lineAt(i);
+        const text = lineObj.text;
+        // Le righe di commento (indicatore * o / in colonna 7) non hanno letterali
+        // di codice: un apostrofo li' dentro (es. "piu'") non deve bloccare il trim.
+        const isCommentLine = fixed && text.length >= 7 && (text[6] === '*' || text[6] === '/');
+        if (fixed && !isCommentLine && hasUnterminatedLiteral(text.substring(0, Math.min(text.length, 72)))) continue;
+        const trimmed = text.replace(/[ \t]+$/, '');
+        if (trimmed.length !== text.length) {
+            edits.push(vscode.TextEdit.delete(new vscode.Range(i, trimmed.length, i, text.length)));
+        }
+    }
+    return edits;
+}
+
+/**
  * Determina il formato sorgente del documento: il setting cobolLens.sourceFormat,
  * eventualmente sovrascritto da una direttiva $SET SOURCEFORMAT(VARIABLE|FREE)
  * nelle prime 20 righe.
@@ -2589,6 +2616,13 @@ function activate(context) {
             const editor = vscode.window.activeTextEditor;
             if (!editor || !isCobolDocument(editor.document)) return;
             await toggleCobolComment(editor);
+        }),
+        // Rimuove gli spazi a fine riga in tutto il documento.
+        vscode.commands.registerCommand('cobolLens.trimTrailingWhitespace', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || !isCobolDocument(editor.document)) return;
+            const edits = computeTrimTrailingWhitespaceEdits(editor.document);
+            await applyTextEdits(editor, edits);
         })
     );
 

@@ -50,6 +50,7 @@
   "cobolLens.command.formatDocument.title": "COBOL Lens: Formatta documento",
   "cobolLens.command.formatSelection.title": "COBOL Lens: Formatta selezione",
   "cobolLens.command.toggleComment.title": "COBOL Lens: Commenta/scommenta",
+  "cobolLens.command.trimTrailingWhitespace.title": "COBOL Lens: Rimuovi spazi a fine riga",
   "cobolLens.walkthrough.title": "Inizia con COBOL Lens",
   "cobolLens.walkthrough.description": "Naviga, controlla e comprendi il COBOL -- senza compilatore ne' language server.",
   "cobolLens.walkthrough.welcome.title": "Perche' COBOL Lens",
@@ -61,7 +62,7 @@
   "cobolLens.walkthrough.layout.title": "Vedi il layout in byte -- senza compilatore",
   "cobolLens.walkthrough.layout.description": "Dimensione del campo all'hover, posizioni in byte come inlay hints e un pannello Record Layout calcolato da PIC/USAGE/OCCURS.",
   "cobolLens.walkthrough.linter.title": "Individua i problemi mentre scrivi",
-  "cobolLens.walkthrough.linter.description": "Un linter in tempo reale con 48 regole configurabili e Quick Fix con un clic.",
+  "cobolLens.walkthrough.linter.description": "Un linter in tempo reale con 49 regole configurabili e Quick Fix con un clic.",
   "cobolLens.walkthrough.ifblocks.title": "Leggi la logica annidata a colpo d'occhio",
   "cobolLens.walkthrough.ifblocks.description": "Evidenzia i blocchi IF/ELSE/END-IF corrispondenti con barre di scope fino a 9 livelli.",
   "cobolLens.walkthrough.completion.title": "Scrivi COBOL piu' velocemente",
@@ -167,5 +168,7 @@
   "cobolLens.linter.rules.move-truncation.enabled.description": "MOVE verso una destinazione con PIC piu' piccola (troncamento silenzioso); confronta solo campi elementari alfanumerici o numerici puri",
   "cobolLens.linter.rules.move-truncation.severity.description": "Severita' per la regola move-truncation",
   "cobolLens.linter.rules.odo-not-last.enabled.description": "Una tabella con OCCURS DEPENDING ON deve essere l'ultimo campo del record (non puo' essere seguita da campi con storage)",
-  "cobolLens.linter.rules.odo-not-last.severity.description": "Severita' per la regola odo-not-last"
+  "cobolLens.linter.rules.odo-not-last.severity.description": "Severita' per la regola odo-not-last",
+  "cobolLens.linter.rules.consecutive-periods.enabled.description": "Segnala due punti consecutivi senza alcuna istruzione COBOL tra di essi (es. \"END-IF..\")",
+  "cobolLens.linter.rules.consecutive-periods.severity.description": "Severita' per la regola consecutive-periods"
 }

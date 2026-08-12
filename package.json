@@ -1,8 +1,8 @@
 {
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
-  "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 48-rule integrated linter. No compiler required.",
-  "version": "1.25.10",
+  "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 49-rule integrated linter. No compiler required.",
+  "version": "1.27.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -121,6 +121,10 @@
       {
         "command": "cobolLens.toggleComment",
         "title": "%cobolLens.command.toggleComment.title%"
+      },
+      {
+        "command": "cobolLens.trimTrailingWhitespace",
+        "title": "%cobolLens.command.trimTrailingWhitespace.title%"
       }
     ],
     "menus": {
@@ -143,6 +147,10 @@
         },
         {
           "command": "cobolLens.toggleComment",
+          "when": "editorLangId == cobol"
+        },
+        {
+          "command": "cobolLens.trimTrailingWhitespace",
           "when": "editorLangId == cobol"
         }
       ],
@@ -171,6 +179,11 @@
           "command": "cobolLens.formatDocument",
           "when": "editorLangId == cobol",
           "group": "z_cobolLens@5"
+        },
+        {
+          "command": "cobolLens.trimTrailingWhitespace",
+          "when": "editorLangId == cobol",
+          "group": "z_cobolLens@6"
         }
       ],
       "view/title": [
@@ -1034,6 +1047,17 @@
           "default": "error",
           "enum": ["error", "warning", "info"],
           "description": "%cobolLens.linter.rules.odo-not-last.severity.description%"
+        },
+        "cobolLens.linter.rules.consecutive-periods.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.consecutive-periods.enabled.description%"
+        },
+        "cobolLens.linter.rules.consecutive-periods.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.consecutive-periods.severity.description%"
         }
       }
     },

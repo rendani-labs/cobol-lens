@@ -45,6 +45,7 @@ An optional **semantic coloring** layer additionally highlights variables, parag
 | **Format Document** | `Shift+Alt+F` | Reindent fixed-format code (Area A/B, 3-space hierarchy, `EVALUATE`/`WHEN` aligned, PIC/TO/VALUE aligned to col 45, col 72 overflow handling, trailing trim); also Format Selection (on by default) |
 | **Format Document / Selection (commands)** | Context menu / Command Palette | `COBOL Lens: Format Document` and `COBOL Lens: Format Selection` run the formatter explicitly (Format Selection touches only the selected lines), regardless of the `cobolLens.format.enabled` toggle |
 | **Toggle COBOL Comment** | `Ctrl+K Ctrl+/` (`oem_2` key; on an Italian keyboard this key is the one labelled with the u-grave accent) | Comment/uncomment the selected lines (or cursor line): `*` in column 7 for fixed format, inline `*>` for variable/free |
+| **Trim Trailing Whitespace** | Context menu / Command Palette | `COBOL Lens: Trim Trailing Whitespace` removes trailing spaces/tabs from every line of the document; in fixed format, lines with an unclosed literal in the code area (columns 8-72) are skipped, since those trailing spaces belong to a value continued on the next line |
 | **Field Inlay Hints** | Automatic | Show the byte position and size of each DATA DIVISION field at end of line (computed from PIC/USAGE/OCCURS; on by default) |
 | **Record Layout** | Context menu / Command Palette | Show a panel with the byte start/end offset and size of every field in each DATA DIVISION record; `REDEFINES` overlaps (with the redefined field name) and `OCCURS ... DEPENDING ON` tables are highlighted (off by default) |
 | **Copybook Dependencies** | Explorer view | A tree of the nested `COPY` dependencies of the active file; unresolved copybooks are flagged "not found" and recursive includes "recursion". Click to open a copybook; refresh from the view title |
@@ -93,7 +94,7 @@ Can be controlled via `cobolLens.ifBlockHighlight.enabled` and `cobolLens.ifBloc
 
 ### Integrated Linter
 
-A built-in COBOL linter with **48 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
+A built-in COBOL linter with **49 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
 
 Categories of rules:
 
@@ -144,7 +145,7 @@ The existing `COPY ` copybook completion is unaffected. Controlled by `cobolLens
 
 ### Editor Context Menu
 
-The main COBOL Lens actions are grouped together in the editor **right-click menu**, in their own block below the built-in commands, so they are easy to find and tell apart (each keeps the `COBOL Lens:` prefix): **Show Record Layout**, **Expand Copybooks (Preview)**, **Toggle Comment**, **Format Selection** (shown only when text is selected) and **Format Document**. The same commands are also available from the Command Palette.
+The main COBOL Lens actions are grouped together in the editor **right-click menu**, in their own block below the built-in commands, so they are easy to find and tell apart (each keeps the `COBOL Lens:` prefix): **Show Record Layout**, **Expand Copybooks (Preview)**, **Toggle Comment**, **Format Selection** (shown only when text is selected), **Format Document** and **Trim Trailing Whitespace**. The same commands are also available from the Command Palette.
 
 <img src="media/images/right-click-menu.png" alt="Editor right-click menu with the COBOL Lens commands grouped in a single block: Show Record Layout, Expand Copybooks (Preview), Toggle Comment and Format Document" width="560">
 
@@ -275,6 +276,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `level-88-without-parent` | on | error | Level 88 condition-name not subordinate to any parent data item |
 | `move-truncation` | on | warning | MOVE into a destination with a smaller PIC (silent truncation); pure alphanumeric or numeric elementary items only |
 | `odo-not-last` | on | error | A table with OCCURS DEPENDING ON must be the last item in its record (nothing with storage may follow it) |
+| `consecutive-periods` | on | error | Two consecutive periods with no COBOL statement between them (e.g. `END-IF..`) |
 
 ## Compatibility
 

@@ -363,7 +363,8 @@ function getRuleConfig(ruleId) {
         'perform-varying-without-until': 'warning',
         'level-88-without-parent': 'error',
         'move-truncation': 'warning',
-        'odo-not-last': 'error'
+        'odo-not-last': 'error',
+        'consecutive-periods': 'error'
     };
 
     return {
@@ -1105,6 +1106,106 @@ function checkMissingPeriod(lines) {
 
         diags.push(makeDiag(prevIdx, cfg.severity, 'missing-period',
             msg('missingPeriodStatement')));
+    }
+
+    // PROCEDURE DIVISION: un identificatore utente che inizia in Area A
+    // (colonne 8-11) ma non e' un header valido di paragrafo/sezione, se la
+    // frase precedente non e' terminata da un punto, viene interpretato dal
+    // compilatore come un NUOVO paragrafo implicito (lo stesso errore Micro
+    // Focus 1069-E "Identifier in area A assumed procedure name. Period
+    // missing before it."), corrompendo il parsing di tutto il codice che
+    // segue (spesso una lunga cascata di errori a valle).
+    const actx = new AnalysisContext();
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        actx.update(raw, code);
+        if (!actx.inProcedure || actx.inExecBlock) continue;
+
+        const firstCharPos = code.search(/\S/);
+        if (firstCharPos < 0 || firstCharPos > 3) continue;
+
+        const upper = code.trim().toUpperCase();
+        const isSection = /^[A-Z0-9][\w-]*\s+SECTION\s*\.?\s*$/.test(upper);
+        const isParagraph = /^[A-Z0-9][\w-]*\.\s*$/.test(upper);
+        if (isSection || isParagraph) continue; // header legittimo, gia' gestito sopra
+
+        const firstToken = upper.split(/\s+/)[0].replace(/\.$/, '');
+        if (!/^[A-Z][A-Z0-9-]*$/.test(firstToken)) continue;
+        if (COBOL_RESERVED.has(firstToken) || firstToken.startsWith('END-')) continue;
+
+        // Trova la precedente riga di codice non ignorabile
+        let prevIdx = -1;
+        for (let j = i - 1; j >= 0; j--) {
+            if (isSkippable(lines[j])) continue;
+            if (!getCodeContent(lines[j]).trim()) continue;
+            prevIdx = j;
+            break;
+        }
+        if (prevIdx < 0) continue;
+
+        const prevUpper = getCodeContent(lines[prevIdx]).trim().toUpperCase();
+        if (prevUpper.includes('DIVISION')) continue;
+        if (/^(EJECT|SKIP[123]?|TITLE)\b/.test(prevUpper)) continue;
+
+        const prevWithoutLit = stripLiterals(prevUpper);
+        if (prevWithoutLit.trimEnd().endsWith('.')) continue;
+
+        diags.push(makeDiag(i, cfg.severity, 'missing-period',
+            msg('missingPeriodAreaAIdentifier', firstToken)));
+    }
+
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// consecutive-periods: due punti terminatori senza alcuna istruzione tra i
+// due producono l'errore del compilatore "No COBOL statement between
+// periods." (es. "END-IF..").
+// ---------------------------------------------------------------------------
+function checkConsecutivePeriods(lines) {
+    const cfg = getRuleConfig('consecutive-periods');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const ctx = new AnalysisContext();
+
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure || ctx.inExecBlock) continue;
+
+        const withoutLit = stripLiterals(code);
+
+        // Stesso rigo: due punti separati solo da spazi (es. "END-IF..").
+        if (/\.[ \t]*\./.test(withoutLit)) {
+            diags.push(makeDiag(i, cfg.severity, 'consecutive-periods',
+                msg('consecutivePeriods')));
+            continue;
+        }
+
+        // Righe diverse: la riga corrente inizia con un punto (nessuna
+        // istruzione prima) e quella precedente era gia' terminata da un punto.
+        if (withoutLit.trim().startsWith('.')) {
+            let prevIdx = -1;
+            for (let j = i - 1; j >= 0; j--) {
+                if (isSkippable(lines[j])) continue;
+                if (!getCodeContent(lines[j]).trim()) continue;
+                prevIdx = j;
+                break;
+            }
+            if (prevIdx >= 0) {
+                const prevWithoutLit = stripLiterals(getCodeContent(lines[prevIdx])).trim();
+                if (prevWithoutLit.endsWith('.')) {
+                    diags.push(makeDiag(i, cfg.severity, 'consecutive-periods',
+                        msg('consecutivePeriods')));
+                }
+            }
+        }
     }
     return diags;
 }
@@ -4001,7 +4102,7 @@ function runLinter(text, workspaceRoot) {
         checkDuplicateParagraph, checkAlterStatement,
         checkNextSentence, checkEvaluateWithoutWhenOther,
         checkPerformVaryingWithoutUntil, checkLevel88WithoutParent,
-        checkOdoNotLast,
+        checkOdoNotLast, checkConsecutivePeriods,
     ];
 
     // Controlli validi solo in formato fixed

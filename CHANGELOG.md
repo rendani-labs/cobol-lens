@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.27.0] - 2026-08-12
+
+### Added
+- New command `COBOL Lens: Trim Trailing Whitespace`, available in the editor context menu and the Command Palette: removes trailing spaces/tabs from every line of the document. In fixed format, lines with an unclosed string literal in the code area (columns 8-72) are skipped, since their trailing spaces are part of a literal value continued on the next line.
+
+## [1.26.0] - 2026-08-10
+
+### Added
+- New linter rule `consecutive-periods`: flags two consecutive periods with no COBOL statement between them (e.g. `END-IF..`), which the Micro Focus compiler rejects with `1101-E No COBOL statement between periods.`. Detects both the same-line case (periods separated only by spaces) and the case where a lone period starts a new line right after a statement that was already terminated. Configurable via `cobolLens.linter.rules.consecutive-periods.enabled` / `.severity` (default: error).
+
+## [1.25.11] - 2026-08-10
+
+### Fixed
+- `missing-period`: now also detects a user identifier starting in Area A (columns 8-11) right after a statement with no closing period. This is the same ambiguity flagged by the Micro Focus compiler as message `1069-E` ("Identifier in area A assumed procedure name. Period missing before it."): the compiler assumes the misplaced identifier is a new implicit paragraph name, which then corrupts the parsing of all the following code (often causing a long cascade of downstream errors). Reserved words (e.g. `IF`, `MOVE`) and legitimate paragraph/section headers are excluded, since those are already handled separately.
+
 ## [1.25.10] - 2026-08-07
 
 ### Fixed

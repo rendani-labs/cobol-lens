@@ -116,6 +116,14 @@ const MESSAGES = {
         it: () => 'Manca il punto alla fine della frase prima del paragrafo/sezione successivo',
         en: () => 'Missing period at end of statement before the next paragraph/section',
     },
+    missingPeriodAreaAIdentifier: {
+        it: (name) => `Identificatore '${name}' in Area A (colonne 8-11) dopo una frase senza punto finale: il compilatore lo puo' interpretare come un nuovo nome di paragrafo implicito, corrompendo il parsing del codice seguente`,
+        en: (name) => `Identifier '${name}' in Area A (columns 8-11) after a statement with no closing period: the compiler may treat it as a new implicit paragraph name, corrupting the parsing of the following code`,
+    },
+    consecutivePeriods: {
+        it: () => "Due punti consecutivi senza alcuna istruzione tra di essi (nessuna istruzione COBOL tra i due punti)",
+        en: () => 'Two consecutive periods with no statement between them (no COBOL statement between periods)',
+    },
     picMissing: {
         it: (name, lvl) => `Variabile '${name}' senza clausola PIC (livello ${lvl} elementare richiede PIC)`,
         en: (name, lvl) => `Variable '${name}' has no PIC clause (level ${lvl} elementary item requires PIC)`,
