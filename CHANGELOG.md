@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.27.1] - 2026-08-26
+
+### Fixed
+- `alphanumeric-in-compute`: no more false positives when an alphanumeric variable is passed to an intrinsic function that returns a number, for example `COMPUTE WS-N = FUNCTION LENGTH(FUNCTION TRIM(LK-TEXT))`. Arguments of `LENGTH`, `BYTE-LENGTH`, `LENGTH-AN`, `STORED-CHAR-LENGTH`, `NUMVAL`, `NUMVAL-C`, `NUMVAL-F`, `ORD`, `ULENGTH`, `UPOS`, `UWIDTH` and of the `LENGTH OF` special register are now exempt. Nested function calls are handled with balanced-parenthesis scanning, so the previous `NUMVAL` exemption also works when the argument contains other functions.
+- `string-delimited` (reported under `end-structure`): the `BY` of `DELIMITED BY` is an optional noise word, so `STRING ... DELIMITED SIZE ... INTO ...` is valid COBOL and is no longer flagged as "missing DELIMITED BY before the INTO clause". The check now accepts both `DELIMITED BY SIZE` and `DELIMITED SIZE` (and the same for a delimiter identifier/literal).
+- Typed (prefixed) literals such as the hexadecimal `X'E2E3CFD3'` -- and likewise `N'..'`, `NX'..'`, `Z'..'`, `G'..'`, `U'..'`, `B'..'`, `H'..'`, `O'..'`, with either quote style -- are now stripped together with their prefix letter when the linter removes string literals from a line. Previously only the quoted part was removed, leaving a bare `X` that `undefined-variable` reported as an undefined variable (and that could confuse the other literal-aware rules).
+- `alphanumeric-in-compute`: two consecutive arithmetic statements with no terminating period (for example a `COMPUTE` spanning several lines immediately followed by another `COMPUTE`) were merged into a single logical statement, so a name used in the second one was reported on the first one's line. A new `COMPUTE`/`ADD`/`SUBTRACT`/`MULTIPLY`/`DIVIDE` now closes the previous arithmetic statement, and the diagnostic is anchored to the physical line where the name actually appears instead of the first line of the statement.
+
 ## [1.27.0] - 2026-08-12
 
 ### Added

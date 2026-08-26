@@ -153,12 +153,16 @@ function getCodeContent(line) {
  * @returns {string}
  */
 function stripLiterals(text) {
-    let result = text.replace(/'[^']*'/g, '').replace(/"[^"]*"/g, '');
+    // Il prefisso di tipo (X'..' esadecimale, N/NX nazionale, Z/G/U/B/H/O) fa
+    // parte del letterale e va rimosso insieme al contenuto tra apici.
+    let result = text
+        .replace(/(?<![A-Z0-9-])(?:NX|X|N|Z|G|U|B|H|O)?'[^']*'/gi, '')
+        .replace(/(?<![A-Z0-9-])(?:NX|X|N|Z|G|U|B|H|O)?"[^"]*"/gi, '');
     // Stringa non terminata (es. apice di chiusura troncato oltre la col 72):
     // rimuove dal primo apice rimasto fino a fine riga, cosi' il contenuto
     // della stringa non viene scambiato per codice/variabili.
     const q = result.search(/['"]/);
-    if (q >= 0) result = result.substring(0, q);
+    if (q >= 0) result = result.substring(0, q).replace(/(?<![A-Z0-9-])(?:NX|X|N|Z|G|U|B|H|O)$/i, '');
     return result;
 }
 
@@ -893,7 +897,7 @@ function checkStringDelimited(lines) {
         if (inString) {
             stringStmt += ' ' + upper;
             if (/\bEND-STRING\b/.test(upper) || stripLiterals(upper).includes('.')) {
-                const delimPos = stringStmt.search(/\bDELIMITED\s+BY\b/);
+                const delimPos = stringStmt.search(/\bDELIMITED\s+(?:BY\s+)?/);
                 const intoPos = stringStmt.search(/\bINTO\b/);
                 if (intoPos >= 0 && (delimPos < 0 || delimPos > intoPos)) {
                     diags.push(makeDiag(stringLine, cfg.severity, 'end-structure',
@@ -911,7 +915,7 @@ function checkStringDelimited(lines) {
             stringLine = i;
             stringStmt = upper;
             if (/\bEND-STRING\b/.test(upper) || stripLiterals(upper).includes('.')) {
-                const delimPos = stringStmt.search(/\bDELIMITED\s+BY\b/);
+                const delimPos = stringStmt.search(/\bDELIMITED\s+(?:BY\s+)?/);
                 const intoPos = stringStmt.search(/\bINTO\b/);
                 if (intoPos >= 0 && (delimPos < 0 || delimPos > intoPos)) {
                     diags.push(makeDiag(stringLine, cfg.severity, 'end-structure',
@@ -3222,6 +3226,8 @@ function checkAlphanumericInCompute(lines, workspaceRoot) {
     let mathStartLine = -1;
     let mathStmt = '';
     let mathVerb = '';
+    /** @type {Array<{line: number, text: string}>} */
+    let mathLines = [];
 
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
@@ -3242,19 +3248,22 @@ function checkAlphanumericInCompute(lines, workspaceRoot) {
                 mathStartLine = i;
                 mathStmt = upper;
                 mathVerb = verbMatch[1];
+                mathLines = [{ line: i, text: withoutLit }];
                 if (withoutLit.includes('.') || /\bEND-COMPUTE\b|\bEND-ADD\b|\bEND-SUBTRACT\b|\bEND-MULTIPLY\b|\bEND-DIVIDE\b/.test(upper)) {
                     // Istruzione su una riga
                     inMath = false;
-                    _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg);
+                    _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg, mathLines);
                 }
             }
         } else {
             // Un nuovo verbo COBOL o uno scope terminator non-math termina implicitamente l'istruzione matematica
             const newVerbOrTerminator = /^\s*(MOVE|DISPLAY|SET|PERFORM|IF|EVALUATE|READ|WRITE|OPEN|CLOSE|CALL|GO|STOP|EXIT|STRING|UNSTRING|INSPECT|ACCEPT|INITIALIZE|SEARCH|DELETE|REWRITE|START|RETURN|RELEASE|SORT|MERGE|ALTER|CANCEL|CONTINUE|GOBACK|EXEC|COPY|WHEN|ELSE|END-IF|END-EVALUATE|END-PERFORM|END-READ|END-WRITE|END-CALL|END-STRING|END-UNSTRING|END-SEARCH|END-RETURN|END-START|END-DELETE|END-REWRITE|END-ACCEPT|END-DISPLAY|END-EXEC)\b/;
-            if (newVerbOrTerminator.test(upper)) {
+            // Anche un nuovo verbo matematico chiude l'istruzione precedente,
+            // altrimenti due COMPUTE senza punto finale si fondono in una sola.
+            if (newVerbOrTerminator.test(upper) || mathVerbs.test(upper)) {
                 // Termina l'istruzione math corrente senza includere questa riga
                 inMath = false;
-                _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg);
+                _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg, mathLines);
                 // Ri-processa la riga corrente come potenziale nuova istruzione math
                 const verbMatch2 = mathVerbs.exec(upper);
                 if (verbMatch2) {
@@ -3262,16 +3271,18 @@ function checkAlphanumericInCompute(lines, workspaceRoot) {
                     mathStartLine = i;
                     mathStmt = upper;
                     mathVerb = verbMatch2[1];
+                    mathLines = [{ line: i, text: withoutLit }];
                     if (withoutLit.includes('.') || /\bEND-COMPUTE\b|\bEND-ADD\b|\bEND-SUBTRACT\b|\bEND-MULTIPLY\b|\bEND-DIVIDE\b/.test(upper)) {
                         inMath = false;
-                        _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg);
+                        _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg, mathLines);
                     }
                 }
             } else {
                 mathStmt += ' ' + upper;
+                mathLines.push({ line: i, text: withoutLit });
                 if (withoutLit.includes('.') || /\bEND-COMPUTE\b|\bEND-ADD\b|\bEND-SUBTRACT\b|\bEND-MULTIPLY\b|\bEND-DIVIDE\b/.test(upper)) {
                     inMath = false;
-                    _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg);
+                    _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg, mathLines);
                 }
             }
         }
@@ -3280,29 +3291,79 @@ function checkAlphanumericInCompute(lines, workspaceRoot) {
 }
 
 /**
+ * Funzioni intrinseche che restituiscono un valore NUMERICO pur accettando
+ * argomenti alfanumerici: i loro argomenti non vanno segnalati.
+ */
+const NUMERIC_RESULT_FUNCTIONS = new Set([
+    'LENGTH', 'BYTE-LENGTH', 'LENGTH-AN', 'STORED-CHAR-LENGTH',
+    'NUMVAL', 'NUMVAL-C', 'NUMVAL-F', 'ORD',
+    'ULENGTH', 'UPOS', 'UWIDTH'
+]);
+
+/**
+ * Restituisce i nomi usati come argomento (a qualsiasi livello di annidamento)
+ * di una funzione che produce comunque un risultato numerico.
+ */
+function _collectNumericFunctionArgs(cleaned) {
+    const protectedNames = new Set();
+    const addTokens = (text) => {
+        const toks = text.match(/(?<![A-Z0-9-])([A-Z][A-Z0-9-]*[A-Z0-9]|[A-Z][A-Z0-9]|[A-Z])(?![A-Z0-9-])/g) || [];
+        for (const t of toks) {
+            if (!COBOL_RESERVED_EXTENDED.has(t)) protectedNames.add(t);
+        }
+    };
+
+    const fnRegex = /\bFUNCTION\s+([A-Z][A-Z0-9-]*)\s*\(/g;
+    let m;
+    while ((m = fnRegex.exec(cleaned)) !== null) {
+        if (!NUMERIC_RESULT_FUNCTIONS.has(m[1])) continue;
+        // Scansione a parentesi bilanciate per gestire funzioni annidate
+        let depth = 0;
+        let start = fnRegex.lastIndex;
+        let end = -1;
+        for (let i = start - 1; i < cleaned.length; i++) {
+            const ch = cleaned[i];
+            if (ch === '(') depth++;
+            else if (ch === ')') {
+                depth--;
+                if (depth === 0) { end = i; break; }
+            }
+        }
+        if (end < 0) end = cleaned.length;
+        addTokens(cleaned.slice(start, end));
+    }
+
+    // Registro speciale LENGTH OF <nome>
+    const lengthOfRegex = /\bLENGTH\s+OF\s+([A-Z][A-Z0-9-]*)/g;
+    while ((m = lengthOfRegex.exec(cleaned)) !== null) {
+        addTokens(m[1]);
+    }
+    return protectedNames;
+}
+
+/**
  * Verifica se una istruzione matematica usa variabili alfanumeriche.
  */
-function _checkMathStatement(stmt, verb, lineNum, alphanumericVars, diags, cfg) {
+function _checkMathStatement(stmt, verb, lineNum, alphanumericVars, diags, cfg, stmtLines) {
     const cleaned = stripLiterals(stmt);
 
-    // Raccogli variabili protette da FUNCTION NUMVAL / NUMVAL-C
-    // (la conversione alfanumerico->numerico rende l'uso legittimo)
-    const numvalProtected = new Set();
-    const numvalRegex = /\bFUNCTION\s+NUMVAL(?:-C)?\s*\(([^)]*)\)/gi;
-    let nvm;
-    while ((nvm = numvalRegex.exec(cleaned)) !== null) {
-        const inner = nvm[1].trim();
-        // Estrai token dentro le parentesi di NUMVAL
-        const innerTokens = inner.match(/(?<![A-Z0-9-])([A-Z][A-Z0-9-]*[A-Z0-9]|[A-Z][A-Z0-9]|[A-Z])(?![A-Z0-9-])/g) || [];
-        for (const t of innerTokens) {
-            if (!COBOL_RESERVED_EXTENDED.has(t)) numvalProtected.add(t);
-        }
-    }
+    // Variabili protette perche' argomento di una funzione che RESTITUISCE un numero
+    // anche se riceve un alfanumerico (LENGTH, NUMVAL, ORD, ...): l'uso e' legittimo.
+    const numvalProtected = _collectNumericFunctionArgs(cleaned);
 
     // Estrai i token che potrebbero essere variabili
     const tokens = cleaned.match(/(?<![A-Z0-9-])([A-Z][A-Z0-9-]*[A-Z0-9])(?![A-Z0-9-])/g) || [];
     const shortTokens = cleaned.match(/(?<![A-Z0-9-])([A-Z][A-Z0-9])(?![A-Z0-9-])/g) || [];
     const singleTokens = cleaned.match(/(?<![A-Z0-9-])([A-Z])(?![A-Z0-9-])/g) || [];
+
+    // Segnala sulla riga fisica in cui compare il nome, non sulla prima riga
+    // dell'istruzione (che puo' essere molte righe piu' su).
+    const lineOf = (token) => {
+        if (!stmtLines) return lineNum;
+        const re = new RegExp(`(?<![A-Z0-9-])${token.replace(/[-]/g, '\\-')}(?![A-Z0-9-])`);
+        const hit = stmtLines.find(l => re.test(l.text));
+        return hit ? hit.line : lineNum;
+    };
 
     const reported = new Set();
     for (const token of [...tokens, ...shortTokens, ...singleTokens]) {
@@ -3310,7 +3371,7 @@ function _checkMathStatement(stmt, verb, lineNum, alphanumericVars, diags, cfg) 
         if (reported.has(token)) continue;
         if (numvalProtected.has(token)) continue;
         if (alphanumericVars.has(token)) {
-            diags.push(makeDiag(lineNum, cfg.severity, 'alphanumeric-in-compute',
+            diags.push(makeDiag(lineOf(token), cfg.severity, 'alphanumeric-in-compute',
                 msg('alphanumericInCompute', token, verb),
                 undefined, undefined, token));
             reported.add(token);

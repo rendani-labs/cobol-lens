@@ -101,8 +101,8 @@ const MESSAGES = {
         en: (type, line) => `${type} structure opened at line ${line} is not closed (missing END-${type})`,
     },
     stringDelimited: {
-        it: () => 'STRING: manca DELIMITED BY prima della clausola INTO',
-        en: () => 'STRING: missing DELIMITED BY before the INTO clause',
+        it: () => 'STRING: manca DELIMITED [BY] prima della clausola INTO',
+        en: () => 'STRING: missing DELIMITED [BY] before the INTO clause',
     },
     paragraphNaming: {
         it: (name) => `Il paragrafo '${name}' non segue la convenzione (I0001-, E0001-, F0001-, V0000-, S0000-, X9999-)`,
