@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.27.3] - 2026-08-31
+
+### Fixed
+- `unused-variable`: a data item referenced only in the `DEPENDING ON` clause of an `OCCURS` table (elsewhere in the DATA DIVISION) was reported as unused when it did not also appear in the PROCEDURE DIVISION. It now counts as used, since it governs the actual number of table entries.
+
+## [1.27.2] - 2026-08-28
+
+### Fixed
+- `JSON GENERATE` / `JSON PARSE` / `XML GENERATE` / `XML PARSE` (IBM Enterprise COBOL syntax, available on Micro Focus / Rocket with `dialect(entcobol)`) are now recognised by the linter. Previously every keyword of the statement was treated as a data name, producing a series of false positives:
+  - `undefined-variable` on `JSON`, `XML`, `END-JSON`, `END-XML`, `PARSE`, on the `NAME OF` phrase and on the special registers `JSON-CODE`, `JSON-STATUS`, `XML-CODE`, `XML-EVENT`, `XML-TEXT`, `XML-NTEXT`, `XML-NAMESPACE`, `XML-SCHEMA` and related.
+  - `unsubscripted-occurs` on a table name used inside the `NAME OF` phrase: there the identifier designates the field definition and, per the language specification, cannot be subscripted or reference-modified.
+  - The context-sensitive words `NAME`, `SUPPRESS`, `DETAIL`, `ATTRIBUTES`, `ENCODING`, `VALIDATING` are only ignored inside the JSON/XML statement, so they remain valid user data names anywhere else.
+- `undefined-variable`: the program name in `END PROGRAM program-name.` was reported as an undefined variable.
+
 ## [1.27.1] - 2026-08-26
 
 ### Fixed

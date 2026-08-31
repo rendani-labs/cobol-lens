@@ -2065,8 +2065,67 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'TRANSID', 'TS', 'TD',
     'WAIT', 'WRITEQ', 'XCTL',
     // COBOL open modes e Micro Focus special registers
-    'I-O', 'TIME-OF-DAY', 'WHEN-COMPILED', 'LINAGE-COUNTER', 'CURRENT-DATE'
+    'I-O', 'TIME-OF-DAY', 'WHEN-COMPILED', 'LINAGE-COUNTER', 'CURRENT-DATE',
+    // JSON / XML (IBM Enterprise COBOL, dialetto entcobol su Rocket/Micro Focus)
+    'JSON', 'XML', 'END-JSON', 'END-XML', 'PARSE', 'VALIDATING',
+    'JSON-CODE', 'JSON-STATUS',
+    'XML-CODE', 'XML-EVENT', 'XML-INFORMATION', 'XML-NAMESPACE',
+    'XML-NAMESPACE-PREFIX', 'XML-NNAMESPACE', 'XML-NNAMESPACE-PREFIX',
+    'XML-NTEXT', 'XML-SCHEMA', 'XML-TEXT'
 ]);
+
+/**
+ * Parole chiave sensibili al contesto valide solo dentro JSON/XML
+ * GENERATE|PARSE: fuori da quelle istruzioni restano nomi utente legittimi,
+ * quindi vengono ignorate solo all'interno dell'istruzione.
+ */
+const JSON_XML_CONTEXT_KEYWORDS = /\b(?:NAME|SUPPRESS|DETAIL|ATTRIBUTES|ENCODING|VALIDATING)\b/g;
+
+/**
+ * Individua le righe appartenenti alle istruzioni JSON/XML GENERATE|PARSE.
+ * @param {string[]} lines
+ * @returns {{stmtLines: Set<number>, namePhraseLines: Set<number>}}
+ *   stmtLines: tutte le righe dell'istruzione (fino a END-JSON/END-XML o punto).
+ *   namePhraseLines: le sole righe della frase NAME OF, dove gli identificatori
+ *   designano la definizione del campo e per specifica non possono essere
+ *   subscriptati ne' reference-modificati.
+ */
+function collectJsonXmlRegions(lines) {
+    const stmtLines = new Set();
+    const namePhraseLines = new Set();
+    const ctx = new AnalysisContext();
+    let inStmt = false;
+    let inNamePhrase = false;
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure || ctx.inExecBlock) continue;
+
+        const upper = stripLiterals(code.trim().toUpperCase());
+        if (!inStmt) {
+            if (!/^(?:JSON|XML)\s+(?:GENERATE|PARSE)\b/.test(upper)) continue;
+            inStmt = true;
+            inNamePhrase = false;
+        }
+        stmtLines.add(i);
+
+        if (/\bNAME\b(?:\s+OF\b|\s*$)/.test(upper)) {
+            inNamePhrase = true;
+        } else if (inNamePhrase && /\b(?:SUPPRESS|CONVERTING|VALIDATING|ENCODING|COUNT\s+IN|RETURNING|ON\s+EXCEPTION|NOT\s+ON\s+EXCEPTION|END-JSON|END-XML)\b/.test(upper)) {
+            inNamePhrase = false;
+        }
+        if (inNamePhrase) namePhraseLines.add(i);
+
+        if (/\b(?:END-JSON|END-XML)\b/.test(upper) || upper.trimEnd().endsWith('.')) {
+            inStmt = false;
+            inNamePhrase = false;
+        }
+    }
+    return { stmtLines, namePhraseLines };
+}
 
 /**
  * Raccoglie nomi variabili/record definiti nel programma.
@@ -2245,6 +2304,7 @@ function collectGoToTargets(lines) {
 function extractVariableRefs(lines) {
     const refs = [];
     const ctx = new AnalysisContext();
+    const { stmtLines: jsonXmlLines } = collectJsonXmlRegions(lines);
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
@@ -2269,6 +2329,11 @@ function extractVariableRefs(lines) {
         cleaned = cleaned.replace(/\bPERFORM\s+([A-Z0-9][\w-]*)/g, 'PERFORM');
         cleaned = cleaned.replace(/\bTHRU\s+([A-Z0-9][\w-]*)/g, 'THRU');
         cleaned = cleaned.replace(/\bCOPY\s+([A-Z0-9][\w-]*)/g, 'COPY');
+        // END PROGRAM nome-programma: il nome e' l'identificativo del programma
+        cleaned = cleaned.replace(/\bEND\s+PROGRAM\s+[A-Z0-9][\w-]*/g, ' ');
+        if (jsonXmlLines.has(i)) {
+            cleaned = cleaned.replace(JSON_XML_CONTEXT_KEYWORDS, ' ');
+        }
         cleaned = cleaned.replace(/[()]/g, ' ');
 
         const tokens = cleaned.match(/(?<![A-Z0-9-])([A-Z][A-Z0-9-]*[A-Z0-9])(?![A-Z0-9-])/g) || [];
@@ -2529,6 +2594,7 @@ function checkUnsubscriptedOccurs(lines, workspaceRoot) {
         }
     }
     if (occursVars.size === 0) return diags;
+    const { namePhraseLines } = collectJsonXmlRegions(lines);
     const ctx = new AnalysisContext();
     const reported = new Set();
     for (let i = 0; i < lines.length; i++) {
@@ -2539,6 +2605,7 @@ function checkUnsubscriptedOccurs(lines, workspaceRoot) {
         ctx.update(raw, code);
         if (!ctx.inProcedure) continue;
         if (ctx.inExecBlock) continue;
+        if (namePhraseLines.has(i)) continue;
         const upper = code.trim().toUpperCase();
         if (code && !/^\s/.test(code) && /^[A-Z0-9][\w-]*\.\s*$/.test(upper)) continue;
         if (/^\s*(SEARCH|SORT|INITIALIZE)\b/.test(upper)) continue;
@@ -2706,6 +2773,13 @@ function checkUnusedVariable(lines, workspaceRoot) {
 
     // Riferimenti nella PROCEDURE
     const procRefs = new Set(extractVariableRefs(lines).map(r => r.name));
+
+    // Riferimenti nella DATA DIVISION stessa (es. OCCURS ... DEPENDING ON obj):
+    // l'oggetto e' effettivamente usato per governare la tabella, anche se non
+    // compare (ancora) nella PROCEDURE DIVISION.
+    for (const item of parseDataItems(lines)) {
+        if (item.dependingOn) procRefs.add(item.dependingOn);
+    }
 
     for (const [name, { line, level }] of wsVars) {
         if (procRefs.has(name)) continue;

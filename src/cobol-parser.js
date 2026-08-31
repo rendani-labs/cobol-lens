@@ -60,6 +60,7 @@ const COBOL_RESERVED = new Set([
     'GO', 'ALTER', 'EXIT', 'CONTINUE', 'INITIALIZE',
     'INSPECT', 'SEARCH', 'SET', 'SORT', 'MERGE', 'RETURN',
     'RELEASE', 'GENERATE', 'INITIATE', 'TERMINATE',
+    'JSON', 'XML', 'END-JSON', 'END-XML', 'PARSE',
     'WHEN', 'NOT', 'AND', 'OR', 'ALSO', 'OTHER', 'THRU', 'THROUGH',
     'WITH', 'VARYING', 'UNTIL', 'TIMES', 'TEST', 'BEFORE', 'AFTER',
     'GIVING', 'RETURNING', 'INTO', 'FROM', 'TO', 'BY',
