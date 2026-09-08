@@ -124,6 +124,10 @@ const MESSAGES = {
         it: () => "Due punti consecutivi senza alcuna istruzione tra di essi (nessuna istruzione COBOL tra i due punti)",
         en: () => 'Two consecutive periods with no statement between them (no COBOL statement between periods)',
     },
+    programIdFilenameMismatch: {
+        it: (progId, fileName) => `Il nome dopo PROGRAM-ID ('${progId}') non corrisponde al nome del file ('${fileName}')`,
+        en: (progId, fileName) => `The name after PROGRAM-ID ('${progId}') does not match the file name ('${fileName}')`,
+    },
     picMissing: {
         it: (name, lvl) => `Variabile '${name}' senza clausola PIC (livello ${lvl} elementare richiede PIC)`,
         en: (name, lvl) => `Variable '${name}' has no PIC clause (level ${lvl} elementary item requires PIC)`,

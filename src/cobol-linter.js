@@ -368,7 +368,8 @@ function getRuleConfig(ruleId) {
         'level-88-without-parent': 'error',
         'move-truncation': 'warning',
         'odo-not-last': 'error',
-        'consecutive-periods': 'error'
+        'consecutive-periods': 'error',
+        'program-id-filename': 'error'
     };
 
     return {
@@ -1210,6 +1211,58 @@ function checkConsecutivePeriods(lines) {
                 }
             }
         }
+    }
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// program-id-filename: il nome dopo PROGRAM-ID deve coincidere con il nome
+// del file (senza estensione), come richiesto dal precompilatore/JCL.
+// ---------------------------------------------------------------------------
+/**
+ * Estrae il nome dichiarato in PROGRAM-ID (prima occorrenza nel file).
+ * @param {string[]} lines
+ * @returns {{name: string, line: number} | null}
+ */
+function extractProgramIdName(lines) {
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw).trim();
+        if (!code) continue;
+        const headerMatch = code.match(/^PROGRAM-ID\.?(?![A-Za-z0-9_-])\s*(.*)$/i);
+        if (!headerMatch) continue;
+
+        let rest = headerMatch[1].trim();
+        let nameLine = i;
+        // Il nome puo' stare sulla riga successiva se PROGRAM-ID e' da solo.
+        for (let j = i + 1; !rest && j < lines.length; j++) {
+            if (isSkippable(lines[j])) continue;
+            const nextCode = getCodeContent(lines[j]).trim();
+            if (!nextCode) continue;
+            rest = nextCode;
+            nameLine = j;
+        }
+        if (!rest) return null;
+
+        const nameMatch = rest.match(/^["']([^"']+)["']|^([A-Za-z0-9][A-Za-z0-9_-]*)/);
+        if (!nameMatch) return null;
+        return { name: nameMatch[1] || nameMatch[2], line: nameLine };
+    }
+    return null;
+}
+
+function checkProgramIdFilename(lines, fileBaseName) {
+    const cfg = getRuleConfig('program-id-filename');
+    if (!cfg.enabled || !fileBaseName) return [];
+    const diags = [];
+
+    const info = extractProgramIdName(lines);
+    if (!info) return diags;
+
+    if (info.name.toUpperCase() !== fileBaseName.toUpperCase()) {
+        diags.push(makeDiag(info.line, cfg.severity, 'program-id-filename',
+            msg('programIdFilenameMismatch', info.name, fileBaseName)));
     }
     return diags;
 }
@@ -2740,10 +2793,13 @@ function checkUnusedVariable(lines, workspaceRoot) {
     if (!cfg.enabled) return [];
     const diags = [];
 
-    // Raccoglie variabili WS con riga e livello
+    // Raccoglie variabili WS con riga e livello, oltre alla gerarchia
+    // discendenti/antenati (a QUALSIASI livello, non solo il gruppo 01: es.
+    // un REDEFINES di livello 05/10 con propri sotto-campi).
     const wsVars = new Map(); // name -> {line, level}
-    const wsGroupChildren = new Map(); // group01 -> [childNames]
-    let currentGroup = null;
+    const itemDescendants = new Map(); // name -> Set di nomi discendenti (ogni profondita')
+    const itemAncestors = new Map(); // name -> [nomi antenati, dal piu' esterno al piu' vicino]
+    const groupStack = []; // pila dei gruppi ancora "aperti" {name, level}
     const ctx = new AnalysisContext();
 
     for (let i = 0; i < lines.length; i++) {
@@ -2760,13 +2816,17 @@ function checkUnusedVariable(lines, workspaceRoot) {
         const name = levelMatch[2].replace(/\.$/, '');
         if (name === 'FILLER') continue;
         wsVars.set(name, { line: i, level });
-        if (level === 1) {
-            currentGroup = name;
-            wsGroupChildren.set(name, []);
-        } else if (currentGroup && level > 1) {
-            const children = wsGroupChildren.get(currentGroup);
-            if (children) children.push(name);
+
+        // Chiude i gruppi che non contengono piu' l'item corrente
+        while (groupStack.length && groupStack[groupStack.length - 1].level >= level) {
+            groupStack.pop();
         }
+        itemAncestors.set(name, groupStack.map(g => g.name));
+        for (const anc of groupStack) {
+            itemDescendants.get(anc.name).add(name);
+        }
+        itemDescendants.set(name, new Set());
+        groupStack.push({ name, level });
     }
 
     if (wsVars.size === 0) return diags;
@@ -2785,29 +2845,18 @@ function checkUnusedVariable(lines, workspaceRoot) {
         if (procRefs.has(name)) continue;
         if (level === 88) continue;
 
-        // Livello 01 gruppo: non segnalare se un figlio e' usato
-        if (level === 1 && wsGroupChildren.has(name)) {
-            const children = wsGroupChildren.get(name);
-            if (children.length > 0 && children.some(c => procRefs.has(c))) continue;
-        }
+        // Gruppo (a qualsiasi livello) con almeno un sotto-campo USATO: non
+        // segnalare il gruppo stesso, e' di fatto utilizzato tramite esso e
+        // cancellarlo romperebbe la struttura del record. Se invece NESSUN
+        // discendente e' usato, il gruppo e' davvero morto quanto i suoi
+        // campi e va segnalato anch'esso.
+        const descendants = itemDescendants.get(name);
+        if (descendants && descendants.size > 0 && [...descendants].some(d => procRefs.has(d))) continue;
 
-        // Sotto-campo: non segnalare se il padre 01 e' usato
-        if (level > 1) {
-            let parentUsed = false;
-            for (const [grp, children] of wsGroupChildren) {
-                if (children.includes(name) && procRefs.has(grp)) {
-                    parentUsed = true;
-                    break;
-                }
-            }
-            if (parentUsed) continue;
-        }
-
-        // Variabile 01 standalone o sotto-campo non usato
-        if (level === 1) {
-            const children = wsGroupChildren.get(name) || [];
-            if (children.length > 0) continue; // gruppo con figli, non segnalare il padre
-        }
+        // Elementare: non segnalare se un antenato (a qualsiasi livello,
+        // non solo il gruppo 01) e' usato per intero.
+        const ancestors = itemAncestors.get(name) || [];
+        if (ancestors.some(a => procRefs.has(a))) continue;
 
         diags.push(makeDiag(line, cfg.severity, 'unused-variable',
             msg('unusedVariable', name),
@@ -4195,9 +4244,10 @@ function computeSuppressions(lines) {
  * Esegue tutte le regole del linter su un testo COBOL.
  * @param {string} text - Contenuto del file
  * @param {string} [workspaceRoot] - Root del workspace per risolvere le copy
+ * @param {string} [fileBaseName] - Nome del file senza estensione, per il check program-id-filename
  * @returns {vscode.Diagnostic[]}
  */
-function runLinter(text, workspaceRoot) {
+function runLinter(text, workspaceRoot, fileBaseName) {
     // Verifica se il linter e' abilitato
     const config = vscode.workspace.getConfiguration('cobolLens.linter');
     if (!config.get('enabled', true)) return [];
@@ -4264,6 +4314,7 @@ function runLinter(text, workspaceRoot) {
     allDiags.push(...checkAlphanumericInCompute(lines, workspaceRoot));
     allDiags.push(...checkMoveAlphaToNumeric(lines, workspaceRoot));
     allDiags.push(...checkMoveTruncation(lines, workspaceRoot));
+    allDiags.push(...checkProgramIdFilename(lines, fileBaseName));
 
     // Ordina per riga
     allDiags.sort((a, b) => a.range.start.line - b.range.start.line);

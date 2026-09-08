@@ -2331,11 +2331,12 @@ function updateDiagnostics(document) {
     if (!isCobolDocument(document)) return;
 
     const { fsPath: workspaceRoot } = getWorkspaceRoot(document);
+    const fileBaseName = path.basename(document.fileName, path.extname(document.fileName));
 
     // Esegue il linter integrato (include gia' il check mismatched-copy)
     let diagnostics;
     try {
-        diagnostics = runLinter(document.getText(), workspaceRoot);
+        diagnostics = runLinter(document.getText(), workspaceRoot, fileBaseName);
     } catch (e) {
         // Senza questo try/catch un'eccezione nel linter lascia il Problems
         // panel silenziosamente vuoto, senza alcuna traccia visibile.

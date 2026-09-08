@@ -94,7 +94,7 @@ Can be controlled via `cobolLens.ifBlockHighlight.enabled` and `cobolLens.ifBloc
 
 ### Integrated Linter
 
-A built-in COBOL linter with **49 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
+A built-in COBOL linter with **50 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
 
 Categories of rules:
 
@@ -277,6 +277,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `move-truncation` | on | warning | MOVE into a destination with a smaller PIC (silent truncation); pure alphanumeric or numeric elementary items only |
 | `odo-not-last` | on | error | A table with OCCURS DEPENDING ON must be the last item in its record (nothing with storage may follow it) |
 | `consecutive-periods` | on | error | Two consecutive periods with no COBOL statement between them (e.g. `END-IF..`) |
+| `program-id-filename` | on | error | The name after PROGRAM-ID must match the file name |
 
 ## Compatibility
 

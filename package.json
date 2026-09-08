@@ -1,8 +1,8 @@
 {
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
-  "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 49-rule integrated linter. No compiler required.",
-  "version": "1.27.3",
+  "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 50-rule integrated linter. No compiler required.",
+  "version": "1.28.0",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -1058,6 +1058,17 @@
           "default": "error",
           "enum": ["error", "warning", "info"],
           "description": "%cobolLens.linter.rules.consecutive-periods.severity.description%"
+        },
+        "cobolLens.linter.rules.program-id-filename.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.linter.rules.program-id-filename.enabled.description%"
+        },
+        "cobolLens.linter.rules.program-id-filename.severity": {
+          "type": "string",
+          "default": "error",
+          "enum": ["error", "warning", "info"],
+          "description": "%cobolLens.linter.rules.program-id-filename.severity.description%"
         }
       }
     },

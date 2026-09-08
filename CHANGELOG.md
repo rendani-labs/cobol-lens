@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.28.0] - 2026-09-08
+
+### Added
+- New linter rule `program-id-filename` (enabled, severity `error`): flags a `PROGRAM-ID` name that does not match the file name (without extension). Compares case-insensitively.
+
+### Fixed
+- Syntax highlighting: reserved words (e.g. `TEST`) were incorrectly colored as keywords when immediately followed by an underscore inside a longer identifier (e.g. `TEST_CRISTIAN` in `PROGRAM-ID. TEST_CRISTIAN.`), because the word-boundary check did not treat underscore as an identifier character. The grammar now treats underscore as part of an identifier everywhere, so such names are colored consistently as a single identifier.
+
+## [1.27.4] - 2026-09-02
+
+### Fixed
+- `unused-variable`: a group item (a REDEFINES or a plain group) at any level, not just level 01, whose sub-fields are referenced in the PROCEDURE DIVISION is no longer flagged as unused. Previously this was only handled for level 01 groups, so a nested REDEFINES (for example a level 05/10 REDEFINES with its own sub-fields) was reported as unused even though its members were actively used, which could mislead someone into deleting it and breaking the record layout.
+- `unused-variable`: conversely, a level 01 group whose sub-fields are all individually flagged as unused was never flagged itself (the group header was unconditionally exempt). It is now reported too when none of its members are referenced anywhere.
+
 ## [1.27.3] - 2026-08-31
 
 ### Fixed
