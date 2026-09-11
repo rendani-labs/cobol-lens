@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.28.2] - 2026-09-11
+
+### Fixed
+- `chars-after-period`: content written after a period on the same line is no longer reported when it is valid COBOL. The period that closes a paragraph header of the ENVIRONMENT DIVISION (`SOURCE-COMPUTER`, `OBJECT-COMPUTER`, `SPECIAL-NAMES`, `REPOSITORY`, `FILE-CONTROL`, `I-O-CONTROL`) or a DIVISION/SECTION header is not a sentence terminator, so entries such as `SPECIAL-NAMES. DECIMAL-POINT IS COMMA` are valid. A new entry started on the same line after a real terminator period is also accepted: a data description entry or `FD`/`SD`/`RD`/`CD` in the DATA DIVISION, a new statement in the PROCEDURE DIVISION, a `SELECT` or a paragraph header in the ENVIRONMENT DIVISION. Truly spurious content after a period is still reported.
+- `undefined-variable`: mnemonic names defined in the `SPECIAL-NAMES` paragraph (for example `C01 IS CANALE1`) are now collected as defined symbols, so referencing them in the PROCEDURE DIVISION (`WRITE ... AFTER ADVANCING CANALE1`, `DISPLAY ... UPON CANALE1`) no longer produces a false positive. Alphabet names and class names declared in the same paragraph are collected as well.
+- Syntax highlighting and linter: the standard system names of `SPECIAL-NAMES` (`C01`-`C12`, `S01`-`S05`, `CSP`, `TOP-OF-PAGE`, `CONSOLE`, `SYSIN`, `SYSIPT`, `SYSOUT`, `SYSLST`, `SYSLIST`, `SYSPUNCH`, `SYSPCH`, `SYSERR`, `ARGUMENT-NUMBER`, `ARGUMENT-VALUE`) are now recognized as reserved words and colored as keywords instead of plain identifiers.
+
+## [1.28.1] - 2026-09-11
+
+### Fixed
+- `undefined-variable`: `SKIP1`, `SKIP2` and `SKIP3` (reserved words of the `WRITE ... AFTER/BEFORE ADVANCING` clause, used to skip 1/2/3 lines when printing) were reported as undefined variables. They are now recognized as reserved words and also syntax-highlighted as keywords instead of plain identifiers.
+
 ## [1.28.0] - 2026-09-08
 
 ### Added

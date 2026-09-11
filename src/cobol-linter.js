@@ -2085,7 +2085,7 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'SAME', 'SD', 'SEARCH', 'SECTION', 'SECURITY', 'SEGMENT',
     'SELECT', 'SELF', 'SEND', 'SENTENCE', 'SEPARATE',
     'SEQUENCE', 'SEQUENTIAL', 'SET', 'SIGN',
-    'SIZE', 'SORT', 'SORT-RETURN', 'SOURCE', 'SOURCE-COMPUTER',
+    'SIZE', 'SKIP1', 'SKIP2', 'SKIP3', 'SORT', 'SORT-RETURN', 'SOURCE', 'SOURCE-COMPUTER',
     'SPACE', 'SPACES', 'SPECIAL-NAMES', 'STANDARD',
     'START', 'STATUS', 'STOP', 'STRING',
     'SUBTRACT', 'SUM', 'SUPER', 'SUPPRESS', 'SYNC', 'SYNCHRONIZED',
@@ -2097,6 +2097,13 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'VALUE', 'VALUES', 'VARYING',
     'WHEN', 'WITH', 'WORDS', 'WORKING-STORAGE', 'WRITE',
     'ZERO', 'ZEROES', 'ZEROS',
+    // Nomi di sistema della SPECIAL-NAMES (canali di stampa, periferiche):
+    // non sono data item, si usano per definire i nomi mnemonici.
+    'C01', 'C02', 'C03', 'C04', 'C05', 'C06', 'C07', 'C08', 'C09', 'C10',
+    'C11', 'C12', 'S01', 'S02', 'S03', 'S04', 'S05', 'CSP', 'TOP-OF-PAGE',
+    'CONSOLE', 'SYSIN', 'SYSIPT', 'SYSOUT', 'SYSLIST', 'SYSLST', 'SYSPUNCH',
+    'SYSPCH', 'SYSERR', 'ARGUMENT-NUMBER', 'ARGUMENT-VALUE',
+    'ENVIRONMENT-NAME', 'ENVIRONMENT-VALUE',
     // EXEC CICS / EXEC SQL keywords
     'EXEC', 'END-EXEC', 'CICS', 'SQL',
     'ABEND', 'ABCODE', 'ASKTIME', 'ASSIGN', 'CANCEL',
@@ -2189,6 +2196,7 @@ function collectJsonXmlRegions(lines) {
 function collectDefinedSymbols(lines, isCopy) {
     const symbols = new Set();
     const ctx = new AnalysisContext();
+    let inSpecialNames = false;
 
     for (const line of lines) {
         const raw = line;
@@ -2197,6 +2205,25 @@ function collectDefinedSymbols(lines, isCopy) {
         if (!code.trim()) continue;
         if (!isCopy) ctx.update(raw, code);
         const upper = code.trim().toUpperCase();
+
+        // Paragrafo SPECIAL-NAMES: i nomi mnemonici e i nomi di alfabeto/classe
+        // definiti qui (es. "C01 IS CANALE1") non sono data item ma possono
+        // essere riferiti nella PROCEDURE DIVISION.
+        if (/^SPECIAL-NAMES\b/.test(upper)) inSpecialNames = true;
+        else if (inSpecialNames && !/^\s/.test(code)) inSpecialNames = false;
+        if (inSpecialNames) {
+            const declared = [];
+            const namedMatch = upper.match(/^(?:ALPHABET|CLASS|SYMBOLIC\s+CHARACTERS?)\s+([A-Z0-9][\w-]*)/);
+            if (namedMatch) declared.push(namedMatch[1]);
+            const isRegex = /\bIS\s+([A-Z0-9][\w-]*)/g;
+            let isMatch;
+            while ((isMatch = isRegex.exec(upper)) !== null) declared.push(isMatch[1]);
+            for (const name of declared) {
+                const n = name.replace(/\.$/, '');
+                if (n && !COBOL_RESERVED_EXTENDED.has(n)) symbols.add(n);
+            }
+            continue;
+        }
 
         if (ctx.inFileControl) {
             const selMatch = upper.match(/^\s*SELECT\s+(\S+)/);
@@ -3094,23 +3121,69 @@ function checkMissingLevel(lines) {
 // ---------------------------------------------------------------------------
 // chars-after-period (contenuto dopo il punto terminatore)
 // ---------------------------------------------------------------------------
+
+// Paragrafi della ENVIRONMENT DIVISION: il punto che ne chiude l'header NON e'
+// il terminatore di una frase, quindi la entry puo' iniziare sulla stessa riga
+// (es. "SPECIAL-NAMES. DECIMAL-POINT IS COMMA").
+const ENV_DIVISION_PARAGRAPHS = new Set([
+    'SOURCE-COMPUTER', 'OBJECT-COMPUTER', 'SPECIAL-NAMES', 'REPOSITORY',
+    'FILE-CONTROL', 'I-O-CONTROL'
+]);
+
+// Verbi che possono aprire un nuovo statement: in PROCEDURE DIVISION una
+// seconda frase sulla stessa riga dopo il punto terminatore e' COBOL valido.
+const STATEMENT_START_VERBS = new Set([
+    'ACCEPT', 'ADD', 'ALTER', 'CALL', 'CANCEL', 'CHAIN', 'CLOSE', 'COMPUTE',
+    'CONTINUE', 'DELETE', 'DISABLE', 'DISPLAY', 'DIVIDE', 'ENABLE', 'ENTER',
+    'ENTRY', 'EVALUATE', 'EXEC', 'EXHIBIT', 'EXIT', 'FREE', 'GENERATE', 'GO',
+    'GOBACK', 'IF', 'INITIALIZE', 'INITIATE', 'INSPECT', 'INVOKE', 'MERGE',
+    'MOVE', 'MULTIPLY', 'NEXT', 'OPEN', 'PERFORM', 'READ', 'READY', 'RECEIVE',
+    'RELEASE', 'RESET', 'RETURN', 'REWRITE', 'SEARCH', 'SEND', 'SERVICE',
+    'SET', 'SORT', 'START', 'STOP', 'STRING', 'SUBTRACT', 'SUPPRESS',
+    'TERMINATE', 'UNLOCK', 'UNSTRING', 'USE', 'WRITE'
+]);
+
+/**
+ * Verifica se il contenuto che segue un punto terminatore sulla stessa riga e'
+ * l'inizio di una nuova entry COBOL valida: il COBOL non impone una entry per
+ * riga, quindi va segnalato solo il contenuto che non puo' aprire nulla di
+ * valido nella divisione corrente.
+ * @param {string} after - testo dopo il punto (gia' maiuscolo, senza letterali)
+ * @param {string} division - divisione corrente
+ * @returns {boolean}
+ */
+function isValidEntryAfterPeriod(after, division) {
+    const text = after.replace(/^\s+/, '');
+    if (!text) return true;
+    // Direttive/statement del compilatore: validi in qualunque divisione.
+    if (/^(?:COPY|REPLACE|EJECT|SKIP[123]|TITLE)\b/.test(text)) return true;
+    const word = (text.match(/^[A-Z0-9][\w-]*/) || [''])[0];
+    switch (division) {
+        case 'PROCEDURE':
+            return STATEMENT_START_VERBS.has(word);
+        case 'DATA':
+            // Nuova data description entry o descrizione di file.
+            return /^\d{1,2}\s+[A-Z]/.test(text) || /^(?:FD|SD|RD|CD)\s+[A-Z]/.test(text);
+        case 'ENVIRONMENT':
+            return word === 'SELECT' || ENV_DIVISION_PARAGRAPHS.has(word);
+        default:
+            // Copybook o frammento senza header di divisione: puo' contenere
+            // sia tracciati dati sia statement.
+            return /^\d{1,2}\s+[A-Z]/.test(text) || STATEMENT_START_VERBS.has(word);
+    }
+}
+
 function checkCharsAfterPeriod(lines) {
     const cfg = getRuleConfig('chars-after-period');
     if (!cfg.enabled) return [];
     const diags = [];
     const ctx = new AnalysisContext();
 
+    // I paragrafi della IDENTIFICATION DIVISION contengono testo libero (anche
+    // con punti), quindi l'intera riga e' esente dal controllo.
     const idDivisionClauses = new Set([
         'PROGRAM-ID', 'AUTHOR', 'INSTALLATION', 'DATE-WRITTEN',
         'DATE-COMPILED', 'SECURITY', 'REMARKS'
-    ]);
-
-    // Paragrafi della ENVIRONMENT DIVISION (CONFIGURATION SECTION) il cui
-    // formato standard ha l'entry sulla stessa riga dopo il punto dell'header:
-    //   SOURCE-COMPUTER. IBM-370.
-    //   OBJECT-COMPUTER. IBM-370.
-    const envDivisionClauses = new Set([
-        'SOURCE-COMPUTER', 'OBJECT-COMPUTER'
     ]);
 
     for (let i = 0; i < lines.length; i++) {
@@ -3127,12 +3200,9 @@ function checkCharsAfterPeriod(lines) {
         // AUTHOR. COGNOME.
         const idClauseMatch = upperCode.trim().match(/^([A-Z-]+)\./);
         const isValidIdClauseLine =
-            !!idClauseMatch && (
-                (ctx.currentDivision === 'IDENTIFICATION' &&
-                    idDivisionClauses.has(idClauseMatch[1])) ||
-                (ctx.currentDivision === 'ENVIRONMENT' &&
-                    envDivisionClauses.has(idClauseMatch[1]))
-            );
+            !!idClauseMatch
+            && ctx.currentDivision === 'IDENTIFICATION'
+            && idDivisionClauses.has(idClauseMatch[1]);
 
         // 1) Se c'e' un punto TERMINATORE (seguito da spazio o fine riga) nella
         // parte di codice, dopo di esso devono esserci solo spazi. I punti
@@ -3142,27 +3212,31 @@ function checkCharsAfterPeriod(lines) {
         if (!isValidIdClauseLine) {
             const codeNoLit = stripLiterals(upperCode);
 
-            // Header di paragrafo nella PROCEDURE DIVISION: il punto che chiude
-            // il nome del paragrafo (in Area A, primo carattere del codice) non
-            // e' il terminatore di una frase. Uno statement sulla stessa riga
-            // (idioma comune "EX-ELABORA. EXIT.") e' quindi valido: si inizia a
-            // cercare il punto terminatore dopo il nome del paragrafo.
+            // Il punto che chiude l'header di una division/section/paragrafo
+            // (in Area A) non e' il terminatore di una frase: la entry
+            // successiva puo' stare sulla stessa riga, sia nella PROCEDURE
+            // DIVISION (idioma comune "EX-ELABORA. EXIT.") sia nella
+            // ENVIRONMENT DIVISION ("SPECIAL-NAMES. DECIMAL-POINT IS COMMA").
             let searchStart = 0;
-            if (ctx.currentDivision === 'PROCEDURE' && /^[A-Z0-9]/.test(codeNoLit)) {
-                const headerMatch = codeNoLit.match(/^[A-Z0-9][\w-]*\.(?=\s|$)/);
-                if (headerMatch) searchStart = headerMatch[0].length;
+            if (/^[A-Z0-9]/.test(codeNoLit)) {
+                const divSectMatch = codeNoLit.match(
+                    /^[A-Z0-9][\w-]*(?:\s+[A-Z0-9][\w-]*)*?\s+(?:DIVISION|SECTION)[^.]*\.(?=\s|$)/);
+                const paraMatch = codeNoLit.match(/^([A-Z0-9][\w-]*)\.(?=\s|$)/);
+                if (divSectMatch) {
+                    searchStart = divSectMatch[0].length;
+                } else if (paraMatch
+                    && (ctx.currentDivision === 'PROCEDURE'
+                        || ENV_DIVISION_PARAGRAPHS.has(paraMatch[1]))) {
+                    searchStart = paraMatch[0].length;
+                }
             }
 
             const relIdx = findTerminatorPeriod(codeNoLit.substring(searchStart));
             const periodIdx = relIdx >= 0 ? searchStart + relIdx : -1;
             if (periodIdx >= 0) {
                 const afterPeriodRaw = codeNoLit.substring(periodIdx + 1);
-                // Uno statement COPY sulla stessa riga dopo il punto che chiude
-                // un data item (es. "01 GRUPPO.  COPY MEMBRO.") e' COBOL valido:
-                // il copybook porta i campi subordinati al gruppo. Non e'
-                // contenuto spurio, quindi non va segnalato.
-                const isCopyAfterPeriod = /^\s*COPY\b/.test(afterPeriodRaw);
-                if (/\S/.test(afterPeriodRaw) && !isCopyAfterPeriod) {
+                if (/\S/.test(afterPeriodRaw)
+                    && !isValidEntryAfterPeriod(afterPeriodRaw, ctx.currentDivision)) {
                     const nonSpaceOffset = afterPeriodRaw.search(/\S/);
                     const colStart = 7 + periodIdx + 1 + (nonSpaceOffset >= 0 ? nonSpaceOffset : 0);
                     const colEnd = colStart + 1;
