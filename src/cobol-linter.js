@@ -15,7 +15,7 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 const { isComment, resolveCopybookPath, COPY_REGEX, COBOL_RESERVED, REPLACING_PAIR_REGEX } = require('./cobol-parser');
-const { expandPicture } = require('./cobol-layout');
+const { detectUsage, elementarySize, hasImplicitSize, hasSignSeparate } = require('./cobol-layout');
 const { msg, getLang, setLang } = require('./messages');
 
 // ============================================================================
@@ -1031,6 +1031,18 @@ function checkParagraphNaming(lines) {
     return diags;
 }
 
+// Riconosce l'inizio di una vera voce dati ("livello nome"). Un nome COBOL
+// valido contiene sempre almeno una lettera: una riga che inizia con soli
+// numeri (es. un elenco di VALUES di un 88 continuato su piu' righe, tipo
+// "5 15 19 35 39 55") NON e' una nuova voce anche se "assomiglia" a
+// "livello nome" (entrambi i token sono numerici).
+function isDataItemStart(code) {
+    const m = code.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+    if (!m) return null;
+    if (!/[A-Z]/.test(m[2])) return null;
+    return { level: parseInt(m[1], 10), name: m[2] };
+}
+
 // ---------------------------------------------------------------------------
 // missing-period
 // ---------------------------------------------------------------------------
@@ -1050,7 +1062,7 @@ function checkMissingPeriod(lines) {
 
         const upper = code.trim().toUpperCase();
         if (upper.startsWith('COPY ')) continue;
-        if (!/^\s*\d{1,2}\s+/.test(upper)) continue;
+        if (!isDataItemStart(upper)) continue;
         // Controlla se c'e' un punto nel codice (escludendo i literal)
         const withoutLit = stripLiterals(upper);
         if (withoutLit.includes('.')) continue;
@@ -1061,7 +1073,7 @@ function checkMissingPeriod(lines) {
             if (isSkippable(nextRaw)) continue;
             const nextCode = getCodeContent(nextRaw).trim().toUpperCase();
             if (!nextCode) continue;
-            if (/^\s*\d{1,2}\s+/.test(nextCode) ||
+            if (isDataItemStart(nextCode) ||
                 nextCode.startsWith('FD ') || nextCode.startsWith('SD ') ||
                 nextCode.startsWith('COPY ') ||
                 nextCode.includes('SECTION.') || nextCode.includes('DIVISION')) {
@@ -1288,11 +1300,11 @@ function checkPicMissing(lines) {
 
         const upper = code.trim().toUpperCase();
         if (upper.startsWith('COPY ')) { i++; continue; }
-        const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+        const levelMatch = isDataItemStart(upper);
         if (!levelMatch) { i++; continue; }
 
-        const level = parseInt(levelMatch[1], 10);
-        const name = levelMatch[2].replace(/\.$/, '');
+        const level = levelMatch.level;
+        const name = levelMatch.name.replace(/\.$/, '');
         const lineNum = i;
 
         // Accumula righe di continuazione fino al punto finale
@@ -1304,8 +1316,10 @@ function checkPicMissing(lines) {
                 const nextCode = getCodeContent(lines[j]);
                 if (!nextCode.trim()) { j++; continue; }
                 // Se la prossima riga inizia con un nuovo livello, non e' continuazione
+                // (una riga di soli numeri, es. valori di un 88 su piu' righe, resta
+                // continuazione: isDataItemStart la esclude perche' priva di lettere).
                 const nextUpper = nextCode.trim().toUpperCase();
-                if (/^\d{1,2}\s+/.test(nextUpper)) break;
+                if (isDataItemStart(nextUpper)) break;
                 fullStmt += ' ' + nextCode.trim();
                 j++;
                 if (fullStmt.trimEnd().endsWith('.')) break;
@@ -1318,7 +1332,7 @@ function checkPicMissing(lines) {
         const hasRenames = /\bRENAMES\b/.test(fullUpper);
         const hasIndex = /\bINDEX\b/.test(fullUpper);
         // Tipi USAGE che non richiedono la clausola PIC.
-        const hasNoPicUsage = /(?<![A-Z0-9-])(POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|COMP-1|COMPUTATIONAL-1|COMP-2|COMPUTATIONAL-2|OBJECT\s+REFERENCE)(?![A-Z0-9-])/.test(fullUpper);
+        const hasNoPicUsage = /(?<![A-Z0-9-])(POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|COMP-1|COMPUTATIONAL-1|COMP-2|COMPUTATIONAL-2|BINARY-CHAR|BINARY-SHORT|BINARY-LONG|BINARY-DOUBLE|OBJECT\s+REFERENCE)(?![A-Z0-9-])/.test(fullUpper);
         // COBOL 2002: costante dichiarata con la parola chiave CONSTANT.
         const hasConstant = /\bCONSTANT\b/.test(fullUpper);
 
@@ -1764,47 +1778,22 @@ function checkAndOrIf(lines) {
 
 /**
  * Calcola la dimensione in byte di una clausola PIC.
+ * Delega al motore di cobol-layout (lo stesso usato da Show Record Layout)
+ * per avere un unico punto di verita' su tutti gli USAGE.
  * @param {string} pic
  * @param {string} usage
+ * @param {boolean} [signSeparate]
  * @returns {number}
  */
-function computePicSize(pic, usage) {
+function computePicSize(pic, usage, signSeparate) {
     if (!pic) return 0;
-    const expanded = expandPicture(pic);
-
-    let digits = 0;     // cifre numeriche (per COMP/COMP-3)
-    let positions = 0;  // posizioni di storage (per DISPLAY)
-    for (const ch of expanded) {
-        // S (segno in overpunch), V (virgola implicita) e P (scaling) non occupano byte
-        if (ch === 'S' || ch === 'V') continue;
-        if (ch === 'P') { digits++; continue; }
-        if (ch === '9' || ch === 'Z') digits++;
-        // Tutti gli altri simboli (X A B , . / 0 + - * $ CR DB) occupano 1 byte
-        positions++;
-    }
-
-    const u = (usage || 'DISPLAY').toUpperCase().replace(/\s+/g, '-');
-    switch (u) {
-        case 'COMP-3':
-        case 'PACKED-DECIMAL':
-            return Math.ceil((digits + 1) / 2);
-        case 'COMP':
-        case 'COMP-4':
-        case 'COMP-5':
-        case 'BINARY':
-            if (digits <= 4) return 2;
-            if (digits <= 9) return 4;
-            return 8;
-        case 'COMP-1': return 4;
-        case 'COMP-2': return 8;
-        default: return positions;
-    }
+    return elementarySize({ pic, usage: (usage || 'DISPLAY').toUpperCase(), signSeparate: !!signSeparate });
 }
 
 /**
  * Parsa le definizioni di variabili nella DATA DIVISION.
  * @param {string[]} lines
- * @returns {Array<{level:number, name:string, pic:string|null, usage:string, occurs:number, redefines:string|null, dependingOn?:string|null, lineNum:number}>}
+ * @returns {Array<{level:number, name:string, pic:string|null, usage:string, occurs:number, redefines:string|null, dependingOn?:string|null, signSeparate:boolean, lineNum:number}>}
  */
 function parseDataItems(lines) {
     const items = [];
@@ -1848,16 +1837,8 @@ function parseDataItems(lines) {
         const picMatch = upper.match(/\bPIC(?:TURE)?\s+(?:IS\s+)?(\S+)/);
         const pic = picMatch ? (picMatch[1].replace(/[.,;]$/, '') || null) : null;
 
-        // USAGE (cercare solo DOPO il nome variabile per evitare match in nomi come WS-COMP-AREA)
-        let usage = 'DISPLAY';
-        const usageKw = upper.match(/\bUSAGE\s+(?:IS\s+)?(COMP(?:-[0-9])?|BINARY|PACKED-DECIMAL|POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|INDEX|DISPLAY(?:-1)?)/);
-        if (usageKw) {
-            usage = usageKw[1];
-        } else {
-            // Cerca COMP/BINARY/PACKED-DECIMAL/POINTER/INDEX solo dopo il nome (non dentro nomi iphenati)
-            const inlineUsage = upper.match(/(?<![-A-Z])\b(COMP(?:-[0-9])?|BINARY|PACKED-DECIMAL|POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|INDEX)\b(?![-A-Z])/);
-            if (inlineUsage) usage = inlineUsage[1];
-        }
+        // USAGE normalizzato dal motore di layout (ignora i match dentro nomi come WS-COMP-AREA).
+        const usage = detectUsage(upper);
 
         // OCCURS (escludi match in nomi variabile come W-N-OCCURS)
         const occursMatch = upper.match(/(?:^|\s)OCCURS\s+(\d+)/);
@@ -1871,7 +1852,7 @@ function parseDataItems(lines) {
         const odoMatch = upper.match(/\bOCCURS\b[^.]*?\bDEPENDING\s+(?:ON\s+)?([A-Z][A-Z0-9-]*)/);
         const dependingOn = odoMatch ? odoMatch[1] : null;
 
-        items.push({ level, name, pic, usage, occurs, redefines, dependingOn, lineNum });
+        items.push({ level, name, pic, usage, occurs, redefines, dependingOn, signSeparate: hasSignSeparate(upper), lineNum });
     }
     return items;
 }
@@ -1879,28 +1860,14 @@ function parseDataItems(lines) {
 /**
  * Restituisce la dimensione in byte di un item elementare con USAGE a
  * dimensione fissa che non richiede la clausola PIC (POINTER, INDEX,
- * COMP-1, COMP-2). Restituisce 0 se l'usage non e' di questo tipo.
+ * COMP-1, COMP-2, BINARY-CHAR/SHORT/LONG/DOUBLE).
+ * Restituisce 0 se l'usage non e' di questo tipo.
  * @param {string} usage
  * @returns {number}
  */
 function noPicUsageSize(usage) {
-    const u = (usage || '').toUpperCase().replace(/\s+/g, '-');
-    switch (u) {
-        case 'COMP-1':
-        case 'COMPUTATIONAL-1':
-            return 4;
-        case 'COMP-2':
-        case 'COMPUTATIONAL-2':
-            return 8;
-        case 'INDEX':
-            return 4;
-        case 'POINTER':
-        case 'PROCEDURE-POINTER':
-        case 'FUNCTION-POINTER':
-            return 4;
-        default:
-            return 0;
-    }
+    const u = (usage || '').toUpperCase();
+    return hasImplicitSize(u) ? elementarySize({ usage: u, pic: null }) : 0;
 }
 
 /**
@@ -1912,7 +1879,7 @@ function noPicUsageSize(usage) {
 function computeItemSize(items, idx) {
     const item = items[idx];
     if (item.pic) {
-        return computePicSize(item.pic, item.usage) * item.occurs;
+        return computePicSize(item.pic, item.usage, item.signSeparate) * item.occurs;
     }
     // Item elementari con USAGE a dimensione fissa che non richiedono PIC.
     const fixedUsageSize = noPicUsageSize(item.usage);
@@ -1936,7 +1903,7 @@ function computeItemSize(items, idx) {
             continue;
         }
         if (items[k].pic) {
-            size += computePicSize(items[k].pic, items[k].usage) * items[k].occurs;
+            size += computePicSize(items[k].pic, items[k].usage, items[k].signSeparate) * items[k].occurs;
             k++;
         } else if (noPicUsageSize(items[k].usage) > 0) {
             // Item elementare con USAGE a dimensione fissa (POINTER, INDEX, COMP-1/2).
@@ -2031,12 +1998,13 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'ALPHABETIC', 'ALPHABETIC-LOWER', 'ALPHABETIC-UPPER', 'ALPHANUMERIC',
     'ALSO', 'ALTER', 'ALTERNATE', 'AND', 'ANY', 'ARE', 'AREA', 'AREAS',
     'ASCENDING', 'ASSIGN', 'AT', 'AUTHOR',
-    'BEFORE', 'BINARY', 'BLANK', 'BLOCK', 'BOTTOM', 'BY',
+    'BEFORE', 'BINARY', 'BINARY-CHAR', 'BINARY-DOUBLE', 'BINARY-LONG', 'BINARY-SHORT',
+    'BLANK', 'BLOCK', 'BOTTOM', 'BY',
     'CALL', 'CANCEL', 'CHANGED', 'CHARACTER', 'CHARACTERS', 'CLASS', 'CLOSE',
     'COBOL', 'CODE', 'COLLATING', 'COMMA', 'COMMIT', 'COMMON',
-    'COMP', 'COMP-1', 'COMP-2', 'COMP-3', 'COMP-4', 'COMP-5',
+    'COMP', 'COMP-1', 'COMP-2', 'COMP-3', 'COMP-4', 'COMP-5', 'COMP-6', 'COMP-X',
     'COMPUTATIONAL', 'COMPUTATIONAL-1', 'COMPUTATIONAL-2', 'COMPUTATIONAL-3',
-    'COMPUTATIONAL-4', 'COMPUTATIONAL-5',
+    'COMPUTATIONAL-4', 'COMPUTATIONAL-5', 'COMPUTATIONAL-6', 'COMPUTATIONAL-X',
     'COMPUTE', 'CONFIGURATION', 'CONTAINS', 'CONTENT', 'CONTINUE',
     'CONTROL', 'CONVERTING', 'COPY', 'CORR', 'CORRESPONDING', 'COUNT',
     'CURRENCY',
@@ -2249,9 +2217,9 @@ function collectDefinedSymbols(lines, isCopy) {
         }
 
         if (isCopy || ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection) {
-            const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+            const levelMatch = isDataItemStart(upper);
             if (levelMatch) {
-                const name = levelMatch[2].replace(/\.$/, '');
+                const name = levelMatch.name.replace(/\.$/, '');
                 if (name !== 'FILLER') symbols.add(name);
             }
             // Indici dichiarati con OCCURS ... INDEXED BY idx-1 [idx-2 ...]
@@ -2396,6 +2364,8 @@ function extractVariableRefs(lines) {
 
         const upper = code.trim().toUpperCase();
         if (code && !/^\s/.test(code) && /^[A-Z0-9][\w-]*\.\s*$/.test(upper)) continue;
+        // Header di SECTION (es. "INIZIO SECTION."): il nome non e' una variabile.
+        if (code && !/^\s/.test(code) && /^[A-Z0-9][\w-]*\s+SECTION\s*\.\s*$/.test(upper)) continue;
 
         let cleaned = stripLiterals(upper);
         const inlinePos = cleaned.indexOf('*>');
@@ -2837,10 +2807,10 @@ function checkUnusedVariable(lines, workspaceRoot) {
         ctx.update(raw, code);
         if (!ctx.inWorkingStorage) continue;
         const upper = code.trim().toUpperCase();
-        const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+        const levelMatch = isDataItemStart(upper);
         if (!levelMatch) continue;
-        const level = parseInt(levelMatch[1], 10);
-        const name = levelMatch[2].replace(/\.$/, '');
+        const level = levelMatch.level;
+        const name = levelMatch.name.replace(/\.$/, '');
         if (name === 'FILLER') continue;
         wsVars.set(name, { line: i, level });
 
@@ -2870,7 +2840,16 @@ function checkUnusedVariable(lines, workspaceRoot) {
 
     for (const [name, { line, level }] of wsVars) {
         if (procRefs.has(name)) continue;
-        if (level === 88) continue;
+
+        if (level === 88) {
+            // Un nome di condizione va segnalato in modo indipendente dal
+            // campo genitore: usare/valorizzare il genitore altrove (es. MOVE)
+            // non equivale a testare questa condizione (IF/WHEN/SET ... TO TRUE).
+            diags.push(makeDiag(line, cfg.severity, 'unused-variable',
+                msg('unusedVariable', name),
+                undefined, undefined, name));
+            continue;
+        }
 
         // Gruppo (a qualsiasi livello) con almeno un sotto-campo USATO: non
         // segnalare il gruppo stesso, e' di fatto utilizzato tramite esso e
@@ -2933,9 +2912,9 @@ function checkDuplicateVariable(lines, workspaceRoot) {
         ctx.update(raw, code);
         if (ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection) {
             const upper = code.trim().toUpperCase();
-            const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+            const levelMatch = isDataItemStart(upper);
             if (levelMatch) {
-                const name = levelMatch[2].replace(/\.$/, '');
+                const name = levelMatch.name.replace(/\.$/, '');
                 if (name === 'FILLER') continue;
                 const list = progDefs.get(name) || [];
                 list.push(i);
@@ -3040,9 +3019,9 @@ function checkVariableNameLength(lines) {
         ctx.update(raw, code);
         if (!(ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection)) continue;
         const upper = code.trim().toUpperCase();
-        const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+        const levelMatch = isDataItemStart(upper);
         if (levelMatch) {
-            const name = levelMatch[2].replace(/\.$/, '');
+            const name = levelMatch.name.replace(/\.$/, '');
             if (name === 'FILLER') continue;
             if (name.length > MAX_NAME_LENGTH) {
                 diags.push(makeDiag(i, cfg.severity, 'variable-name-length',
@@ -3331,11 +3310,11 @@ function collectDataItemTypes(lines, isCopy) {
         if (!isCopy && !(dataCtx.inWorkingStorage || dataCtx.inLinkage || dataCtx.inFileSection)) { di++; continue; }
 
         const upper = code.trim().toUpperCase();
-        const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+        const levelMatch = isDataItemStart(upper);
         if (!levelMatch) { di++; continue; }
 
-        const level = parseInt(levelMatch[1], 10);
-        const name = levelMatch[2].replace(/\.$/, '');
+        const level = levelMatch.level;
+        const name = levelMatch.name.replace(/\.$/, '');
         if (name === 'FILLER' || level === 88 || level === 66) { di++; continue; }
 
         // Accumula righe di continuazione fino al punto
@@ -3347,7 +3326,7 @@ function collectDataItemTypes(lines, isCopy) {
                 const nextCode = getCodeContent(lines[j]);
                 if (!nextCode.trim()) { j++; continue; }
                 const nextUpper = nextCode.trim().toUpperCase();
-                if (/^\d{1,2}\s+/.test(nextUpper)) break;
+                if (isDataItemStart(nextUpper)) break;
                 fullStmt += ' ' + nextCode.trim();
                 j++;
                 if (fullStmt.trimEnd().endsWith('.')) break;
@@ -4013,10 +3992,10 @@ function collectDataItemPics(lines, isCopy) {
         if (!isCopy && !(dataCtx.inWorkingStorage || dataCtx.inLinkage || dataCtx.inFileSection)) { di++; continue; }
 
         const upper = code.trim().toUpperCase();
-        const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+        const levelMatch = isDataItemStart(upper);
         if (!levelMatch) { di++; continue; }
-        const level = parseInt(levelMatch[1], 10);
-        const name = levelMatch[2].replace(/\.$/, '');
+        const level = levelMatch.level;
+        const name = levelMatch.name.replace(/\.$/, '');
         if (name === 'FILLER' || level === 88 || level === 66) { di++; continue; }
 
         let fullStmt = code;
@@ -4027,7 +4006,7 @@ function collectDataItemPics(lines, isCopy) {
                 const nextCode = getCodeContent(lines[j]);
                 if (!nextCode.trim()) { j++; continue; }
                 const nextUpper = nextCode.trim().toUpperCase();
-                if (/^\d{1,2}\s+/.test(nextUpper)) break;
+                if (isDataItemStart(nextUpper)) break;
                 fullStmt += ' ' + nextCode.trim();
                 j++;
                 if (fullStmt.trimEnd().endsWith('.')) break;

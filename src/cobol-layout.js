@@ -10,10 +10,15 @@ const { isComment, VARIABLE_DEF_REGEX, COPY_REGEX, resolveCopybookPath } = requi
  * Regole implementate:
  * - DISPLAY: 1 byte per ogni posizione della PICTURE (V e P non occupano byte,
  *   il segno S in overpunch non aggiunge byte; SIGN SEPARATE aggiunge 1 byte).
+ * - NATIONAL / DISPLAY-1 / PICTURE con N o G: 2 byte per posizione.
  * - COMP-3 / PACKED-DECIMAL: floor(cifre / 2) + 1.
+ * - COMP-6 (packed senza segno): ceil(cifre / 2).
  * - COMP / COMP-4 / BINARY / COMP-5: 2 byte (1-4 cifre), 4 byte (5-9),
  *   8 byte (10-18).
+ * - COMP-X: con PIC X(n) sono n byte; con PIC 9(n) e' il numero minimo di byte
+ *   che contiene n cifre decimali (1-2 -> 1, 3-4 -> 2, 5-7 -> 3, 8-9 -> 4, ...).
  * - COMP-1: 4 byte. COMP-2: 8 byte. INDEX: 4 byte. POINTER: 4 byte.
+ * - BINARY-CHAR: 1 byte. BINARY-SHORT: 2. BINARY-LONG: 4. BINARY-DOUBLE: 8.
  * - OCCURS n: moltiplica la dimensione del campo/gruppo per n.
  * - REDEFINES: i campi che ridefiniscono un'area esistente NON si sommano.
  * - Livelli 88 (condition name) e 66 (RENAMES): non occupano storage.
@@ -120,11 +125,19 @@ function detectUsage(text) {
     if (has('COMP-3|COMPUTATIONAL-3|PACKED-DECIMAL')) return 'COMP-3';
     if (has('COMP-5|COMPUTATIONAL-5')) return 'COMP-5';
     if (has('COMP-4|COMPUTATIONAL-4|BINARY')) return 'COMP-4';
+    if (has('COMP-6|COMPUTATIONAL-6')) return 'COMP-6';
+    if (has('COMP-X|COMPUTATIONAL-X')) return 'COMP-X';
     if (has('COMP-1|COMPUTATIONAL-1')) return 'COMP-1';
     if (has('COMP-2|COMPUTATIONAL-2')) return 'COMP-2';
     if (has('COMP|COMPUTATIONAL')) return 'COMP';
+    if (has('BINARY-CHAR')) return 'BINARY-CHAR';
+    if (has('BINARY-SHORT')) return 'BINARY-SHORT';
+    if (has('BINARY-LONG')) return 'BINARY-LONG';
+    if (has('BINARY-DOUBLE')) return 'BINARY-DOUBLE';
+    if (has('NATIONAL')) return 'NATIONAL';
+    if (has('DISPLAY-1')) return 'DISPLAY-1';
     if (has('INDEX')) return 'INDEX';
-    if (has('POINTER')) return 'POINTER';
+    if (has('PROCEDURE-POINTER|FUNCTION-POINTER|POINTER')) return 'POINTER';
     return 'DISPLAY';
 }
 
@@ -297,17 +310,42 @@ function collectDataEntries(lines, workspaceRoot, visited, fromCopy) {
 }
 
 /**
+ * Usage a dimensione fissa che non richiedono la clausola PICTURE.
+ * @type {Object<string, number>}
+ */
+const IMPLICIT_SIZE_USAGE = {
+    'COMP-1': 4,
+    'COMP-2': 8,
+    'INDEX': 4,
+    'POINTER': 4,
+    'BINARY-CHAR': 1,
+    'BINARY-SHORT': 2,
+    'BINARY-LONG': 4,
+    'BINARY-DOUBLE': 8
+};
+
+/**
+ * Byte occupati da un COMP-X con PIC 9(n), indicizzati per numero di cifre:
+ * e' il minimo numero di byte il cui valore binario massimo contiene n cifre.
+ */
+const COMP_X_BYTES = [0, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 5, 5, 6, 6, 7, 7, 8, 8];
+
+/**
+ * Indica se l'usage ha dimensione fissa e non richiede PICTURE.
+ * @param {string} usage
+ * @returns {boolean}
+ */
+function hasImplicitSize(usage) {
+    return Object.prototype.hasOwnProperty.call(IMPLICIT_SIZE_USAGE, usage);
+}
+
+/**
  * Calcola la dimensione in byte di un campo elementare.
- * @param {DataEntry} e
+ * @param {{usage: string, pic: string|null, signSeparate?: boolean}} e
  * @returns {number} byte (0 se non determinabile)
  */
 function elementarySize(e) {
-    switch (e.usage) {
-        case 'COMP-1': return 4;
-        case 'COMP-2': return 8;
-        case 'INDEX': return 4;
-        case 'POINTER': return 4;
-    }
+    if (hasImplicitSize(e.usage)) return IMPLICIT_SIZE_USAGE[e.usage];
 
     if (!e.pic) return 0;
     const expanded = expandPicture(e.pic);
@@ -317,6 +355,11 @@ function elementarySize(e) {
         return Math.floor(digits / 2) + 1;
     }
 
+    // COMP-6 (Micro Focus): packed decimal senza nibble di segno.
+    if (e.usage === 'COMP-6') {
+        return Math.ceil(countNumericDigits(expanded) / 2);
+    }
+
     if (e.usage === 'COMP' || e.usage === 'COMP-4' || e.usage === 'COMP-5') {
         const digits = countNumericDigits(expanded);
         if (digits <= 4) return 2;
@@ -324,10 +367,24 @@ function elementarySize(e) {
         return 8;
     }
 
+    if (e.usage === 'COMP-X') {
+        // PIC X(n): n byte. PIC 9(n): il minimo numero di byte che contiene n cifre.
+        if (expanded.includes('X')) return countDisplayPositions(expanded);
+        const digits = countNumericDigits(expanded);
+        if (digits <= 0) return 0;
+        return digits <= 18 ? COMP_X_BYTES[digits] : 8;
+    }
+
+    const positions = countDisplayPositions(expanded);
+
+    // NATIONAL / DBCS: 2 byte per posizione (anche con PIC N o PIC G senza USAGE).
+    if (e.usage === 'NATIONAL' || e.usage === 'DISPLAY-1'
+        || /[NG]/.test(expanded)) {
+        return positions * 2;
+    }
+
     // DISPLAY
-    let size = countDisplayPositions(expanded);
-    if (e.signSeparate) size += 1;
-    return size;
+    return positions + (e.signSeparate ? 1 : 0);
 }
 
 /**
@@ -347,8 +404,7 @@ function sizeOfEntryAt(entries, idx) {
     }
 
     // Campo elementare: ha PICTURE oppure usage con dimensione implicita
-    const hasImplicitSize = ['COMP-1', 'COMP-2', 'INDEX', 'POINTER'].includes(e.usage);
-    if (e.pic || hasImplicitSize) {
+    if (e.pic || hasImplicitSize(e.usage)) {
         const size = elementarySize(e) * e.occurs;
         return { size, isGroup: false, next: idx + 1 };
     }
@@ -442,8 +498,7 @@ function layoutEntryAt(entries, idx, base, out, depth) {
     }
 
     // Campo elementare.
-    const hasImplicitSize = ['COMP-1', 'COMP-2', 'INDEX', 'POINTER'].includes(e.usage);
-    if (e.pic || hasImplicitSize) {
+    if (e.pic || hasImplicitSize(e.usage)) {
         push(elementarySize(e) * e.occurs, false);
         return idx + 1;
     }
@@ -520,11 +575,13 @@ module.exports = {
     collectDataEntries,
     sizeOfEntryAt,
     elementarySize,
+    hasImplicitSize,
     expandPicture,
     detectUsage,
     detectPicture,
     detectOccurs,
     detectOccursMin,
     detectDependingOn,
-    detectRedefinesTarget
+    detectRedefinesTarget,
+    hasSignSeparate
 };

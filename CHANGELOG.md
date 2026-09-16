@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.29.3] - 2026-09-16
+
+### Fixed
+- `unused-variable` (and a few other rules sharing the same data-item detection: `duplicate-variable`, `variable-name-length`, the internal helpers behind `move-alphanumeric-to-numeric`/`alphanumeric-in-compute`/`move-truncation`): a condition-name (`88`) `VALUES` clause continued on several lines, with the values and the terminating period each on their own line, produced fake data items named after the second number of the continuation line (e.g. a bogus `unused-variable` on `'15'`). Same root cause as the `missing-period`/`pic-missing` fix in 1.29.2, now applied consistently everywhere a data item's start is detected.
+- `unused-variable`: a condition-name (`88`) was never reported as unused, even when the condition it names is never tested (`IF`/`WHEN`/`SET ... TO TRUE`), as long as its parent field happened to be referenced elsewhere (for example a `MOVE` into the parent). Referencing the parent field does not mean a specific named condition on it is ever tested, so `88` entries are now checked independently: they are flagged when never referenced by name, regardless of whether the parent field is used.
+
+## [1.29.2] - 2026-09-16
+
+### Fixed
+- `missing-period` and `pic-missing`: a condition-name (`88`) `VALUES` clause continued on several lines, with the list of values and the terminating period each on their own line (e.g. `88 X VALUES` / `5 15 19 35 39 55` / `.`), was misread as a new data item. The line of values (numbers separated by spaces) looked like a valid "level number" line, so it triggered a false `missing-period` on the `88` entry and a false `pic-missing` on a fake item named after the second number (e.g. `Variable '15' has no PIC clause`). Both rules now require a data item name to contain at least one letter (as COBOL requires for user-defined words) before treating a line as the start of a new entry, so a line made only of numbers is correctly treated as a continuation.
+
+## [1.29.1] - 2026-09-16
+
+### Fixed
+- `undefined-variable`: a `SECTION` header (e.g. `INIZIO SECTION.`) was reported as an undefined variable. The check that skips paragraph headers (`NAME.`) did not also skip section headers (`NAME SECTION.`), so the section name was tokenized and treated as a variable reference. Section headers are now skipped as well.
+
+## [1.29.0] - 2026-09-16
+
+### Added
+- Byte size computation now handles the remaining COBOL usages: `COMP-6` (unsigned packed decimal, ceil(digits / 2)), `BINARY-CHAR` (1 byte), `BINARY-SHORT` (2), `BINARY-LONG` (4), `BINARY-DOUBLE` (8), `PROCEDURE-POINTER` and `FUNCTION-POINTER` (4), and national/DBCS data (`USAGE NATIONAL`, `USAGE DISPLAY-1` or a PICTURE containing `N` or `G`) at 2 bytes per position. These usages are also recognized as reserved words by the parser, the linter and the formatter.
+
+### Fixed
+- `COMP-X` was not recognized as a usage at all and was silently treated as `DISPLAY`, so sizes were wrong everywhere they are shown (hover, inlay hints, Record Layout) and the `redefines-size` rule produced false positives. For example `03 FLD-B REDEFINES FLD-A PIC 9(2) COMP-X` over a `PIC X(1)` field was reported as "1 bytes vs 2 bytes" while both are 1 byte. `COMP-X` is now computed correctly: with `PIC X(n)` it takes n bytes, with `PIC 9(n)` it takes the smallest number of bytes that can hold n decimal digits (1-2 digits -> 1 byte, 3-4 -> 2, 5-7 -> 3, 8-9 -> 4, 10-12 -> 5, 13-14 -> 6, 15-16 -> 7, 17-18 -> 8).
+- `redefines-size` had its own duplicated size engine, which is why it could disagree with the sizes shown by hover and Record Layout. It now delegates to the same engine, so all size computations stay consistent. As a side effect the rule also honors `SIGN ... SEPARATE` (one extra byte), which it previously ignored.
+
 ## [1.28.2] - 2026-09-11
 
 ### Fixed
