@@ -369,7 +369,9 @@ function getRuleConfig(ruleId) {
         'move-truncation': 'warning',
         'odo-not-last': 'error',
         'consecutive-periods': 'error',
-        'program-id-filename': 'error'
+        'program-id-filename': 'error',
+        'perform-range-exit': 'error',
+        'perform-thru-mismatch': 'warning'
     };
 
     return {
@@ -1503,62 +1505,19 @@ function checkPerformThruOrder(lines) {
         if (!ctx.inProcedure) continue;
         if (code && !/^\s/.test(code)) {
             const upper = code.trim().toUpperCase().replace(/<[^>]*>/g, 'PLACEHOLDER');
-            const paraMatch = upper.match(/^([A-Z0-9][\w-]*)\.\s*$/);
-            if (paraMatch) paraPositions[paraMatch[1]] = i;
+            const paraMatch = upper.match(/^([A-Z0-9][\w-]*)\.(?=\s|$)/);
+            if (paraMatch && !COBOL_RESERVED_EXTENDED.has(paraMatch[1])) paraPositions[paraMatch[1]] = i;
         }
     }
     for (const [s, line] of collectSections(lines).sections) {
         if (!(s in paraPositions)) paraPositions[s] = line;
     }
 
-    // Cerca PERFORM ... THRU
-    const ctx2 = new AnalysisContext();
-    let performTarget = null;
-    let performStart = 0;
-    for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i];
-        if (isSkippable(raw)) continue;
-        const code = getCodeContent(raw);
-        if (!code.trim()) continue;
-        ctx2.update(raw, code);
-        if (!ctx2.inProcedure) continue;
-        const upper = stripLiterals(code.trim().toUpperCase());
-
-        const perfMatch = /(?<![\w-])PERFORM\s+([A-Z0-9][\w-]*)/.exec(upper);
-        if (perfMatch) {
-            performTarget = perfMatch[1];
-            performStart = i;
-            const thruMatch = /\b(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/.exec(upper);
-            if (thruMatch) {
-                const thruTarget = thruMatch[1];
-                if (performTarget in paraPositions && thruTarget in paraPositions) {
-                    if (paraPositions[thruTarget] <= paraPositions[performTarget]) {
-                        diags.push(makeDiag(i, cfg.severity, 'perform-thru-order',
-                            msg('performThruOrder', performTarget, thruTarget)));
-                    }
-                }
-                performTarget = null;
-                continue;
-            }
-            // THRU eventualmente sulla riga successiva
-            if (findTerminatorPeriod(upper) >= 0) performTarget = null;
-            continue;
-        }
-
-        if (performTarget) {
-            const thruMatch = /^\s*(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/.exec(upper);
-            if (thruMatch) {
-                const thruTarget = thruMatch[1];
-                if (performTarget in paraPositions && thruTarget in paraPositions) {
-                    if (paraPositions[thruTarget] <= paraPositions[performTarget]) {
-                        diags.push(makeDiag(performStart, cfg.severity, 'perform-thru-order',
-                            msg('performThruOrder', performTarget, thruTarget)));
-                    }
-                }
-                performTarget = null;
-            } else if (upper.trim()) {
-                performTarget = null;
-            }
+    for (const p of collectPerformStatements(lines)) {
+        if (!p.thru || !(p.target in paraPositions) || !(p.thru in paraPositions)) continue;
+        if (paraPositions[p.thru] <= paraPositions[p.target]) {
+            diags.push(makeDiag(p.line, cfg.severity, 'perform-thru-order',
+                msg('performThruOrder', p.target, p.thru)));
         }
     }
     return diags;
@@ -2320,14 +2279,15 @@ function collectSections(lines) {
 }
 
 /**
- * Raccoglie target dei PERFORM (in qualunque punto della riga, es. dopo IF/ELSE).
+ * Raccoglie le istruzioni PERFORM out-of-line (in qualunque punto della riga,
+ * es. dopo IF/ELSE), con l'eventuale bersaglio THRU/THROUGH.
  * @param {string[]} lines
- * @returns {Array<{line: number, target: string}>}
+ * @returns {Array<{line: number, target: string, thru: string|null}>}
  */
-function collectPerformTargets(lines) {
-    const targets = [];
+function collectPerformStatements(lines) {
+    const stmts = [];
     const ctx = new AnalysisContext();
-    let pendingPerformLine = -1; // riga del PERFORM in attesa di THRU su riga successiva
+    let pending = null; // PERFORM in attesa di THRU sulla riga successiva
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
@@ -2337,11 +2297,14 @@ function collectPerformTargets(lines) {
         if (!ctx.inProcedure) continue;
         const upper = stripLiterals(code.trim().toUpperCase().replace(/<[^>]*>/g, 'PLACEHOLDER'));
 
-        // Controlla se la riga e' un THRU di continuazione da un PERFORM precedente
-        if (pendingPerformLine >= 0) {
-            const thruCont = /^\s*(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/.exec(upper);
-            if (thruCont) targets.push({ line: pendingPerformLine, target: thruCont[1] });
-            pendingPerformLine = -1;
+        if (pending) {
+            const p = pending;
+            pending = null;
+            // "PERFORM X THRU" a fine riga: il nome e' la prima parola della riga dopo
+            const thruCont = p.expectName
+                ? /^\s*([A-Z0-9][\w-]*)/.exec(upper)
+                : /^\s*(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/.exec(upper);
+            if (thruCont) p.stmt.thru = thruCont[1];
             if (thruCont) continue;
         }
 
@@ -2351,15 +2314,27 @@ function collectPerformTargets(lines) {
             const target = m[1];
             const rest = upper.substring(perfRe.lastIndex);
             // "PERFORM WS-N TIMES": WS-N e' il contatore, non un paragrafo
-            if (COBOL_RESERVED_EXTENDED.has(target) || /^\d+$/.test(target) || /^\s+TIMES\b/.test(rest)) continue;
-            targets.push({ line: i, target });
-            if (m[2]) {
-                targets.push({ line: i, target: m[2] });
-            } else if (!rest.trim()) {
-                // Nessun THRU e niente dopo il target: il THRU puo' stare sulla riga successiva
-                pendingPerformLine = i;
-            }
+            if (COBOL_RESERVED_EXTENDED.has(target) || /^\s+TIMES\b/.test(rest) || /^\d+$/.test(target)) continue;
+            const stmt = { line: i, target, thru: m[2] || null };
+            stmts.push(stmt);
+            if (m[2]) continue;
+            if (!rest.trim()) pending = { stmt, expectName: false };
+            else if (/^\s+(?:THRU|THROUGH)\s*$/.test(rest)) pending = { stmt, expectName: true };
         }
+    }
+    return stmts;
+}
+
+/**
+ * Raccoglie target dei PERFORM (bersagli diretti e THRU).
+ * @param {string[]} lines
+ * @returns {Array<{line: number, target: string}>}
+ */
+function collectPerformTargets(lines) {
+    const targets = [];
+    for (const s of collectPerformStatements(lines)) {
+        targets.push({ line: s.line, target: s.target });
+        if (s.thru) targets.push({ line: s.line, target: s.thru });
     }
     return targets;
 }
@@ -2824,30 +2799,275 @@ function checkUndefinedParagraph(lines, workspaceRoot) {
 // ---------------------------------------------------------------------------
 // unused-paragraph
 // ---------------------------------------------------------------------------
+// Modello del flusso della PROCEDURE DIVISION (per unused-paragraph,
+// perform-range-exit, perform-thru-mismatch). Indipendente dai nomi: nessuna
+// convenzione tipo -EX/-EXIT, conta solo la struttura.
+// ---------------------------------------------------------------------------
+const UNCONDITIONAL_TRANSFER = /(?<![\w-])(?:GO\s*TO|STOP\s+RUN|GOBACK|EXIT\s+PROGRAM)(?![\w-])/;
+const CONDITIONAL_PHRASE = /(?<![\w-])(?:IF|ELSE|EVALUATE|WHEN|AT\s+END|INVALID|SIZE\s+ERROR|EXCEPTION|OVERFLOW|DEPENDING|UNTIL|VARYING|TIMES|END-OF-PAGE|EOP)(?![\w-])/;
+const PROGRAM_END = /(?<![\w-])(?:STOP\s+RUN|GOBACK|EXIT\s+PROGRAM)(?![\w-])|(?<![\w-])EXEC\s+CICS\s+RETURN(?![\w-])/;
+
+/** @param {string} text */
+function splitSentences(text) {
+    const out = [];
+    let rest = text;
+    for (let k = findTerminatorPeriod(rest); k >= 0; k = findTerminatorPeriod(rest)) {
+        out.push(rest.substring(0, k).trim());
+        rest = rest.substring(k + 1);
+    }
+    out.push(rest.trim());
+    return out.filter(Boolean);
+}
+
+/**
+ * Divide la PROCEDURE DIVISION in blocchi (testa della divisione, SECTION,
+ * paragrafi) nell'ordine fisico.
+ * @param {string[]} lines
+ */
+function buildProcedureModel(lines) {
+    /** @type {Array<{name: string|null, kind: string, section: string|null, startLine: number, text: string, terminates?: boolean, endsProgram?: boolean, gotos?: Array<{line: number, target: string}>}>} */
+    const blocks = [];
+    const ctx = new AnalysisContext();
+    let current = null;
+    let currentSection = null;
+    let declEnd = -1;
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure) continue;
+        const upper = stripLiterals(code.trim().toUpperCase().replace(/<[^>]*>/g, 'PLACEHOLDER'));
+        if (!current) {
+            const t = findTerminatorPeriod(upper);
+            current = { name: null, kind: 'start', section: null, startLine: i, text: t >= 0 ? upper.substring(t + 1) : '' };
+            blocks.push(current);
+            continue;
+        }
+        if (/^END\s+DECLARATIVES\b/.test(upper)) {
+            declEnd = i;
+            currentSection = null;
+            continue;
+        }
+        if (!/^\s/.test(code)) {
+            const sec = upper.match(/^([A-Z0-9][\w-]*)\s+SECTION\b[^.]*\.?/);
+            if (sec && !COBOL_RESERVED_EXTENDED.has(sec[1])) {
+                currentSection = sec[1];
+                current = { name: sec[1], kind: 'section', section: sec[1], startLine: i, text: upper.substring(sec[0].length) };
+                blocks.push(current);
+                continue;
+            }
+            const para = upper.match(/^([A-Z0-9][\w-]*)\.(?=\s|$)/);
+            if (para && !COBOL_RESERVED_EXTENDED.has(para[1])) {
+                current = { name: para[1], kind: 'paragraph', section: currentSection, startLine: i, text: upper.substring(para[0].length) };
+                blocks.push(current);
+                continue;
+            }
+        }
+        current.text += ' ' + upper;
+    }
+
+    for (const b of blocks) {
+        const sentences = splitSentences(b.text);
+        const last = sentences.length ? sentences[sentences.length - 1] : '';
+        b.terminates = UNCONDITIONAL_TRANSFER.test(last) && !CONDITIONAL_PHRASE.test(last);
+        b.endsProgram = PROGRAM_END.test(b.text);
+        b.gotos = [];
+    }
+
+    const index = new Map();
+    blocks.forEach((b, k) => { if (b.name && !index.has(b.name)) index.set(b.name, k); });
+    const blockOfLine = (line) => {
+        let k = -1;
+        for (let j = 0; j < blocks.length && blocks[j].startLine <= line; j++) k = j;
+        return k;
+    };
+    for (const g of collectGoToTargets(lines)) {
+        const k = blockOfLine(g.line);
+        if (k >= 0) blocks[k].gotos.push(g);
+    }
+
+    // Ultimo blocco coperto da un nome: per una SECTION e' il suo ultimo paragrafo.
+    const lastOf = (k) => {
+        if (blocks[k].kind !== 'section') return k;
+        let e = k;
+        while (e + 1 < blocks.length && blocks[e + 1].section === blocks[k].name && blocks[e + 1].kind !== 'section') e++;
+        return e;
+    };
+    /** @returns {{s: number, e: number, valid: boolean}|null} */
+    const rangeOf = (target, thru) => {
+        const s = index.get(target);
+        if (s === undefined) return null;
+        const ei = index.get(thru || target);
+        if (ei === undefined) return { s, e: s, valid: false };
+        const e = lastOf(ei);
+        return e < s ? { s, e: s, valid: false } : { s, e, valid: true };
+    };
+    // Bersaglio che chiude il programma (es. GO TO Z9999-ABEND): seguito solo via GO TO.
+    const isAbort = (k, seen = new Set()) => {
+        if (seen.has(k)) return false;
+        seen.add(k);
+        if (blocks[k].endsProgram) return true;
+        if (!blocks[k].terminates) return false;
+        return blocks[k].gotos.some(g => index.has(g.target) && isAbort(index.get(g.target), seen));
+    };
+
+    return { blocks, index, declEnd, rangeOf, isAbort };
+}
+
+// ---------------------------------------------------------------------------
+// unused-paragraph: paragrafo mai raggiunto (PERFORM, range THRU, SECTION
+// eseguita, GO TO, ALTER ... PROCEED TO o caduta dal paragrafo precedente).
+// ---------------------------------------------------------------------------
 function checkUnusedParagraph(lines) {
     const cfg = getRuleConfig('unused-paragraph');
     if (!cfg.enabled) return [];
     const diags = [];
-    const defined = collectParagraphs(lines);
-    const targets = collectPerformTargets(lines).concat(collectGoToTargets(lines));
-    const called = new Set(targets.map(t => t.target));
-    const minLine = Math.min(...defined.values());
-    // Una SECTION eseguita esegue tutti i suoi paragrafi in sequenza; la prima e' l'entry point.
-    const { sections, paraSection } = collectSections(lines);
-    let entrySection = null;
-    for (const [s, line] of sections) {
-        if (entrySection === null || line < sections.get(entrySection)) entrySection = s;
+    const { blocks, index, declEnd, rangeOf } = buildProcedureModel(lines);
+    if (!blocks.length) return diags;
+
+    const reached = new Array(blocks.length).fill(false);
+    const n = blocks.length;
+
+    // Contesti di esecuzione: il flusso principale (senza limite) e ogni range
+    // PERFORM (la discesa si ferma alla fine del range, poi si torna alla PERFORM).
+    const ranges = [];
+    const rangeKeys = new Set();
+    const addRange = (s, e) => {
+        const key = s + ':' + e;
+        if (rangeKeys.has(key)) return;
+        rangeKeys.add(key);
+        ranges.push({ s, e, seen: new Set() });
+    };
+    for (const p of collectPerformStatements(lines)) {
+        const r = rangeOf(p.target, p.thru);
+        if (r) addRange(r.s, r.e);
+    }
+    blocks.forEach((b, k) => {
+        // DECLARATIVES: le sezioni USE le attiva il runtime.
+        if (declEnd >= 0 && b.kind === 'section' && b.startLine < declEnd) addRange(k, rangeOf(b.name, null).e);
+    });
+
+    const mainSeen = new Set();
+    const flowMain = (k) => {
+        while (k >= 0 && k < n && !mainSeen.has(k)) {
+            mainSeen.add(k);
+            reached[k] = true;
+            if (blocks[k].terminates) break;
+            k++;
+        }
+    };
+    const flowRange = (r, k) => {
+        while (k <= r.e && !r.seen.has(k)) {
+            r.seen.add(k);
+            reached[k] = true;
+            if (blocks[k].terminates) break;
+            k++;
+        }
+    };
+
+    flowMain(declEnd >= 0 ? blocks.findIndex(b => b.startLine > declEnd) : 0);
+    for (const r of ranges) flowRange(r, r.s);
+
+    // ALTER ... TO PROCEED TO X: sorgente non determinabile, X entra nel flusso principale.
+    const ctx = new AnalysisContext();
+    for (let i = 0; i < lines.length; i++) {
+        if (isSkippable(lines[i])) continue;
+        const code = getCodeContent(lines[i]);
+        if (!code.trim()) continue;
+        ctx.update(lines[i], code);
+        if (!ctx.inProcedure) continue;
+        const alterRe = /(?<![\w-])ALTER\s+[A-Z0-9][\w-]*\s+TO\s+(?:PROCEED\s+TO\s+)?([A-Z0-9][\w-]*)/g;
+        let m;
+        while ((m = alterRe.exec(code.toUpperCase())) !== null) {
+            if (index.has(m[1])) flowMain(index.get(m[1]));
+        }
     }
 
-    for (const [name, line] of defined) {
-        if (called.has(name)) continue;
-        if (name.endsWith('-EX')) continue;
-        if (line === minLine) continue;
-        const sec = paraSection.get(name);
-        if (sec && (sec === entrySection || called.has(sec))) continue;
-        diags.push(makeDiag(line, cfg.severity, 'unused-paragraph',
-            msg('unusedParagraph', name),
-            undefined, undefined, name));
+    // GO TO: seguiti solo se la riga di partenza e' raggiungibile, fino a punto fisso.
+    const size = () => mainSeen.size + ranges.reduce((a, r) => a + r.seen.size, 0);
+    for (let before = -1; before !== size();) {
+        before = size();
+        blocks.forEach((b, src) => {
+            for (const g of b.gotos) {
+                const t = index.get(g.target);
+                if (t === undefined) continue;
+                if (mainSeen.has(src)) flowMain(t);
+                for (const r of ranges) {
+                    if (!r.seen.has(src)) continue;
+                    if (t >= r.s && t <= r.e) flowRange(r, t);
+                    else flowMain(t);
+                }
+            }
+        });
+    }
+
+    blocks.forEach((b, k) => {
+        if (b.kind !== 'paragraph' || reached[k]) return;
+        diags.push(makeDiag(b.startLine, cfg.severity, 'unused-paragraph',
+            msg('unusedParagraph', b.name),
+            undefined, undefined, b.name));
+    });
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// perform-range-exit: un GO TO dentro il range eseguito da una PERFORM che
+// salta FUORI dal range (es. THRU dimenticato): il controllo non torna piu'
+// dopo la PERFORM. Esclusi i salti verso paragrafi che chiudono il programma.
+// ---------------------------------------------------------------------------
+function checkPerformRangeExit(lines) {
+    const cfg = getRuleConfig('perform-range-exit');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const { blocks, index, rangeOf, isAbort } = buildProcedureModel(lines);
+    if (!blocks.length) return diags;
+
+    for (const p of collectPerformStatements(lines)) {
+        const r = rangeOf(p.target, p.thru);
+        if (!r || !r.valid) continue;
+        let hit = null;
+        for (let k = r.s; k <= r.e && !hit; k++) {
+            for (const g of blocks[k].gotos) {
+                const t = index.get(g.target);
+                if (t === undefined || (t >= r.s && t <= r.e) || isAbort(t)) continue;
+                hit = g;
+                break;
+            }
+        }
+        if (hit) {
+            diags.push(makeDiag(p.line, cfg.severity, 'perform-range-exit',
+                msg('performRangeExit', p.target, p.thru, hit.target, hit.line + 1),
+                undefined, undefined, p.target));
+        }
+    }
+    return diags;
+}
+
+// ---------------------------------------------------------------------------
+// perform-thru-mismatch: lo stesso paragrafo eseguito sia con PERFORM ... THRU
+// sia con PERFORM secco (THRU probabilmente dimenticato).
+// ---------------------------------------------------------------------------
+function checkPerformThruMismatch(lines) {
+    const cfg = getRuleConfig('perform-thru-mismatch');
+    if (!cfg.enabled) return [];
+    const diags = [];
+    const byTarget = new Map();
+    for (const p of collectPerformStatements(lines)) {
+        const list = byTarget.get(p.target) || [];
+        list.push(p);
+        byTarget.set(p.target, list);
+    }
+    for (const [target, list] of byTarget) {
+        const withThru = list.find(p => p.thru);
+        if (!withThru) continue;
+        for (const p of list) {
+            if (p.thru) continue;
+            diags.push(makeDiag(p.line, cfg.severity, 'perform-thru-mismatch',
+                msg('performThruMismatch', target, withThru.thru, withThru.line + 1),
+                undefined, undefined, target));
+        }
     }
     return diags;
 }
@@ -4411,6 +4631,7 @@ function runLinter(text, workspaceRoot, fileBaseName) {
         checkNextSentence, checkEvaluateWithoutWhenOther,
         checkPerformVaryingWithoutUntil, checkLevel88WithoutParent,
         checkOdoNotLast, checkConsecutivePeriods,
+        checkPerformRangeExit, checkPerformThruMismatch,
     ];
 
     // Controlli validi solo in formato fixed

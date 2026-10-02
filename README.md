@@ -119,7 +119,7 @@ Can be controlled via `cobolLens.ifBlockHighlight.enabled` and `cobolLens.ifBloc
 
 ### Integrated Linter
 
-A built-in COBOL linter with **50 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
+A built-in COBOL linter with **52 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
 
 Categories of rules:
 
@@ -271,7 +271,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `end-structure` | on | warning | Every IF/PERFORM/EVALUATE must have its END- counterpart |
 | `undefined-variable` | on | error | Variables used must be defined in program or copybooks |
 | `undefined-paragraph` | on | error | Every PERFORM must reference a defined paragraph |
-| `unused-paragraph` | on | warning | Flags paragraphs defined but never called |
+| `unused-paragraph` | on | warning | Flags paragraphs that are never reached: no PERFORM, THRU range, GO TO or fall-through from the previous paragraph (independent of naming conventions such as -EX) |
 | `unused-variable` | on | warning | Flags variables defined in WORKING-STORAGE but never used |
 | `duplicate-variable` | on | error | No duplicate variable definitions |
 | `missing-period` | on | error | Variable definitions must end with a period |
@@ -304,6 +304,8 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `odo-not-last` | on | error | A table with OCCURS DEPENDING ON must be the last item in its record (nothing with storage may follow it) |
 | `consecutive-periods` | on | error | Two consecutive periods with no COBOL statement between them (e.g. `END-IF..`) |
 | `program-id-filename` | on | error | The name after PROGRAM-ID must match the file name |
+| `perform-range-exit` | on | error | A GO TO inside the range of a PERFORM jumps outside the range (e.g. forgotten THRU), so control never returns after the PERFORM; jumps to paragraphs that end the program are ignored |
+| `perform-thru-mismatch` | on | warning | A paragraph performed without THRU that is performed with THRU elsewhere (probably a forgotten THRU) |
 
 ## Compatibility
 

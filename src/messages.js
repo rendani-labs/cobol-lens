@@ -189,8 +189,16 @@ const MESSAGES = {
         en: (name) => `PERFORM targets paragraph '${name}' which is not defined in the program`,
     },
     unusedParagraph: {
-        it: (name) => `Paragrafo '${name}' definito ma mai richiamato da una PERFORM`,
-        en: (name) => `Paragraph '${name}' is defined but never called by a PERFORM`,
+        it: (name) => `Paragrafo '${name}' mai raggiunto: nessuna PERFORM, GO TO o caduta dal paragrafo precedente`,
+        en: (name) => `Paragraph '${name}' is never reached: no PERFORM, GO TO or fall-through from the previous paragraph`,
+    },
+    performRangeExit: {
+        it: (t, thru, g, line) => `PERFORM ${t}${thru ? ' THRU ' + thru : ''}: il GO TO ${g} (riga ${line}) salta fuori dal range eseguito, quindi il controllo non torna dopo la PERFORM${thru ? ' (THRU sbagliato?)' : ' (THRU dimenticato?)'}`,
+        en: (t, thru, g, line) => `PERFORM ${t}${thru ? ' THRU ' + thru : ''}: GO TO ${g} (line ${line}) jumps out of the performed range, so control never returns after the PERFORM${thru ? ' (wrong THRU?)' : ' (missing THRU?)'}`,
+    },
+    performThruMismatch: {
+        it: (t, thru, line) => `PERFORM ${t} senza THRU, ma alla riga ${line} lo stesso paragrafo e' eseguito con THRU ${thru}: THRU dimenticato?`,
+        en: (t, thru, line) => `PERFORM ${t} without THRU, but at line ${line} the same paragraph is performed THRU ${thru}: missing THRU?`,
     },
     unusedVariable: {
         it: (name) => `Variabile '${name}' definita in WORKING-STORAGE ma mai utilizzata nella PROCEDURE DIVISION`,

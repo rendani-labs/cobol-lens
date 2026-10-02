@@ -65,7 +65,7 @@
   "cobolLens.walkthrough.layout.title": "See the byte layout -- without a compiler",
   "cobolLens.walkthrough.layout.description": "Field size on hover, byte positions as inlay hints, and a full Record Layout panel computed from PIC/USAGE/OCCURS.",
   "cobolLens.walkthrough.linter.title": "Catch issues as you type",
-  "cobolLens.walkthrough.linter.description": "A real-time linter with 50 configurable rules and one-click Quick Fixes.",
+  "cobolLens.walkthrough.linter.description": "A real-time linter with 52 configurable rules and one-click Quick Fixes.",
   "cobolLens.walkthrough.ifblocks.title": "Read nested logic at a glance",
   "cobolLens.walkthrough.ifblocks.description": "Highlight matching IF/ELSE/END-IF blocks with scope bars for up to 9 nesting levels.",
   "cobolLens.walkthrough.completion.title": "Write COBOL faster",
@@ -110,7 +110,7 @@
   "cobolLens.linter.rules.undefined-variable.severity.description": "Severity for the undefined-variable rule",
   "cobolLens.linter.rules.undefined-paragraph.enabled.description": "Verify that each PERFORM refers to a defined paragraph",
   "cobolLens.linter.rules.undefined-paragraph.severity.description": "Severity for the undefined-paragraph rule",
-  "cobolLens.linter.rules.unused-paragraph.enabled.description": "Report paragraphs that are defined but never called",
+  "cobolLens.linter.rules.unused-paragraph.enabled.description": "Report paragraphs that are never reached (no PERFORM, THRU range, GO TO or fall-through from the previous paragraph)",
   "cobolLens.linter.rules.unused-paragraph.severity.description": "Severity for the unused-paragraph rule",
   "cobolLens.linter.rules.unused-variable.enabled.description": "Report variables defined in WORKING-STORAGE but never used",
   "cobolLens.linter.rules.unused-variable.severity.description": "Severity for the unused-variable rule",
@@ -175,5 +175,9 @@
   "cobolLens.linter.rules.consecutive-periods.enabled.description": "Flags two consecutive periods with no COBOL statement between them (e.g. \"END-IF..\")",
   "cobolLens.linter.rules.consecutive-periods.severity.description": "Severity for the consecutive-periods rule",
   "cobolLens.linter.rules.program-id-filename.enabled.description": "Flags a PROGRAM-ID name that does not match the file name",
-  "cobolLens.linter.rules.program-id-filename.severity.description": "Severity for the program-id-filename rule"
+  "cobolLens.linter.rules.program-id-filename.severity.description": "Severity for the program-id-filename rule",
+  "cobolLens.linter.rules.perform-range-exit.enabled.description": "Flags a PERFORM whose range contains a GO TO that jumps outside the range (e.g. a forgotten THRU): control never returns after the PERFORM. Jumps to paragraphs that end the program are ignored",
+  "cobolLens.linter.rules.perform-range-exit.severity.description": "Severity for the perform-range-exit rule",
+  "cobolLens.linter.rules.perform-thru-mismatch.enabled.description": "Flags a PERFORM without THRU of a paragraph that is performed with THRU elsewhere (probably a forgotten THRU)",
+  "cobolLens.linter.rules.perform-thru-mismatch.severity.description": "Severity for the perform-thru-mismatch rule"
 }

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.31.0] - 2026-10-02
+
+### Added
+- New rule `perform-range-exit` (error): a `GO TO` inside the range executed by a `PERFORM` (the paragraph, the `THRU` range or the whole SECTION) that jumps outside that range, e.g. `PERFORM A UNTIL ...` where `A` contains `GO TO A-EXIT` but the `THRU A-EXIT` was forgotten. Control never returns after the PERFORM. Jumps to paragraphs that end the program (`STOP RUN`, `GOBACK`, `EXIT PROGRAM`, `EXEC CICS RETURN`, also through a chain of `GO TO`) are intentional and are not reported. Works on program structure only, not on paragraph names.
+- New rule `perform-thru-mismatch` (warning): a paragraph performed without `THRU` that is performed with `THRU` elsewhere in the program.
+
+### Changed
+- `unused-paragraph` now uses real reachability instead of "never called by a PERFORM": a paragraph is reached by `PERFORM`, by being inside a `PERFORM ... THRU` range or a performed SECTION, by `GO TO` / `ALTER ... PROCEED TO` from reachable code, or by fall-through from the previous paragraph when that one does not end with an unconditional `GO TO` / `STOP RUN` / `GOBACK` / `EXIT PROGRAM`. Fall-through inside a PERFORM range stops at the end of the range. The blanket exemption of paragraphs ending in `-EX` is gone: an exit paragraph that nothing reaches (e.g. the `THRU` was forgotten) is now reported, whatever its name. Old "cascade" programs driven by fall-through and `GO TO` no longer get false reports.
+
+### Fixed
+- `PERFORM X THRU` at the end of a line with the `THRU` target on the next line was not recognized: the target was reported as unused and `perform-thru-order` never checked it.
+- `perform-thru-order` ignored exit paragraphs written on one line with their statement (e.g. `EX-ELAB. EXIT.`).
+
 ## [1.30.1] - 2026-10-02
 
 ### Fixed
