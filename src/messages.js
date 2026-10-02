@@ -165,8 +165,8 @@ const MESSAGES = {
         en: () => 'Unnecessary IF after AND/OR in a compound condition. Remove IF.',
     },
     redefinesSize: {
-        it: (orig, origSize, redefSize) => `REDEFINES: '${orig}' occupa ${origSize} byte, la ridefinizione occupa ${redefSize} byte (non puo' essere piu' grande dell'originale)`,
-        en: (orig, origSize, redefSize) => `REDEFINES: '${orig}' is ${origSize} bytes, the redefinition is ${redefSize} bytes (it cannot be larger than the original)`,
+        it: (orig, origSize, redefSize) => `REDEFINES: '${orig}' occupa ${origSize} byte, la ridefinizione occupa ${redefSize} byte (devono coincidere)`,
+        en: (orig, origSize, redefSize) => `REDEFINES: '${orig}' is ${origSize} bytes, the redefinition is ${redefSize} bytes (they must match)`,
     },
     odoNotLast: {
         it: (name, next) => `La tabella '${name}' con OCCURS DEPENDING ON deve essere l'ultimo campo del record: e' seguita da '${next}'`,

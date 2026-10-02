@@ -2012,9 +2012,8 @@ function checkRedefinesSize(lines) {
         const origSize = computeItemSize(items, origIdx);
         const redefSize = computeItemSize(items, idx);
 
-        // COBOL ammette una REDEFINES piu' piccola dell'originale (resta inutilizzato
-        // lo spazio in eccesso): e' un errore solo se la ridefinizione e' PIU' GRANDE.
-        if (origSize > 0 && redefSize > 0 && redefSize > origSize) {
+        // Il compilatore MF/Rocket rifiuta qualsiasi differenza, anche una REDEFINES piu' piccola.
+        if (origSize > 0 && redefSize > 0 && origSize !== redefSize) {
             diags.push(makeDiag(item.lineNum, cfg.severity, 'redefines-size',
                 msg('redefinesSize', item.redefines, origSize, redefSize),
                 undefined, undefined, item.name));

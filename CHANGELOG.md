@@ -7,7 +7,6 @@
 
 ### Fixed
 - `missing-stop-run` did not recognize `EXIT PROGRAM`: every classic subprogram (no `STOP RUN`/`GOBACK`, only `EXIT PROGRAM`) was reported as missing a program terminator.
-- `redefines-size` reported an error whenever a `REDEFINES` had a *different* size than the original item, even when it was *smaller* (legal COBOL: the extra space of the original is simply unused). It now reports only a redefinition that is *larger* than the original.
 - `duplicate-variable` reported an error on the same field name defined under two different groups (e.g. `CAMPO` under `GRP-A` and under `GRP-B`), even though COBOL can tell them apart via qualification (`CAMPO OF GRP-A`). Two definitions with a different immediate parent group are no longer reported; the same name repeated under the *same* parent (or two top-level items with no group) is still a real duplicate.
 - `unused-variable` reported the original field as unused when only its `REDEFINES` view was used (or vice versa): they share the same storage, so using one counts as using the other.
 - `unsubscripted-occurs`: a field subordinate to an `OCCURS` table (e.g. `WS-ITEM-VAL` under `05 WS-ITEM OCCURS 10`) was never checked on its own, only the table name was; referencing it without an index now correctly triggers the rule. A qualified reference with the subscript after the qualifier (`WS-ELEM OF WS-OUTER-GRP (1)`) was incorrectly reported as unsubscripted; the subscript is now looked for after any `OF <name>` qualifier chain, not only right after the field name.

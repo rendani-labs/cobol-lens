@@ -138,7 +138,7 @@
   "cobolLens.linter.rules.missing-stop-run.severity.description": "Severity for the missing-stop-run rule",
   "cobolLens.linter.rules.and-or-if.enabled.description": "Report a spurious IF after AND/OR in a compound condition",
   "cobolLens.linter.rules.and-or-if.severity.description": "Severity for the and-or-if rule",
-  "cobolLens.linter.rules.redefines-size.enabled.description": "Verify that REDEFINES is not larger than the original element",
+  "cobolLens.linter.rules.redefines-size.enabled.description": "Verify that REDEFINES has the same size as the original element",
   "cobolLens.linter.rules.redefines-size.severity.description": "Severity for the redefines-size rule",
   "cobolLens.linter.rules.invalid-column-7.enabled.description": "Verify that column 7 contains only valid indicator characters (space, *, /, D, -, $)",
   "cobolLens.linter.rules.invalid-column-7.severity.description": "Severity for the invalid-column-7 rule",
