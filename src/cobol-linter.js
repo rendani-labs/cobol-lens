@@ -167,6 +167,26 @@ function stripLiterals(text) {
 }
 
 /**
+ * Come stripLiterals, ma sostituisce il contenuto dei letterali con spazi
+ * invece di rimuoverlo: usata dove servono ancora gli indici di colonna
+ * della riga originale (es. no-goto, che calcola colStart/colEnd).
+ * @param {string} text
+ * @returns {string}
+ */
+function maskLiterals(text) {
+    let result = text
+        .replace(/(?<![A-Z0-9-])(?:NX|X|N|Z|G|U|B|H|O)?'[^']*'/gi, (m) => ' '.repeat(m.length))
+        .replace(/(?<![A-Z0-9-])(?:NX|X|N|Z|G|U|B|H|O)?"[^"]*"/gi, (m) => ' '.repeat(m.length));
+    const q = result.search(/['"]/);
+    if (q >= 0) {
+        const prefixMatch = result.substring(0, q).match(/(?:NX|X|N|Z|G|U|B|H|O)$/i);
+        const start = prefixMatch ? q - prefixMatch[0].length : q;
+        result = result.substring(0, start) + ' '.repeat(result.length - start);
+    }
+    return result;
+}
+
+/**
  * Trova l'indice del primo punto TERMINATORE di frase in una stringa.
  * In COBOL un punto e' un separatore solo se seguito da uno spazio o dalla fine
  * della riga. I punti seguiti da una cifra (punto decimale di un letterale
@@ -198,6 +218,10 @@ class AnalysisContext {
         this.inWorkingStorage = currentIsCopybook;
         this.inLinkage = false;
         this.inFileSection = false;
+        // SCREEN SECTION / REPORT SECTION: tracciate a parte (niente dati
+        // "normali" dentro, niente eredita' dei flag della sezione precedente).
+        this.inScreenSection = false;
+        this.inReportSection = false;
         this.inProcedure = false;
         this.inExecBlock = false;
     }
@@ -213,9 +237,18 @@ class AnalysisContext {
         const upper = code.trim().toUpperCase()
             .replace(/\bID\s+DIVISION\b/, 'IDENTIFICATION DIVISION');
 
-        // Track EXEC CICS / EXEC SQL ... END-EXEC blocks
-        if (/\bEXEC\s+(CICS|SQL)\b/.test(upper)) this.inExecBlock = true;
+        // Track EXEC CICS / EXEC SQL / EXEC DLI ... END-EXEC blocks
+        if (/\bEXEC\s+(CICS|SQL|DLI)\b/.test(upper)) this.inExecBlock = true;
         if (/\bEND-EXEC\b/.test(upper)) this.inExecBlock = false;
+
+        // Fine di un programma dentro un file multi-programma (END PROGRAM /
+        // programmi annidati): si riparte da zero, altrimenti la IDENTIFICATION
+        // DIVISION del programma successivo sembra "fuori ordine" e i suoi dati
+        // ereditano i flag di sezione del programma precedente.
+        if (/\bEND\s+PROGRAM\b/.test(upper)) {
+            this.currentDivision = '';
+            this._resetSections();
+        }
 
         if (upper.includes('IDENTIFICATION DIVISION')) {
             this.currentDivision = 'IDENTIFICATION';
@@ -237,26 +270,66 @@ class AnalysisContext {
             this.inWorkingStorage = false;
             this.inLinkage = false;
             this.inFileSection = false;
+            this.inScreenSection = false;
+            this.inReportSection = false;
         } else if (upper.includes('FILE SECTION')) {
             this.inFileSection = true;
             this.inFileControl = false;
             this.inWorkingStorage = false;
             this.inLinkage = false;
+            this.inScreenSection = false;
+            this.inReportSection = false;
         } else if (upper.includes('WORKING-STORAGE SECTION')) {
             this.inWorkingStorage = true;
             this.inFileControl = false;
             this.inFileSection = false;
             this.inLinkage = false;
+            this.inScreenSection = false;
+            this.inReportSection = false;
+        } else if (upper.includes('LOCAL-STORAGE SECTION')) {
+            // Stessa visibilita'/regole della WORKING-STORAGE (differisce solo
+            // per il ciclo di vita a runtime, irrilevante per il linter).
+            this.inWorkingStorage = true;
+            this.inFileControl = false;
+            this.inFileSection = false;
+            this.inLinkage = false;
+            this.inScreenSection = false;
+            this.inReportSection = false;
         } else if (upper.includes('LINKAGE SECTION')) {
             this.inLinkage = true;
             this.inWorkingStorage = false;
             this.inFileControl = false;
             this.inFileSection = false;
+            this.inScreenSection = false;
+            this.inReportSection = false;
+        } else if (upper.includes('SCREEN SECTION')) {
+            this.inScreenSection = true;
+            this.inReportSection = false;
+            this.inFileControl = false;
+            this.inWorkingStorage = false;
+            this.inFileSection = false;
+            this.inLinkage = false;
+        } else if (upper.includes('REPORT SECTION')) {
+            this.inReportSection = true;
+            this.inScreenSection = false;
+            this.inFileControl = false;
+            this.inWorkingStorage = false;
+            this.inFileSection = false;
+            this.inLinkage = false;
+        } else if (upper.includes('COMMUNICATION SECTION')) {
+            this.inFileControl = false;
+            this.inWorkingStorage = false;
+            this.inFileSection = false;
+            this.inLinkage = false;
+            this.inScreenSection = false;
+            this.inReportSection = false;
         } else if (upper.endsWith('SECTION.') && !['DATA', ''].includes(this.currentDivision)) {
             this.inFileControl = false;
             this.inWorkingStorage = false;
             this.inLinkage = false;
             this.inFileSection = false;
+            this.inScreenSection = false;
+            this.inReportSection = false;
         }
     }
 
@@ -265,6 +338,8 @@ class AnalysisContext {
         this.inWorkingStorage = false;
         this.inLinkage = false;
         this.inFileSection = false;
+        this.inScreenSection = false;
+        this.inReportSection = false;
         this.inProcedure = this.currentDivision === 'PROCEDURE';
         this.inExecBlock = false;
     }
@@ -413,7 +488,7 @@ function checkNoGoto(lines) {
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
-        const code = getCodeContent(raw).toUpperCase();
+        const code = maskLiterals(getCodeContent(raw)).toUpperCase();
         const goMatch = code.match(/\bGO\s+TO\b/) || code.match(/\bGOTO\b/);
         if (goMatch) {
             const colStart = 7 + goMatch.index;
@@ -435,7 +510,7 @@ function checkNoAtEnd(lines) {
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
-        const code = getCodeContent(raw).toUpperCase();
+        const code = stripLiterals(getCodeContent(raw)).toUpperCase();
         if (/\bAT\s+END\b/.test(code) || /\bNOT\s+AT\s+END\b/.test(code)) {
             diags.push(makeDiag(i, cfg.severity, 'no-at-end',
                 msg('noAtEnd')));
@@ -663,7 +738,7 @@ function checkNoElseIf(lines) {
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
-        const code = getCodeContent(raw).toUpperCase();
+        const code = stripLiterals(getCodeContent(raw)).toUpperCase();
         if (/\bELSE\s+IF\b/.test(code)) {
             diags.push(makeDiag(i, cfg.severity, 'no-else-if',
                 msg('noElseIf')));
@@ -1467,6 +1542,10 @@ function checkSectionOrder(lines) {
         // "ID DIVISION." e' un alias valido di "IDENTIFICATION DIVISION.".
         const code = getCodeContent(raw).trim().toUpperCase()
             .replace(/\bID\s+DIVISION\b/, 'IDENTIFICATION DIVISION');
+        // Fine di un programma (file multi-programma / programmi annidati):
+        // la IDENTIFICATION DIVISION del programma successivo e' legittima,
+        // non "fuori ordine" rispetto alla PROCEDURE DIVISION precedente.
+        if (/\bEND\s+PROGRAM\b/.test(code)) { found.length = 0; continue; }
         for (const div of expectedOrder) {
             if (code.includes(div)) {
                 found.push({ line: i, div });
@@ -1724,7 +1803,7 @@ function checkAndOrIf(lines) {
         if (!ctx.inProcedure) { prevEndsWithConnector = false; continue; }
         if (ctx.inExecBlock) { prevEndsWithConnector = false; continue; }
 
-        const upper = code.trim().toUpperCase();
+        const upper = stripLiterals(code).trim().toUpperCase();
 
         // Stessa riga: AND IF / OR IF
         if (/\b(AND|OR)\s+IF\b/.test(upper)) {
@@ -3093,6 +3172,34 @@ function checkPerformThruMismatch(lines) {
 // ---------------------------------------------------------------------------
 // unused-variable
 // ---------------------------------------------------------------------------
+/**
+ * Raccoglie i nomi referenziati nelle clausole USING/FROM/TO delle voci
+ * SCREEN SECTION: collegano il campo video a un item del programma, quindi
+ * l'item e' effettivamente usato anche se non compare (ancora) nella
+ * PROCEDURE DIVISION.
+ * @param {string[]} lines
+ * @returns {string[]}
+ */
+function collectScreenFieldRefs(lines) {
+    const refs = [];
+    const ctx = new AnalysisContext();
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inScreenSection) continue;
+        const upper = stripLiterals(code).toUpperCase();
+        const re = /\b(?:USING|FROM|TO)\s+([A-Z0-9][\w-]*)/g;
+        let m;
+        while ((m = re.exec(upper)) !== null) {
+            if (!COBOL_RESERVED_EXTENDED.has(m[1])) refs.push(m[1]);
+        }
+    }
+    return refs;
+}
+
 function checkUnusedVariable(lines, workspaceRoot) {
     const cfg = getRuleConfig('unused-variable');
     if (!cfg.enabled) return [];
@@ -3145,6 +3252,10 @@ function checkUnusedVariable(lines, workspaceRoot) {
     for (const item of parseDataItems(lines)) {
         if (item.dependingOn) procRefs.add(item.dependingOn);
     }
+
+    // Riferimenti nella SCREEN SECTION (USING/FROM/TO): collegano il campo
+    // video a un item del programma, e' un uso a tutti gli effetti.
+    for (const name of collectScreenFieldRefs(lines)) procRefs.add(name);
 
     for (const [name, { line, level }] of wsVars) {
         if (procRefs.has(name)) continue;

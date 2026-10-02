@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.31.2] - 2026-10-02
+
+### Fixed
+- `LOCAL-STORAGE SECTION` fields were not collected as defined data items, causing false `undefined-variable` reports on every reference to them.
+- `SCREEN SECTION` / `REPORT SECTION` entries inherited the flags of whatever section came before them in the file (typically `WORKING-STORAGE`): a screen field without a `PIC` clause (e.g. `05 X LINE 2 COL 5 USING WS-X`) was reported by `pic-missing`, and a `USING WS-X` clause did not count as a use of `WS-X` for `unused-variable`.
+- `EXEC DLI ... END-EXEC` blocks were not skipped like `EXEC SQL` / `EXEC CICS`: `DLI` call verbs (`GU`, ...), `PCB` and segment names were reported as `undefined-variable`.
+- `no-goto`, `no-at-end`, `no-else-if` and `and-or-if` matched keywords inside string literals: `DISPLAY "GO TO THE SHOP"`, `DISPLAY "AT END OF THE DAY"`, `DISPLAY "ELSE IF YOU CAN"` and `DISPLAY "A AND OR IF B"` were reported as if they were real statements.
+- `section-order` reported the second `IDENTIFICATION DIVISION` of a multi-program source file (after `END PROGRAM`) as out of order. `AnalysisContext` now resets its state on `END PROGRAM` too.
+
 ## [1.31.1] - 2026-10-02
 
 ### Fixed
