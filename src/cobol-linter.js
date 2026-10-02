@@ -58,12 +58,14 @@ function detectCopybook(lines) {
         if (!trimmed) continue;
         const upper = trimmed.toUpperCase();
         // Un header di DIVISION indica un programma completo, non una copy.
-        if (upper.includes('DIVISION')) return false;
+        if (/\bDIVISION\b/.test(upper)) return false;
         if (firstCode === null) firstCode = upper;
     }
     if (firstCode === null) return false;
-    // Copy di dati: la prima riga di codice e' una voce con numero di livello.
-    return /^\d{1,2}\s+/.test(firstCode);
+    // Copy di dati: la prima riga di codice e' una voce con numero di livello
+    // E un nome valido (almeno una lettera), non una continuazione numerica
+    // (es. un elenco di VALUES su piu' righe).
+    return !!isDataItemStart(firstCode);
 }
 
 /**
@@ -446,7 +448,8 @@ function getRuleConfig(ruleId) {
         'consecutive-periods': 'error',
         'program-id-filename': 'error',
         'perform-range-exit': 'error',
-        'perform-thru-mismatch': 'warning'
+        'perform-thru-mismatch': 'warning',
+        'string-delimited': 'error'
     };
 
     return {
@@ -534,10 +537,10 @@ function checkNoLevel7778(lines) {
         ctx.update(raw, code);
         if (ctx.inWorkingStorage) {
             const stripped = code.trim();
-            if (/^(77|78)\s+/.test(stripped.toUpperCase())) {
-                const level = stripped.substring(0, 2);
+            const item = isDataItemStart(stripped.toUpperCase());
+            if (item && (item.level === 77 || item.level === 78)) {
                 diags.push(makeDiag(i, cfg.severity, 'no-level-77-78',
-                    msg('noLevel7778', level)));
+                    msg('noLevel7778', String(item.level))));
             }
         }
     }
@@ -581,7 +584,7 @@ function checkDivisionSeparator(lines) {
         if (isSkippable(raw)) continue;
         const code = getCodeContent(raw).trim().toUpperCase();
         let isDivOrSec = false;
-        if (code.includes('DIVISION') && !code.includes('IDENTIFICATION')) {
+        if (/\bDIVISION\b/.test(code) && !code.includes('IDENTIFICATION')) {
             isDivOrSec = true;
         } else if (code.endsWith('SECTION.')) {
             if (code.includes('WORKING-STORAGE SECTION') || code.includes('LINKAGE SECTION')) {
@@ -612,7 +615,7 @@ function checkDivisionSeparator(lines) {
 function checkPicAlignment(lines) {
     const cfg = getRuleConfig('pic-alignment');
     if (!cfg.enabled) return [];
-    const expected = 45;
+    const expected = vscode.workspace.getConfiguration('cobolLens').get('format.pictureColumn', 45);
     const diags = [];
     const ctx = new AnalysisContext();
     for (let i = 0; i < lines.length; i++) {
@@ -622,7 +625,7 @@ function checkPicAlignment(lines) {
         ctx.update(raw, code);
         if (ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection) {
             const upperRaw = raw.toUpperCase();
-            const picMatch = upperRaw.match(/\bPIC\b/);
+            const picMatch = upperRaw.match(/\bPIC(?:TURE)?\b/);
             if (picMatch) {
                 const picCol = upperRaw.indexOf(picMatch[0]) + 1; // 1-based
                 const beforePic = raw.substring(0, upperRaw.indexOf(picMatch[0])).trimEnd();
@@ -715,9 +718,9 @@ function checkWsLevels(lines) {
         ctx.update(raw, code);
         if (ctx.inWorkingStorage || ctx.inLinkage) {
             const stripped = code.trim();
-            const levelMatch = stripped.match(/^(\d{1,2})\s+/);
-            if (levelMatch) {
-                const level = parseInt(levelMatch[1], 10);
+            const dataItem = isDataItemStart(stripped.toUpperCase());
+            if (dataItem) {
+                const level = dataItem.level;
                 if (!validLevels.has(level)) {
                     diags.push(makeDiag(i, cfg.severity, 'ws-levels',
                         msg('wsLevels', String(level).padStart(2, '0'))));
@@ -753,7 +756,7 @@ function checkNoElseIf(lines) {
 function checkMoveToAlignment(lines) {
     const cfg = getRuleConfig('move-to-alignment');
     if (!cfg.enabled) return [];
-    const expected = 45;
+    const expected = vscode.workspace.getConfiguration('cobolLens').get('format.pictureColumn', 45);
     const diags = [];
     const ctx = new AnalysisContext();
     for (let i = 0; i < lines.length; i++) {
@@ -795,6 +798,9 @@ function checkWsLevelSpacing(lines) {
         ctx.update(raw, code);
         if (ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection) {
             const stripped = code.trim();
+            // isDataItemStart richiede una lettera nel nome: scarta le continuazioni
+            // puramente numeriche (es. elenco VALUES di un livello 88 su piu' righe).
+            if (!isDataItemStart(stripped.toUpperCase())) continue;
             const levelMatch = stripped.match(/^(\d{1,2})(\s+)(\S)/);
             if (levelMatch) {
                 const spaces = levelMatch[2];
@@ -961,7 +967,7 @@ function checkEndStructure(lines) {
 // string-delimited (STRING deve avere DELIMITED BY prima di INTO)
 // ---------------------------------------------------------------------------
 function checkStringDelimited(lines) {
-    const cfg = getRuleConfig('end-structure');
+    const cfg = getRuleConfig('string-delimited');
     if (!cfg.enabled) return [];
     const diags = [];
     const ctx = new AnalysisContext();
@@ -987,7 +993,7 @@ function checkStringDelimited(lines) {
                 const delimPos = stringStmt.search(/\bDELIMITED\s+(?:BY\s+)?/);
                 const intoPos = stringStmt.search(/\bINTO\b/);
                 if (intoPos >= 0 && (delimPos < 0 || delimPos > intoPos)) {
-                    diags.push(makeDiag(stringLine, cfg.severity, 'end-structure',
+                    diags.push(makeDiag(stringLine, cfg.severity, 'string-delimited',
                         msg('stringDelimited')));
                 }
                 inString = false;
@@ -1005,7 +1011,7 @@ function checkStringDelimited(lines) {
                 const delimPos = stringStmt.search(/\bDELIMITED\s+(?:BY\s+)?/);
                 const intoPos = stringStmt.search(/\bINTO\b/);
                 if (intoPos >= 0 && (delimPos < 0 || delimPos > intoPos)) {
-                    diags.push(makeDiag(stringLine, cfg.severity, 'end-structure',
+                    diags.push(makeDiag(stringLine, cfg.severity, 'string-delimited',
                         msg('stringDelimited')));
                 }
                 inString = false;
@@ -1163,7 +1169,7 @@ function checkMissingPeriod(lines) {
             if (isDataItemStart(nextCode) ||
                 nextCode.startsWith('FD ') || nextCode.startsWith('SD ') ||
                 nextCode.startsWith('COPY ') ||
-                nextCode.includes('SECTION.') || nextCode.includes('DIVISION')) {
+                nextCode.includes('SECTION.') || /\bDIVISION\b/.test(nextCode)) {
                 diags.push(makeDiag(i, cfg.severity, 'missing-period',
                     msg('missingPeriod')));
             }
@@ -1201,7 +1207,7 @@ function checkMissingPeriod(lines) {
 
         const prevUpper = getCodeContent(lines[prevIdx]).trim().toUpperCase();
         // La riga precedente e' gia' un header (division/section/paragrafo): ok
-        if (prevUpper.includes('DIVISION')) continue;
+        if (/\bDIVISION\b/.test(prevUpper)) continue;
         // Direttive del compilatore non richiedono punto
         if (/^(EJECT|SKIP[123]?|TITLE)\b/.test(prevUpper)) continue;
 
@@ -1251,7 +1257,7 @@ function checkMissingPeriod(lines) {
         if (prevIdx < 0) continue;
 
         const prevUpper = getCodeContent(lines[prevIdx]).trim().toUpperCase();
-        if (prevUpper.includes('DIVISION')) continue;
+        if (/\bDIVISION\b/.test(prevUpper)) continue;
         if (/^(EJECT|SKIP[123]?|TITLE)\b/.test(prevUpper)) continue;
 
         const prevWithoutLit = stripLiterals(prevUpper);
@@ -1637,6 +1643,8 @@ function checkEmptyParagraph(lines) {
         }
     }
 
+    const goToTargets = new Set(collectGoToTargets(lines).map(t => t.target));
+
     for (let idx = 0; idx < paragraphs.length; idx++) {
         const { name, startLine } = paragraphs[idx];
         // Paragrafi di sola uscita: convenzioni comuni di nome
@@ -1646,6 +1654,9 @@ function checkEmptyParagraph(lines) {
         // Bersaglio di una PERFORM ... THRU: e' il terminatore di un range,
         // quindi un paragrafo di solo EXIT/CONTINUE e' corretto.
         if (thruTargets.has(name)) continue;
+        // Bersaglio di un GO TO: stesso discorso, e' un punto di atterraggio
+        // deliberatamente vuoto (pattern comune per le uscite via GO TO).
+        if (goToTargets.has(name)) continue;
         const endLine = idx + 1 < paragraphs.length ? paragraphs[idx + 1].startLine : lines.length;
 
         let hasCode = false;
@@ -1774,6 +1785,7 @@ function checkMissingStopRun(lines) {
             lastProcLine = i;
             const upper = code.trim().toUpperCase();
             if (/\bSTOP\s+RUN\b/.test(upper) || /\bGOBACK\b/.test(upper) ||
+                /\bEXIT\s+PROGRAM\b/.test(upper) ||
                 /\bEXEC\s+CICS\s+RETURN\b/.test(upper)) hasStop = true;
         }
     }
@@ -1862,11 +1874,11 @@ function parseDataItems(lines) {
         if (!(ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection)) { i++; continue; }
 
         const upperCode = code.trim().toUpperCase();
-        const levelMatch = upperCode.match(/^(\d{1,2})\s+(\S+)/);
+        const levelMatch = isDataItemStart(upperCode);
         if (!levelMatch) { i++; continue; }
 
-        const level = parseInt(levelMatch[1], 10);
-        const name = levelMatch[2].replace(/\.$/, '').toUpperCase();
+        const level = levelMatch.level;
+        const name = levelMatch.name.replace(/\.$/, '').toUpperCase();
         const lineNum = i;
 
         // Accumula righe di continuazione fino al punto finale
@@ -2000,7 +2012,9 @@ function checkRedefinesSize(lines) {
         const origSize = computeItemSize(items, origIdx);
         const redefSize = computeItemSize(items, idx);
 
-        if (origSize > 0 && redefSize > 0 && origSize !== redefSize) {
+        // COBOL ammette una REDEFINES piu' piccola dell'originale (resta inutilizzato
+        // lo spazio in eccesso): e' un errore solo se la ridefinizione e' PIU' GRANDE.
+        if (origSize > 0 && redefSize > 0 && redefSize > origSize) {
             diags.push(makeDiag(item.lineNum, cfg.severity, 'redefines-size',
                 msg('redefinesSize', item.redefines, origSize, redefSize),
                 undefined, undefined, item.name));
@@ -2707,6 +2721,7 @@ function loadCopyParagraphs(copyName, workspaceRoot) {
 function collectOccursNames(lines, isCopy) {
     const occurs = new Set();
     const ctx = new AnalysisContext();
+    const groupStack = []; // {name, level, isOccurs}: isOccurs vero anche per i discendenti di una tabella
     let i = 0;
     while (i < lines.length) {
         const raw = lines[i];
@@ -2716,10 +2731,17 @@ function collectOccursNames(lines, isCopy) {
         if (!isCopy) ctx.update(raw, code);
         if (!isCopy && !(ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection)) { i++; continue; }
         const upper = code.trim().toUpperCase();
-        const levelMatch = upper.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+        const levelMatch = isDataItemStart(upper);
         if (!levelMatch) { i++; continue; }
-        const name = levelMatch[2].replace(/\.$/, '');
-        if (name === 'FILLER') { i++; continue; }
+        const level = levelMatch.level;
+        const name = levelMatch.name.replace(/\.$/, '');
+
+        // Chiude i gruppi che non contengono piu' l'item corrente
+        while (groupStack.length && groupStack[groupStack.length - 1].level >= level) {
+            groupStack.pop();
+        }
+        const underOccurs = groupStack.some(g => g.isOccurs);
+
         let fullStmt = code;
         let j = i + 1;
         if (!fullStmt.trimEnd().endsWith('.')) {
@@ -2733,9 +2755,13 @@ function collectOccursNames(lines, isCopy) {
             }
         }
         i = j > i + 1 ? j : i + 1;
-        if (/(?:^|\s)OCCURS\b/.test(fullStmt.toUpperCase())) {
-            occurs.add(name);
-        }
+
+        const hasOccurs = /(?:^|\s)OCCURS\b/.test(fullStmt.toUpperCase());
+        // Un campo sotto una tabella OCCURS richiede anch'esso l'indice per essere
+        // referenziato (la sua posizione dipende dall'indice della tabella).
+        if (name !== 'FILLER' && (hasOccurs || underOccurs)) occurs.add(name);
+
+        groupStack.push({ name, level, isOccurs: hasOccurs || underOccurs });
     }
     return occurs;
 }
@@ -2802,7 +2828,16 @@ function checkUnsubscriptedOccurs(lines, workspaceRoot) {
                 const before = idx > 0 ? upper.charAt(idx - 1) : ' ';
                 const after = idx + varName.length < upper.length ? upper.charAt(idx + varName.length) : ' ';
                 if (!/[A-Z0-9-]/.test(before) && !/[A-Z0-9-]/.test(after)) {
-                    const afterRef = upper.substring(idx + varName.length).trimStart();
+                    // Qualificazione (OF <nome>)* prima del subscript: in "ELEM OF TAB (I)"
+                    // l'indice si applica all'intero riferimento qualificato, non subito
+                    // dopo ELEM. Va scartata prima di cercare la parentesi.
+                    let afterRef = upper.substring(idx + varName.length);
+                    while (true) {
+                        const qm = afterRef.match(/^\s+OF\s+[A-Z0-9][\w-]*/);
+                        if (!qm) break;
+                        afterRef = afterRef.substring(qm[0].length);
+                    }
+                    afterRef = afterRef.trimStart();
                     if (!afterRef.startsWith('(')) {
                         // Controlla se il subscript e' sulla riga successiva
                         let hasSubscriptNextLine = false;
@@ -3257,6 +3292,21 @@ function checkUnusedVariable(lines, workspaceRoot) {
     // video a un item del programma, e' un uso a tutti gli effetti.
     for (const name of collectScreenFieldRefs(lines)) procRefs.add(name);
 
+    // Gruppi REDEFINES: campi che condividono lo stesso storage. Se si usa
+    // SOLO la vista ridefinita (o viceversa solo l'originale), l'altro non va
+    // segnalato come unused-variable (e' la stessa area di memoria, letta/
+    // scritta sotto un nome diverso). Unisce in un unico insieme ogni catena
+    // di REDEFINES sullo stesso campo (anche multipli).
+    const redefinesGroups = new Map(); // name -> Set condiviso di tutti i nomi collegati
+    for (const item of parseDataItems(lines)) {
+        if (!item.redefines) continue;
+        const a = item.name, b = item.redefines;
+        let group = redefinesGroups.get(a) || redefinesGroups.get(b);
+        if (!group) group = new Set();
+        group.add(a); group.add(b);
+        for (const n of group) redefinesGroups.set(n, group);
+    }
+
     for (const [name, { line, level }] of wsVars) {
         if (procRefs.has(name)) continue;
 
@@ -3283,6 +3333,21 @@ function checkUnusedVariable(lines, workspaceRoot) {
         const ancestors = itemAncestors.get(name) || [];
         if (ancestors.some(a => procRefs.has(a))) continue;
 
+        // REDEFINES: non segnalare se e' usato un altro campo della stessa
+        // catena REDEFINES (stesso storage condiviso sotto un altro nome),
+        // anche tramite i suoi discendenti.
+        const redefGroup = redefinesGroups.get(name);
+        if (redefGroup) {
+            let usedViaRedefines = false;
+            for (const other of redefGroup) {
+                if (other === name) continue;
+                if (procRefs.has(other)) { usedViaRedefines = true; break; }
+                const otherDescendants = itemDescendants.get(other);
+                if (otherDescendants && [...otherDescendants].some(d => procRefs.has(d))) { usedViaRedefines = true; break; }
+            }
+            if (usedViaRedefines) continue;
+        }
+
         diags.push(makeDiag(line, cfg.severity, 'unused-variable',
             msg('unusedVariable', name),
             undefined, undefined, name));
@@ -3300,7 +3365,6 @@ function checkDuplicateVariable(lines, workspaceRoot) {
 
     // Rileva blocchi $IF/$ELSE/$END per le definizioni condizionali
     // Le variabili definite in rami diversi di $IF/$ELSE non sono duplicati
-    const conditionalLines = new Set(); // righe dentro blocchi $IF/$ELSE/$END
     const ifElseRanges = []; // [{ifStart, elseStart, endLine}]
     let currentIfStart = -1;
     let currentElseStart = -1;
@@ -3314,15 +3378,16 @@ function checkDuplicateVariable(lines, workspaceRoot) {
             currentElseStart = i;
         } else if (/^\$END\b/.test(trimmed) && currentIfStart >= 0) {
             ifElseRanges.push({ ifStart: currentIfStart, elseStart: currentElseStart, endLine: i });
-            for (let j = currentIfStart; j <= i; j++) conditionalLines.add(j);
             currentIfStart = -1;
             currentElseStart = -1;
         }
     }
 
     // Definizioni dal programma
-    const progDefs = new Map(); // name -> [line, ...]
+    const progDefs = new Map(); // name -> [{line, parent}, ...]
     const ctx = new AnalysisContext();
+    let groupStack = []; // pila dei gruppi ancora "aperti" {name, level}, per risalire al genitore immediato
+    let prevSection = null; // 'ws' | 'linkage' | 'file' | null, per azzerare lo stack al cambio sezione
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
@@ -3330,15 +3395,25 @@ function checkDuplicateVariable(lines, workspaceRoot) {
         if (!code.trim()) continue;
         ctx.update(raw, code);
         if (ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection) {
+            const section = ctx.inWorkingStorage ? 'ws' : (ctx.inLinkage ? 'linkage' : 'file');
+            if (section !== prevSection) { groupStack = []; prevSection = section; }
             const upper = code.trim().toUpperCase();
             const levelMatch = isDataItemStart(upper);
             if (levelMatch) {
                 const name = levelMatch.name.replace(/\.$/, '');
+                const level = levelMatch.level;
+                while (groupStack.length && groupStack[groupStack.length - 1].level >= level) {
+                    groupStack.pop();
+                }
+                const parent = groupStack.length ? groupStack[groupStack.length - 1].name : null;
+                groupStack.push({ name, level });
                 if (name === 'FILLER') continue;
                 const list = progDefs.get(name) || [];
-                list.push(i);
+                list.push({ line: i, parent });
                 progDefs.set(name, list);
             }
+        } else {
+            prevSection = null;
         }
     }
 
@@ -3368,35 +3443,48 @@ function checkDuplicateVariable(lines, workspaceRoot) {
     }
 
     // 1. Duplicati nel programma
-    for (const [name, lineList] of progDefs) {
-        if (lineList.length > 1) {
-            for (let k = 1; k < lineList.length; k++) {
+    for (const [name, defList] of progDefs) {
+        if (defList.length > 1) {
+            for (let k = 1; k < defList.length; k++) {
                 // Salta se le definizioni duplicate sono in rami diversi di $IF/$ELSE/$END
                 let isConditionalDup = false;
                 for (let m = 0; m < k; m++) {
-                    if (areInDifferentBranches(lineList[m], lineList[k])) {
+                    if (areInDifferentBranches(defList[m].line, defList[k].line)) {
                         isConditionalDup = true;
                         break;
                     }
                 }
                 if (isConditionalDup) continue;
 
+                // Nomi qualificabili (COBOL valido): entrambe le occorrenze sono
+                // sotto-campi di un gruppo, con genitore immediato diverso
+                // (es. CAMPO OF GRP-A / CAMPO OF GRP-B). Non e' un vero duplicato,
+                // basta la qualificazione OF per distinguerli.
+                let isQualifiable = false;
+                for (let m = 0; m < k; m++) {
+                    if (defList[m].parent && defList[k].parent && defList[m].parent !== defList[k].parent) {
+                        isQualifiable = true;
+                        break;
+                    }
+                }
+                if (isQualifiable) continue;
+
                 const msgText = copyVarSources.has(name)
-                    ? msg('duplicateVarProgramAndCopy', name, lineList[0] + 1, copyVarSources.get(name).join(', '))
-                    : msg('duplicateVarProgram', name, lineList[0] + 1);
-                diags.push(makeDiag(lineList[k], cfg.severity, 'duplicate-variable', msgText,
+                    ? msg('duplicateVarProgramAndCopy', name, defList[0].line + 1, copyVarSources.get(name).join(', '))
+                    : msg('duplicateVarProgram', name, defList[0].line + 1);
+                diags.push(makeDiag(defList[k].line, cfg.severity, 'duplicate-variable', msgText,
                     undefined, undefined, name));
             }
         }
     }
 
     // 2. Definita nel programma E in una copy
-    for (const [name, lineList] of progDefs) {
-        if (lineList.length > 1) continue;
+    for (const [name, defList] of progDefs) {
+        if (defList.length > 1) continue;
         if (copyVarSources.has(name)) {
             const copies = copyVarSources.get(name);
-            diags.push(makeDiag(lineList[0], cfg.severity, 'duplicate-variable',
-                msg('duplicateVarProgAndCopy', name, lineList[0] + 1, copies.join(', ')),
+            diags.push(makeDiag(defList[0].line, cfg.severity, 'duplicate-variable',
+                msg('duplicateVarProgAndCopy', name, defList[0].line + 1, copies.join(', ')),
                 undefined, undefined, name));
         }
     }
@@ -4318,10 +4406,10 @@ function checkLevel88WithoutParent(lines) {
             continue;
         }
         if (!(ctx.inWorkingStorage || ctx.inLinkage || ctx.inFileSection)) continue;
-        const lm = upper.match(/^(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+        const lm = isDataItemStart(upper);
         if (!lm) continue;
-        const level = parseInt(lm[1], 10);
-        const name = lm[2].replace(/\.$/, '');
+        const level = lm.level;
+        const name = lm.name.replace(/\.$/, '');
         if (level === 88) {
             if (!hasParent) {
                 diags.push(makeDiag(i, cfg.severity, 'level-88-without-parent',

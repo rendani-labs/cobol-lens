@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.32.0] - 2026-10-02
+
+### Added
+- New rule `string-delimited` (error): `STRING` must have a `DELIMITED BY` clause before `INTO`. This check existed before but used the `end-structure` rule id, so it could not be enabled/disabled or have its severity set independently.
+
+### Fixed
+- `missing-stop-run` did not recognize `EXIT PROGRAM`: every classic subprogram (no `STOP RUN`/`GOBACK`, only `EXIT PROGRAM`) was reported as missing a program terminator.
+- `redefines-size` reported an error whenever a `REDEFINES` had a *different* size than the original item, even when it was *smaller* (legal COBOL: the extra space of the original is simply unused). It now reports only a redefinition that is *larger* than the original.
+- `duplicate-variable` reported an error on the same field name defined under two different groups (e.g. `CAMPO` under `GRP-A` and under `GRP-B`), even though COBOL can tell them apart via qualification (`CAMPO OF GRP-A`). Two definitions with a different immediate parent group are no longer reported; the same name repeated under the *same* parent (or two top-level items with no group) is still a real duplicate.
+- `unused-variable` reported the original field as unused when only its `REDEFINES` view was used (or vice versa): they share the same storage, so using one counts as using the other.
+- `unsubscripted-occurs`: a field subordinate to an `OCCURS` table (e.g. `WS-ITEM-VAL` under `05 WS-ITEM OCCURS 10`) was never checked on its own, only the table name was; referencing it without an index now correctly triggers the rule. A qualified reference with the subscript after the qualifier (`WS-ELEM OF WS-OUTER-GRP (1)`) was incorrectly reported as unsubscripted; the subscript is now looked for after any `OF <name>` qualifier chain, not only right after the field name.
+- Several rules used an unprotected "level number + name" regex that also matched a purely numeric continuation line (e.g. a multi-line `VALUE` list of an `88` ending in `13 17.`), misreading it as a new data item: `parseDataItems`, `collectOccursNames`, `checkWsLevels`, `checkWsLevelSpacing`, `checkNoLevel7778`, `checkLevel88WithoutParent` and `detectCopybook` now all require a letter in the name (same guard already used by `isDataItemStart`), so these spurious "levels" are no longer reported.
+- `includes('DIVISION')` also matched inside unrelated names such as `WS-DIVISIONE`: `division-separator` could treat an ordinary data item as a `DIVISION`/`SECTION` header, and `missing-period` would skip its check right after such a line, hiding a real missing period. Both now use a word-boundary match.
+- `pic-alignment` / `move-to-alignment` used a fixed column 45 instead of the formatter's configurable `cobolLens.format.pictureColumn`; `pic-alignment` also did not recognize the `PICTURE` keyword (only `PIC`).
+- `empty-paragraph` now also treats a paragraph that is the target of a `GO TO` as an intentional empty landing point (same treatment already given to `PERFORM ... THRU` targets), in addition to the existing name-based exemptions (`-EX`/`-EXIT`/`-FINE`/`-END`/`-X`/`EX-`).
+
+### Removed
+- Dead code: unused `conditionalLines` set in `checkDuplicateVariable`.
+
 ## [1.31.2] - 2026-10-02
 
 ### Fixed

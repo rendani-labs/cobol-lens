@@ -157,16 +157,16 @@ const MESSAGES = {
         en: (name) => `SELECT '${name}' has no STATUS clause (use FILE STATUS to handle I/O errors)`,
     },
     missingStopRun: {
-        it: () => 'Il programma non contiene STOP RUN, GOBACK o EXEC CICS RETURN',
-        en: () => 'Program does not contain STOP RUN, GOBACK or EXEC CICS RETURN',
+        it: () => 'Il programma non contiene STOP RUN, EXIT PROGRAM, GOBACK o EXEC CICS RETURN',
+        en: () => 'Program does not contain STOP RUN, EXIT PROGRAM, GOBACK or EXEC CICS RETURN',
     },
     andOrIf: {
         it: () => 'IF non necessario dopo AND/OR in una condizione composta. Rimuovere IF.',
         en: () => 'Unnecessary IF after AND/OR in a compound condition. Remove IF.',
     },
     redefinesSize: {
-        it: (orig, origSize, redefSize) => `REDEFINES: '${orig}' occupa ${origSize} byte, la ridefinizione occupa ${redefSize} byte (devono coincidere)`,
-        en: (orig, origSize, redefSize) => `REDEFINES: '${orig}' is ${origSize} bytes, the redefinition is ${redefSize} bytes (they must match)`,
+        it: (orig, origSize, redefSize) => `REDEFINES: '${orig}' occupa ${origSize} byte, la ridefinizione occupa ${redefSize} byte (non puo' essere piu' grande dell'originale)`,
+        en: (orig, origSize, redefSize) => `REDEFINES: '${orig}' is ${origSize} bytes, the redefinition is ${redefSize} bytes (it cannot be larger than the original)`,
     },
     odoNotLast: {
         it: (name, next) => `La tabella '${name}' con OCCURS DEPENDING ON deve essere l'ultimo campo del record: e' seguita da '${next}'`,
