@@ -14,7 +14,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
-const { isComment, resolveCopybookPath, COPY_REGEX, COBOL_RESERVED, REPLACING_PAIR_REGEX } = require('./cobol-parser');
+const { isComment, resolveCopybookPath, COPY_REGEX, COBOL_RESERVED, parseReplacingClause, replaceCopyName } = require('./cobol-parser');
 const { detectUsage, elementarySize, hasImplicitSize, hasSignSeparate, inheritGroupUsage, isElementaryEntry } = require('./cobol-layout');
 const { msg, getLang, setLang } = require('./messages');
 
@@ -1047,8 +1047,9 @@ function checkParagraphNaming(lines) {
 // numeri (es. un elenco di VALUES di un 88 continuato su piu' righe, tipo
 // "5 15 19 35 39 55") NON e' una nuova voce anche se "assomiglia" a
 // "livello nome" (entrambi i token sono numerici).
+// Nelle copybook il nome puo' contenere un tag da REPLACING (":TAG:-CAMPO").
 function isDataItemStart(code) {
-    const m = code.match(/^\s*(\d{1,2})\s+([A-Z0-9][\w-]*)/);
+    const m = code.match(/^\s*(\d{1,2})\s+([A-Z0-9:][\w:-]*)/);
     if (!m) return null;
     if (!/[A-Z]/.test(m[2])) return null;
     return { level: parseInt(m[1], 10), name: m[2] };
@@ -1429,10 +1430,10 @@ function checkMismatchedCopy(lines, workspaceRoot) {
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
-        const code = getCodeContent(raw).trim().toUpperCase();
-        const copyMatch = code.match(/^\s*COPY\s+([A-Z0-9][\w-]*)/);
+        const code = getCodeContent(raw).toUpperCase();
+        const copyMatch = matchCopyDirective(code);
         if (copyMatch) {
-            const copyName = copyMatch[1];
+            const copyName = copyMatch.name;
             if (ignoredCopybooks.has(copyName)) continue;
             if (!existingCopies.has(copyName)) {
                 // Verifica anche con le estensioni configurate
@@ -2380,6 +2381,13 @@ function extractVariableRefs(lines) {
     const refs = [];
     const ctx = new AnalysisContext();
     const { stmtLines: jsonXmlLines } = collectJsonXmlRegions(lines);
+    // La COPY (nome, OF/IN libreria, operandi REPLACING) non contiene variabili:
+    // sulla prima riga si tiene solo il codice prima di COPY, le altre si saltano.
+    const copyCut = new Map();
+    for (const cs of collectCopyStatements(lines)) {
+        copyCut.set(cs.line, cs.col);
+        for (let k = cs.line + 1; k <= cs.endLine; k++) copyCut.set(k, 0);
+    }
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
@@ -2389,7 +2397,9 @@ function extractVariableRefs(lines) {
         if (!ctx.inProcedure) continue;
         if (ctx.inExecBlock) continue;
 
-        const upper = code.trim().toUpperCase();
+        const cut = copyCut.get(i);
+        const upper = (cut === undefined ? code : code.substring(0, cut)).trim().toUpperCase();
+        if (!upper) continue;
         if (code && !/^\s/.test(code) && /^[A-Z0-9][\w-]*\.\s*$/.test(upper)) continue;
         // Header di SECTION (es. "INIZIO SECTION."): il nome non e' una variabile.
         if (code && !/^\s/.test(code) && /^[A-Z0-9][\w-]*\s+SECTION\s*\.\s*$/.test(upper)) continue;
@@ -2444,85 +2454,112 @@ function collectCopyNames(lines) {
 }
 
 /**
+ * Riconosce una direttiva COPY a inizio riga o dopo un punto (es.
+ * "01 X. COPY Y."), con nome semplice o tra apici. Il testo dei letterali
+ * viene mascherato: un VALUE '... COPY X ...' non e' una COPY.
+ * @param {string} upper - codice in maiuscolo
+ * @returns {{name: string, start: number, end: number} | null}
+ */
+function matchCopyDirective(upper) {
+    let masked = upper.replace(/'[^']*'|"[^"]*"/g, s => '\u0001'.repeat(s.length));
+    const q = masked.search(/['"]/);
+    if (q >= 0) masked = masked.substring(0, q);
+    const m = masked.match(/(?:^\s*|\.\s+)COPY\s+(?=\u0001|[A-Z0-9])/);
+    if (!m || m.index === undefined) return null;
+    const nameStart = m.index + m[0].length;
+    const n = upper.substring(nameStart).match(/^(?:(['"])([A-Z0-9][\w-]*)\1|([A-Z0-9][\w-]*))/);
+    if (!n) return null;
+    return { name: n[2] || n[3], start: m.index + m[0].indexOf('COPY'), end: nameStart + n[0].length };
+}
+
+/**
  * Raccoglie COPY statements con le relative clausole REPLACING.
  * @param {string[]} lines
- * @returns {Array<{name: string, replacements: Array<{from: string, to: string}>}>}
+ * @returns {Array<{name: string, replacements: Array<{from: string, to: string, mode: string}>, line: number, col: number, endLine: number}>}
  */
 function collectCopyStatements(lines) {
     const copies = [];
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
-        const code = getCodeContent(raw).trim().toUpperCase();
-        // La direttiva COPY puo' comparire dopo altro codice sulla stessa riga
-        // (es. "01 COMM-AREA-08. COPY PGCYCOMS."). Si riconosce quindi COPY sia
-        // a inizio riga sia subito dopo un punto (fine frase/voce), non solo
-        // ancorata all'inizio. I letterali stringa vengono rimossi prima della
-        // ricerca per evitare falsi positivi (ad esempio VALUE '... COPY ...').
-        const m = stripLiterals(code).match(/(?:^|\.\s+)COPY\s+([A-Z0-9][\w-]*)/);
-        if (!m) continue;
-        const copyName = m[1];
+        const code = getCodeContent(raw).toUpperCase();
+        const cm = matchCopyDirective(code);
+        if (!cm) continue;
 
-        // Accumula la COPY statement completa (potrebbe essere multi-riga)
-        let fullStatement = raw;
+        // La COPY puo' continuare sulle righe dopo (REPLACING) fino al punto.
+        let statement = code.substring(cm.end);
         let endIdx = i;
-        if (!raw.includes('.')) {
+        if (!statement.includes('.')) {
             for (let j = i + 1; j < lines.length; j++) {
-                if (isComment(lines[j])) continue;
-                fullStatement += ' ' + lines[j];
+                if (isSkippable(lines[j])) continue;
+                const next = getCodeContent(lines[j]).toUpperCase();
+                statement += ' ' + next;
                 endIdx = j;
-                if (lines[j].includes('.')) break;
+                if (next.includes('.')) break;
             }
         }
 
-        // Estrai coppie REPLACING
-        const replacements = [];
-        const regex = new RegExp(REPLACING_PAIR_REGEX.source, 'gi');
-        let match;
-        while ((match = regex.exec(fullStatement)) !== null) {
-            replacements.push({
-                from: match[1].trim().toUpperCase(),
-                to: match[2].trim().toUpperCase()
-            });
-        }
-
-        copies.push({ name: copyName, replacements, line: i });
+        copies.push({ name: cm.name, replacements: parseReplacingClause(statement), line: i, col: cm.start, endLine: endIdx });
         i = endIdx;
     }
     return copies;
 }
 
 /**
- * Carica simboli da una copybook, applicando le sostituzioni REPLACING.
- * @param {string} copyName
- * @param {string} workspaceRoot
- * @param {Array<{from: string, to: string}>} [replacements]
+ * Tutte le copybook raggiunte dal sorgente, anche annidate. Per ognuna: le
+ * righe, le REPLACING da applicare ai nomi (stages: prima la COPY piu'
+ * interna, poi quelle che la contengono) e la riga della COPY di primo
+ * livello nel sorgente.
+ * @param {string[]} lines
+ * @param {string} [workspaceRoot]
+ * @returns {Array<{name: string, lines: string[], stages: Array<Array<{from: string, to: string, mode: string}>>, line: number}>}
+ */
+function collectCopyTree(lines, workspaceRoot) {
+    const tree = [];
+    if (!workspaceRoot) return tree;
+    const walk = (srcLines, outerStages, topLine, chain) => {
+        for (const cs of collectCopyStatements(srcLines)) {
+            if (chain.has(cs.name)) continue;
+            const resolved = resolveCopybookPath(cs.name, workspaceRoot);
+            if (!resolved) continue;
+            let copyLines;
+            try {
+                copyLines = fs.readFileSync(resolved, 'utf-8').split(/\r?\n/);
+            } catch (e) {
+                continue;
+            }
+            const stages = [cs.replacements, ...outerStages];
+            const line = topLine < 0 ? cs.line : topLine;
+            tree.push({ name: cs.name, lines: copyLines, stages, line });
+            walk(copyLines, stages, line, new Set(chain).add(cs.name));
+        }
+    };
+    walk(lines, [], -1, new Set());
+    return tree;
+}
+
+/**
+ * @param {string} name
+ * @param {Array<Array<{from: string, to: string, mode: string}>>} stages
+ * @returns {string}
+ */
+function applyCopyStages(name, stages) {
+    for (const pairs of stages) name = replaceCopyName(name, pairs);
+    return name;
+}
+
+/**
+ * Simboli definiti in una copybook dell'albero, con le REPLACING applicate.
+ * @param {{lines: string[], stages: Array<Array<{from: string, to: string, mode: string}>>}} copy
  * @returns {Set<string>}
  */
-function loadCopySymbols(copyName, workspaceRoot, replacements) {
-    const resolved = resolveCopybookPath(copyName, workspaceRoot);
-    if (!resolved) return new Set();
-    try {
-        const content = fs.readFileSync(resolved, 'utf-8');
-        const copyLines = content.split(/\r?\n/);
-        const symbols = collectDefinedSymbols(copyLines, true);
-        if (!replacements || replacements.length === 0) return symbols;
-
-        // Applica REPLACING ai nomi dei simboli
-        const replaced = new Set();
-        for (const sym of symbols) {
-            let newName = sym;
-            for (const repl of replacements) {
-                if (newName.includes(repl.from)) {
-                    newName = newName.replace(repl.from, repl.to);
-                }
-            }
-            replaced.add(newName);
-        }
-        return replaced;
-    } catch (e) {
-        return new Set();
+function loadCopySymbols(copy) {
+    const symbols = new Set();
+    for (const sym of collectDefinedSymbols(copy.lines, true)) {
+        const name = applyCopyStages(sym, copy.stages);
+        if (name) symbols.add(name);
     }
+    return symbols;
 }
 
 /**
@@ -2539,9 +2576,8 @@ function collectProcedureCopyNames(lines) {
         if (!code.trim()) continue;
         ctx.update(line, code);
         if (!ctx.inProcedure) continue;
-        const upper = code.trim().toUpperCase();
-        const m = upper.match(/^\s*COPY\s+([A-Z0-9][\w-]*)/);
-        if (m) copies.push(m[1]);
+        const m = matchCopyDirective(code.toUpperCase());
+        if (m) copies.push(m.name);
     }
     return copies;
 }
@@ -2656,24 +2692,10 @@ function checkUnsubscriptedOccurs(lines, workspaceRoot) {
     if (!cfg.enabled) return [];
     const diags = [];
     const occursVars = collectOccursNames(lines, false);
-    const copyStmts = collectCopyStatements(lines);
-    if (workspaceRoot) {
-        for (const cs of copyStmts) {
-            const resolved = resolveCopybookPath(cs.name, workspaceRoot);
-            if (!resolved) continue;
-            try {
-                const content = fs.readFileSync(resolved, 'utf-8');
-                const copyOccurs = collectOccursNames(content.split(/\r?\n/), true);
-                for (let name of copyOccurs) {
-                    // Applica REPLACING ai nomi OCCURS
-                    for (const repl of cs.replacements) {
-                        if (name.includes(repl.from)) {
-                            name = name.replace(repl.from, repl.to);
-                        }
-                    }
-                    occursVars.add(name);
-                }
-            } catch (e) { /* ignore */ }
+    for (const cp of collectCopyTree(lines, workspaceRoot)) {
+        for (const name of collectOccursNames(cp.lines, true)) {
+            const nn = applyCopyStages(name, cp.stages);
+            if (nn) occursVars.add(nn);
         }
     }
     if (occursVars.size === 0) return diags;
@@ -2737,12 +2759,8 @@ function checkUndefinedVariables(lines, workspaceRoot) {
     const diags = [];
 
     const defined = collectDefinedSymbols(lines, false);
-    const copyStmts = collectCopyStatements(lines);
-    if (workspaceRoot) {
-        for (const cs of copyStmts) {
-            const copySyms = loadCopySymbols(cs.name, workspaceRoot, cs.replacements);
-            for (const s of copySyms) defined.add(s);
-        }
+    for (const cp of collectCopyTree(lines, workspaceRoot)) {
+        for (const s of loadCopySymbols(cp)) defined.add(s);
     }
     const paragraphs = collectParagraphs(lines);
     for (const p of paragraphs.keys()) defined.add(p);
@@ -3228,20 +3246,13 @@ function checkDuplicateVariable(lines, workspaceRoot) {
 
     // Definizioni dalle copy
     const copyVarSources = new Map(); // name -> [copyName, ...]
-    const copyStmts = collectCopyStatements(lines);
-    const copyStmtLines = new Map(); // copyName -> riga (0-based) della prima COPY
-    for (const cs of copyStmts) {
-        if (!copyStmtLines.has(cs.name)) copyStmtLines.set(cs.name, cs.line);
-    }
-
-    if (workspaceRoot) {
-        for (const cs of copyStmts) {
-            const copySyms = loadCopySymbols(cs.name, workspaceRoot, cs.replacements);
-            for (const sym of copySyms) {
-                const list = copyVarSources.get(sym) || [];
-                list.push(cs.name);
-                copyVarSources.set(sym, list);
-            }
+    const copyStmtLines = new Map(); // copyName -> riga (0-based) della COPY di primo livello
+    for (const cp of collectCopyTree(lines, workspaceRoot)) {
+        if (!copyStmtLines.has(cp.name)) copyStmtLines.set(cp.name, cp.line);
+        for (const sym of loadCopySymbols(cp)) {
+            const list = copyVarSources.get(sym) || [];
+            list.push(cp.name);
+            copyVarSources.set(sym, list);
         }
     }
 
@@ -3650,24 +3661,10 @@ function collectDataItemTypes(lines, isCopy) {
  */
 function collectDataItemTypesWithCopy(lines, workspaceRoot) {
     const { alphanumericVars, numericVars } = collectDataItemTypes(lines, false);
-    if (!workspaceRoot) return { alphanumericVars, numericVars };
-
-    const copyStmts = collectCopyStatements(lines);
-    for (const cs of copyStmts) {
-        const resolved = resolveCopybookPath(cs.name, workspaceRoot);
-        if (!resolved) continue;
-        try {
-            const content = fs.readFileSync(resolved, 'utf-8');
-            const copyTypes = collectDataItemTypes(content.split(/\r?\n/), true);
-            const applyRepl = (name) => {
-                for (const repl of cs.replacements) {
-                    if (name.includes(repl.from)) name = name.replace(repl.from, repl.to);
-                }
-                return name;
-            };
-            for (const n of copyTypes.alphanumericVars) alphanumericVars.add(applyRepl(n));
-            for (const n of copyTypes.numericVars) numericVars.add(applyRepl(n));
-        } catch (e) { /* ignore */ }
+    for (const cp of collectCopyTree(lines, workspaceRoot)) {
+        const copyTypes = collectDataItemTypes(cp.lines, true);
+        for (const n of copyTypes.alphanumericVars) alphanumericVars.add(applyCopyStages(n, cp.stages));
+        for (const n of copyTypes.numericVars) numericVars.add(applyCopyStages(n, cp.stages));
     }
     return { alphanumericVars, numericVars };
 }
@@ -4323,25 +4320,11 @@ function collectDataItemPics(lines, isCopy) {
  */
 function collectDataItemPicsWithCopy(lines, workspaceRoot) {
     const map = collectDataItemPics(lines, false);
-    if (!workspaceRoot) return map;
-    const copyStmts = collectCopyStatements(lines);
-    for (const cs of copyStmts) {
-        const resolved = resolveCopybookPath(cs.name, workspaceRoot);
-        if (!resolved) continue;
-        try {
-            const content = fs.readFileSync(resolved, 'utf-8');
-            const copyMap = collectDataItemPics(content.split(/\r?\n/), true);
-            const applyRepl = (nm) => {
-                for (const repl of cs.replacements) {
-                    if (nm.includes(repl.from)) nm = nm.replace(repl.from, repl.to);
-                }
-                return nm;
-            };
-            for (const [n, info] of copyMap) {
-                const nn = applyRepl(n);
-                if (!map.has(nn)) map.set(nn, info);
-            }
-        } catch (e) { /* ignore */ }
+    for (const cp of collectCopyTree(lines, workspaceRoot)) {
+        for (const [n, info] of collectDataItemPics(cp.lines, true)) {
+            const nn = applyCopyStages(n, cp.stages);
+            if (!map.has(nn)) map.set(nn, info);
+        }
     }
     return map;
 }

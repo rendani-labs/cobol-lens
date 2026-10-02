@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.31.1] - 2026-10-02
+
+### Fixed
+- Nested COPY: fields defined in a copybook included by another copybook were reported as `undefined-variable` and ignored by the type/size rules (`move-alphanumeric-to-numeric`, `alphanumeric-in-compute`, `move-truncation`, `unsubscripted-occurs`, `duplicate-variable`). Nested copybooks are now followed (recursion-safe); the `REPLACING` of the outer COPY applies to the nested ones too.
+- `COPY ... REPLACING` was applied to parts of names: `==WS-A== BY ==WS-B==` turned `WS-AB` into `WS-BB`. Replacement now works on whole words like the compiler. `LEADING` / `TRAILING` replace the start / end of a word; operands that are not a complete word (`:TAG:`, `-OLD`, `LEAF-`) are still replaced inside names. Data items named with a tag (`05 :TAG:-FIELD`) are recognized in copybooks.
+- `COPY ... REPLACING X BY Y` (operands without `==`) and literal operands were ignored.
+- `COPY "NAME"` / `COPY 'NAME'`: the copybook was not loaded (its fields were `undefined-variable`) and a missing one was not reported by `mismatched-copy`. A COPY after a period on the same line is now checked by `mismatched-copy` too.
+- A COPY in the PROCEDURE DIVISION with `OF` / `IN` library or `REPLACING` operands: the library name and the operands were reported as `undefined-variable`.
+- Expand Copybooks preview: `REPLACING` of a whole word no longer changes longer names that contain it.
+
 ## [1.31.0] - 2026-10-02
 
 ### Added

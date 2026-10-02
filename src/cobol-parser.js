@@ -13,8 +13,8 @@ const fs = require('fs');
 const COPY_REGEX = /\bCOPY\s+['"]?([A-Za-z0-9_-]+)['"]?/i;
 
 /**
- * Regex per estrarre le coppie REPLACING da una COPY statement multi-riga.
- * Supporta sia ==OLD== BY ==NEW== che 'OLD' BY 'NEW' e OLD BY NEW.
+ * Regex per le sole coppie REPLACING in pseudo-testo (==OLD== BY ==NEW==).
+ * Per la clausola completa usare parseReplacingClause.
  */
 const REPLACING_PAIR_REGEX = /==([^=]+)==\s+BY\s+==([^=]*)==/gi;
 
@@ -132,7 +132,6 @@ function detectDivision(line, currentDivision) {
  * @returns {{ replacements: Array<{from: string, to: string}>, endLine: number }}
  */
 function extractReplacements(lines, startLine) {
-    const replacements = [];
     let fullStatement = '';
     let endLine = startLine;
 
@@ -145,17 +144,74 @@ function extractReplacements(lines, startLine) {
         if (line.includes('.')) break;
     }
 
-    // Estrai le coppie REPLACING
-    let match;
-    const regex = new RegExp(REPLACING_PAIR_REGEX.source, 'gi');
-    while ((match = regex.exec(fullStatement)) !== null) {
-        replacements.push({
-            from: match[1].trim().toUpperCase(),
-            to: match[2].trim().toUpperCase()
-        });
-    }
+    return { replacements: parseReplacingClause(fullStatement), endLine };
+}
 
-    return { replacements, endLine };
+const REPLACING_OPERAND = String.raw`(==[\s\S]*?==|'[^']*'|"[^"]*"|[A-Za-z0-9:][\w:-]*)`;
+const REPLACING_ITEM_REGEX = new RegExp(
+    String.raw`(?:\b(LEADING|TRAILING)\s+)?` + REPLACING_OPERAND + String.raw`\s+BY\s+` + REPLACING_OPERAND, 'gi');
+
+/**
+ * Estrae le coppie della clausola REPLACING di una COPY: pseudo-testo
+ * (==X==), letterali ('X' / "X") e parole semplici (X BY Y), con LEADING /
+ * TRAILING opzionali.
+ * mode: 'word' (parola intera), 'leading', 'trailing', 'literal'.
+ * @param {string} statement - testo della COPY (anche su piu' righe unite)
+ * @returns {Array<{from: string, to: string, mode: string}>}
+ */
+function parseReplacingClause(statement) {
+    const pairs = [];
+    const start = statement.search(/\bREPLACING\b/i);
+    if (start < 0) return pairs;
+    const text = statement.substring(start + 'REPLACING'.length);
+    const operand = (s) => (s.startsWith('==') ? s.slice(2, -2) : s).trim().toUpperCase();
+    const regex = new RegExp(REPLACING_ITEM_REGEX.source, 'gi');
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+        if (!m[1] && /^['"]/.test(m[2])) {
+            pairs.push({ from: m[2], to: m[3], mode: 'literal' });
+            continue;
+        }
+        pairs.push({ from: operand(m[2]), to: operand(m[3]), mode: m[1] ? m[1].toLowerCase() : 'word' });
+    }
+    return pairs;
+}
+
+/**
+ * True se il testo e' una parola COBOL completa (non un pezzo come -OLD,
+ * LEAF- o :TAG:, che si sostituisce come sottostringa).
+ * @param {string} s
+ * @returns {boolean}
+ */
+function isWholeCobolWord(s) {
+    return /^[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?$/i.test(s);
+}
+
+/**
+ * Applica le coppie REPLACING al nome di un simbolo come fa il compilatore:
+ * confronto a parola intera, parte iniziale/finale con LEADING/TRAILING.
+ * Un operando che non e' una parola completa (:TAG:, -OLD, LEAF-) viene
+ * sostituito come sottostringa.
+ * Vince la prima coppia che corrisponde; il testo sostituito non viene
+ * riesaminato dalle coppie successive.
+ * @param {string} name - nome in maiuscolo
+ * @param {Array<{from: string, to: string, mode?: string}>} pairs
+ * @returns {string}
+ */
+function replaceCopyName(name, pairs) {
+    for (const r of pairs || []) {
+        if (!r.from || r.mode === 'literal') continue;
+        if (r.mode === 'leading') {
+            if (name.startsWith(r.from)) return r.to + name.substring(r.from.length);
+        } else if (r.mode === 'trailing') {
+            if (name.endsWith(r.from)) return name.substring(0, name.length - r.from.length) + r.to;
+        } else if (!isWholeCobolWord(r.from)) {
+            if (name.includes(r.from)) return name.split(r.from).join(r.to);
+        } else if (name === r.from) {
+            return r.to;
+        }
+    }
+    return name;
 }
 
 /**
@@ -168,16 +224,9 @@ function applyReplacements(symbols, replacements) {
     if (replacements.length === 0) return symbols;
 
     return symbols.map(sym => {
-        let newName = sym.name;
-        let newOriginal = sym.originalName;
-        for (const repl of replacements) {
-            if (newName.includes(repl.from)) {
-                newName = newName.replace(repl.from, repl.to);
-                newOriginal = newOriginal.toUpperCase().replace(repl.from, repl.to);
-            }
-        }
+        const newName = replaceCopyName(sym.name, replacements);
         if (newName !== sym.name) {
-            return { ...sym, name: newName, originalName: newOriginal };
+            return { ...sym, name: newName, originalName: newName };
         }
         return sym;
     });
@@ -527,7 +576,17 @@ function applyTextReplacements(lines, replacements) {
         let result = line;
         for (const r of replacements) {
             if (!r.from) continue;
-            result = result.replace(new RegExp(escapeRegExp(r.from), 'gi'), r.to);
+            if (r.mode === 'literal') {
+                result = result.split(r.from).join(r.to);
+                continue;
+            }
+            const word = escapeRegExp(r.from);
+            let re;
+            if (r.mode === 'leading') re = new RegExp('(?<![A-Za-z0-9-])' + word + '(?=[A-Za-z0-9-])', 'gi');
+            else if (r.mode === 'trailing') re = new RegExp('(?<=[A-Za-z0-9-])' + word + '(?![A-Za-z0-9-])', 'gi');
+            else if (isWholeCobolWord(r.from)) re = new RegExp('(?<![A-Za-z0-9-])' + word + '(?![A-Za-z0-9-])', 'gi');
+            else re = new RegExp(word, 'gi');
+            result = result.replace(re, r.to);
         }
         return result;
     });
@@ -814,6 +873,8 @@ module.exports = {
     findConditionParent,
     expandCopyText,
     applyTextReplacements,
+    parseReplacingClause,
+    replaceCopyName,
     findExecBlocks,
     classifyWriteOccurrence,
     isComment,
