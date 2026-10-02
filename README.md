@@ -84,6 +84,31 @@ The **Record Layout** panel lists the byte start/end offset and size of every fi
 
 <img src="media/images/record-layout.png" alt="Record Layout panel listing each field with byte offsets and size, with REDEFINES rows and an OCCURS DEPENDING ON table highlighted" width="820">
 
+### Byte Sizes and the `IBMCOMP` Directive
+
+> **⚠️ IMPORTANT -- set `cobolLens.binaryStorage` to match your compiler.**
+> The size of binary items (`COMP`, `COMP-4`, `BINARY`, `COMP-5`) is **not** fixed in Micro Focus COBOL: it depends on the `IBMCOMP` compiler directive. COBOL Lens defaults to `ibmcomp` (2/4/8 bytes, IBM mainframe compatible), but the Micro Focus compiler default is `NOIBMCOMP` (minimum number of bytes). If the setting does not match how you compile, every size shown for binary fields (hover, inlay hints, Record Layout, `redefines-size`) is wrong.
+>
+> **How to check:** look for `IBMCOMP` / `NOIBMCOMP` in the directive list at the top of your compiler listing (`.lst`), or compile and run a program with `01 X PIC S9(2) COMP.` and `DISPLAY LENGTH OF X`: `2` means `ibmcomp`, `1` means `noibmcomp`.
+
+How sizes are computed:
+
+| USAGE | Bytes |
+|-------|-------|
+| `DISPLAY` (default) | 1 per PICTURE position; `S` (overpunch), `V` and `P` take no space; `SIGN ... SEPARATE` adds 1 |
+| `NATIONAL`, `DISPLAY-1`, PICTURE with `N` or `G` | 2 per position |
+| `COMP-3` / `PACKED-DECIMAL` | digits / 2 + 1 (rounded down) |
+| `COMP-6` | digits / 2 (rounded up) |
+| `COMP` / `COMP-4` / `BINARY` / `COMP-5` with `ibmcomp` | 1-4 digits: 2, 5-9: 4, 10-18: 8 |
+| `COMP` / `COMP-4` / `BINARY` / `COMP-5` with `noibmcomp` | minimum bytes that hold the range. Signed: 1-2 digits: 1, 3-4: 2, 5-6: 3, 7-9: 4, 10-11: 5, 12-14: 6, 15-16: 7, 17-18: 8. Unsigned: same as `COMP-X` |
+| `COMP-X` | `PIC X(n)`: n. `PIC 9(n)`: 1-2 digits: 1, 3-4: 2, 5-7: 3, 8-9: 4, 10-12: 5, 13-14: 6, 15-16: 7, 17-18: 8 |
+| `COMP-1` / `FLOAT-SHORT` | 4 |
+| `COMP-2` / `FLOAT-LONG` | 8 |
+| `BINARY-CHAR` / `BINARY-SHORT` / `BINARY-LONG` / `BINARY-DOUBLE` | 1 / 2 / 4 / 8 |
+| `INDEX`, `POINTER`, `PROCEDURE-POINTER`, `FUNCTION-POINTER` | 4 |
+
+A `USAGE` written on a group applies to every subordinate field (e.g. `01 TOTALS COMP-3.` makes the `PIC S9(7)` fields below it packed). `OCCURS` multiplies the size, `REDEFINES` does not add to the group size, and `88`/`66` entries take no space.
+
 ### IF Block Visualization
 
 When the cursor is on an `IF`, `ELSE`, or `END-IF` line, colored **keyword borders** highlight the matching block. **Scope bars** run along the left margin for every nesting level (up to 9 levels), making it easy to track complex nested conditions at a glance.
@@ -217,6 +242,7 @@ Add these settings to your workspace `.vscode/settings.json`:
 | `cobolLens.inlayHints.enabled` | `true` | Show inlay hints with byte position and size of DATA DIVISION fields |
 | `cobolLens.inlayHints.display` | `inline` | Where to show field position/size: `inline` (inlay hints) or `hover` (symbol tooltip, less intrusive) |
 | `cobolLens.recordLayout.enabled` | `false` | Enable the "Show Record Layout" command (byte offsets/size of each record field) |
+| **`cobolLens.binaryStorage`** | `"ibmcomp"` | **Must match your compiler's `IBMCOMP` directive.** Byte size model for `COMP`/`COMP-4`/`BINARY`/`COMP-5`: `ibmcomp` (2/4/8 bytes) or `noibmcomp` (Micro Focus default, minimum bytes). See [Byte Sizes and the `IBMCOMP` Directive](#byte-sizes-and-the-ibmcomp-directive) |
 | `cobolLens.snippets.enabled` | `true` | Provide COBOL code snippets (IF/EVALUATE/PERFORM, parametric PIC, program skeleton) |
 | `cobolLens.linter.enabled` | `true` | Enable/disable the integrated linter |
 | `cobolLens.linter.onType` | `true` | Lint in real-time while typing (if false, only on save) |
@@ -291,6 +317,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 - Fixed and variable source formats are fully supported. Free-format COBOL (`$SET SOURCEFORMAT(FREE)`) is recognized by the linter but not by navigation: symbols, hover, and Go to Definition assume the fixed/variable column layout (sequence area in columns 1-6, indicator in column 7, code from column 8)
 - The linter is not a compiler -- it catches common issues but does not validate full COBOL semantics
 - Copybook resolution requires the files to be present locally in the workspace
+- Byte sizes assume a 32-bit layout for `POINTER`/`INDEX` items (4 bytes) and do not add the slack bytes that `SYNCHRONIZED` may insert for alignment
 
 ## Feedback and Community
 

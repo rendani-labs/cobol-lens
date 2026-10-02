@@ -15,7 +15,7 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 const { isComment, resolveCopybookPath, COPY_REGEX, COBOL_RESERVED, REPLACING_PAIR_REGEX } = require('./cobol-parser');
-const { detectUsage, elementarySize, hasImplicitSize, hasSignSeparate } = require('./cobol-layout');
+const { detectUsage, elementarySize, hasImplicitSize, hasSignSeparate, inheritGroupUsage, isElementaryEntry } = require('./cobol-layout');
 const { msg, getLang, setLang } = require('./messages');
 
 // ============================================================================
@@ -1332,7 +1332,7 @@ function checkPicMissing(lines) {
         const hasRenames = /\bRENAMES\b/.test(fullUpper);
         const hasIndex = /\bINDEX\b/.test(fullUpper);
         // Tipi USAGE che non richiedono la clausola PIC.
-        const hasNoPicUsage = /(?<![A-Z0-9-])(POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|COMP-1|COMPUTATIONAL-1|COMP-2|COMPUTATIONAL-2|BINARY-CHAR|BINARY-SHORT|BINARY-LONG|BINARY-DOUBLE|OBJECT\s+REFERENCE)(?![A-Z0-9-])/.test(fullUpper);
+        const hasNoPicUsage = /(?<![A-Z0-9-])(POINTER|PROCEDURE-POINTER|FUNCTION-POINTER|COMP-1|COMPUTATIONAL-1|COMP-2|COMPUTATIONAL-2|FLOAT-SHORT|FLOAT-LONG|BINARY-CHAR|BINARY-SHORT|BINARY-LONG|BINARY-DOUBLE|OBJECT\s+REFERENCE)(?![A-Z0-9-])/.test(fullUpper);
         // COBOL 2002: costante dichiarata con la parola chiave CONSTANT.
         const hasConstant = /\bCONSTANT\b/.test(fullUpper);
 
@@ -1854,6 +1854,7 @@ function parseDataItems(lines) {
 
         items.push({ level, name, pic, usage, occurs, redefines, dependingOn, signSeparate: hasSignSeparate(upper), lineNum });
     }
+    inheritGroupUsage(items);
     return items;
 }
 
@@ -1881,8 +1882,9 @@ function computeItemSize(items, idx) {
     if (item.pic) {
         return computePicSize(item.pic, item.usage, item.signSeparate) * item.occurs;
     }
-    // Item elementari con USAGE a dimensione fissa che non richiedono PIC.
-    const fixedUsageSize = noPicUsageSize(item.usage);
+    // Item elementari con USAGE a dimensione fissa che non richiedono PIC
+    // (un gruppo con USAGE POINTER ecc. resta un gruppo: lo USAGE passa ai figli).
+    const fixedUsageSize = isElementaryEntry(items, idx) ? noPicUsageSize(item.usage) : 0;
     if (fixedUsageSize > 0) {
         return fixedUsageSize * item.occurs;
     }
@@ -1905,7 +1907,7 @@ function computeItemSize(items, idx) {
         if (items[k].pic) {
             size += computePicSize(items[k].pic, items[k].usage, items[k].signSeparate) * items[k].occurs;
             k++;
-        } else if (noPicUsageSize(items[k].usage) > 0) {
+        } else if (isElementaryEntry(items, k) && noPicUsageSize(items[k].usage) > 0) {
             // Item elementare con USAGE a dimensione fissa (POINTER, INDEX, COMP-1/2).
             size += noPicUsageSize(items[k].usage) * items[k].occurs;
             k++;
@@ -2021,6 +2023,7 @@ const COBOL_RESERVED_EXTENDED = new Set([
     'ENTER', 'ENTRY', 'ENVIRONMENT', 'EQUAL', 'EQUALS', 'ERROR',
     'EVALUATE', 'EVERY', 'EXCEPTION', 'EXHIBIT', 'EXIT', 'EXTEND', 'EXTERNAL',
     'FALSE', 'FD', 'FILE', 'FILE-CONTROL', 'FILLER', 'FINAL', 'FIRST',
+    'FLOAT-LONG', 'FLOAT-SHORT',
     'FOOTING', 'FOR', 'FROM', 'FUNCTION',
     'GENERATE', 'GIVING', 'GLOBAL', 'GO', 'GOBACK', 'GREATER', 'GROUP',
     'HEADING', 'HIGH-VALUE', 'HIGH-VALUES',

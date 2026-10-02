@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.30.0] - 2026-10-02
+
+> **⚠️ ACTION REQUIRED -- check the new `cobolLens.binaryStorage` setting.**
+> The byte size of binary items (`COMP`, `COMP-4`, `BINARY`, `COMP-5`) depends on the Micro Focus `IBMCOMP` compiler directive, and until now COBOL Lens always assumed `IBMCOMP` (2/4/8 bytes). The default stays `ibmcomp`, so nothing changes if you compile with `IBMCOMP`. **If you compile without it (`NOIBMCOMP`, the Micro Focus compiler default), set `"cobolLens.binaryStorage": "noibmcomp"`**, otherwise sizes of binary fields in hover, inlay hints, Record Layout and `redefines-size` are wrong (e.g. `PIC S9(2) COMP` is 1 byte, not 2). To find out which one you use, look for `IBMCOMP` in your compiler listing (`.lst`) or run `DISPLAY LENGTH OF` on a `PIC S9(2) COMP` field. See "Byte Sizes and the IBMCOMP Directive" in the README.
+
+### Added
+- New setting `cobolLens.binaryStorage` (`ibmcomp` | `noibmcomp`, default `ibmcomp`): selects the storage model for `COMP`/`COMP-4`/`BINARY`/`COMP-5`. With `noibmcomp` a binary item takes the minimum number of bytes that can hold its range (signed: 1-2 digits -> 1 byte, 3-4 -> 2, 5-6 -> 3, 7-9 -> 4, 10-11 -> 5, 12-14 -> 6, 15-16 -> 7, 17-18 -> 8; unsigned: as `COMP-X`).
+- `FLOAT-SHORT` (4 bytes) and `FLOAT-LONG` (8 bytes) usages: sizes are computed (they were 0) and the words are recognized by the parser, the linter (`pic-missing`) and the formatter.
+- Binary items (`COMP`/`COMP-4`/`COMP-5`) with an alphanumeric PICTURE (`PIC X(n)`, a Micro Focus extension) now take n bytes.
+- README: new "Byte Sizes and the IBMCOMP Directive" section with the full table of sizes per USAGE.
+
+### Fixed
+- Byte sizes were wrong when a `VALUE` literal (or an inline `*>` comment) contained a USAGE keyword: `PIC X(30) VALUE "POINTER NON VALIDO"` was sized 4 bytes (as a `POINTER`), `PIC X(20) VALUE 'INDEX ERRATO'` 4 bytes, `PIC X(20) VALUE "TIPO BINARY"` 2 bytes. Literals and comments are now ignored when detecting USAGE and PICTURE.
+- A USAGE written on a group was not applied to its subordinate fields: in `01 TOTALS COMP-3.` with `05 A PIC S9(7).` and `05 B PIC S9(3).` the fields were sized as DISPLAY (7 + 3 = 10 bytes instead of 4 + 2 = 6). Group USAGE is now inherited, as COBOL requires. A group with `USAGE POINTER` (or another fixed-size usage) is also no longer mistaken for a single 4-byte field.
+- The `P` scaling symbol was counted as a digit for `COMP-3`/`COMP`/`COMP-X`/`COMP-6`, so e.g. `PIC 9(3)PP COMP-3` was sized 3 bytes instead of 2. `P` takes no storage in any usage.
+- All of the above apply to hover, inlay hints, Record Layout and the `redefines-size` rule, which share the same size engine (e.g. no more false `redefines-size` on a `REDEFINES` of a group with group-level `COMP-3`).
+
 ## [1.29.3] - 2026-09-16
 
 ### Fixed

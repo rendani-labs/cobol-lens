@@ -7,7 +7,7 @@ const fs = require('fs');
 const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath, parseValueClause, findConditionNames, findConditionParent, expandCopyText, findExecBlocks, classifyWriteOccurrence } = require('./cobol-parser');
 const { SymbolIndex } = require('./symbol-index');
 const { runLinter } = require('./cobol-linter');
-const { computeFieldSize, collectLayout, computeFieldInfoAt } = require('./cobol-layout');
+const { computeFieldSize, collectLayout, computeFieldInfoAt, setBinaryStorageMode } = require('./cobol-layout');
 const { msg, getLang, setLang } = require('./messages');
 const { CobolSemanticTokensProvider, SEMANTIC_LEGEND } = require('./cobol-semantic');
 const { CobolCodeActionProvider } = require('./cobol-code-actions');
@@ -2731,9 +2731,22 @@ function activate(context) {
         })
     );
 
+    // Modalita' di storage dei campi binari (direttiva IBMCOMP / NOIBMCOMP)
+    const applyBinaryStorageMode = () => setBinaryStorageMode(
+        vscode.workspace.getConfiguration('cobolLens').get('binaryStorage', 'ibmcomp'));
+    applyBinaryStorageMode();
+
     // Reagisci ai cambiamenti delle impostazioni
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('cobolLens.binaryStorage')) {
+                applyBinaryStorageMode();
+                // Le dimensioni dei COMP cambiano: ricalcola diagnostica e inlay hint
+                vscode.workspace.textDocuments.forEach(doc => {
+                    if (isCobolDocument(doc)) updateDiagnostics(doc);
+                });
+                inlayHintsProvider.refresh();
+            }
             if (e.affectsConfiguration('cobolLens.linter')) {
                 // Riesegui il linter su tutti i file aperti
                 vscode.workspace.textDocuments.forEach(doc => {

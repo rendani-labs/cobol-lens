@@ -13,12 +13,21 @@ const { isComment, VARIABLE_DEF_REGEX, COPY_REGEX, resolveCopybookPath } = requi
  * - NATIONAL / DISPLAY-1 / PICTURE con N o G: 2 byte per posizione.
  * - COMP-3 / PACKED-DECIMAL: floor(cifre / 2) + 1.
  * - COMP-6 (packed senza segno): ceil(cifre / 2).
- * - COMP / COMP-4 / BINARY / COMP-5: 2 byte (1-4 cifre), 4 byte (5-9),
- *   8 byte (10-18).
+ * - COMP / COMP-4 / BINARY / COMP-5: dipende dalla direttiva IBMCOMP
+ *   (impostazione cobolLens.binaryStorage):
+ *   - "ibmcomp" (word-storage mode): 2 byte (1-4 cifre), 4 byte (5-9), 8 byte (10-18);
+ *   - "noibmcomp" (default del compilatore Micro Focus): il numero minimo di byte
+ *     che contiene il range del campo (con segno: 1-2 -> 1, 3-4 -> 2, 5-6 -> 3,
+ *     7-9 -> 4, ...; senza segno: come COMP-X).
+ *   Con PICTURE alfanumerica (PIC X(n), ammessa da MF per COMP-5) sono n byte.
  * - COMP-X: con PIC X(n) sono n byte; con PIC 9(n) e' il numero minimo di byte
  *   che contiene n cifre decimali (1-2 -> 1, 3-4 -> 2, 5-7 -> 3, 8-9 -> 4, ...).
- * - COMP-1: 4 byte. COMP-2: 8 byte. INDEX: 4 byte. POINTER: 4 byte.
+ * - COMP-1 / FLOAT-SHORT: 4 byte. COMP-2 / FLOAT-LONG: 8 byte.
+ *   INDEX: 4 byte. POINTER: 4 byte.
  * - BINARY-CHAR: 1 byte. BINARY-SHORT: 2. BINARY-LONG: 4. BINARY-DOUBLE: 8.
+ * - Il simbolo P (scaling) non occupa storage in nessun usage.
+ * - Lo USAGE dichiarato su un gruppo vale per tutti i campi subordinati.
+ * - Le parole chiave USAGE dentro i letterali (es. VALUE 'POINTER') sono ignorate.
  * - OCCURS n: moltiplica la dimensione del campo/gruppo per n.
  * - REDEFINES: i campi che ridefiniscono un'area esistente NON si sommano.
  * - Livelli 88 (condition name) e 66 (RENAMES): non occupano storage.
@@ -99,16 +108,48 @@ function countDisplayPositions(expanded) {
 }
 
 /**
- * Conta le cifre numeriche (per COMP/COMP-3). Considera '9' e 'P'.
+ * Conta le cifre numeriche che occupano storage (per COMP/COMP-3).
+ * Considera solo '9': il simbolo 'P' (scaling) non occupa storage.
  * @param {string} expanded
  * @returns {number}
  */
 function countNumericDigits(expanded) {
     let count = 0;
     for (const ch of expanded) {
-        if (ch === '9' || ch === 'P') count++;
+        if (ch === '9') count++;
     }
     return count;
+}
+
+/**
+ * Sostituisce il contenuto dei letterali alfanumerici con una stringa vuota,
+ * cosi' le parole al loro interno (es. VALUE 'POINTER') non vengono scambiate
+ * per clausole. Un letterale non chiuso (continuazione) arriva a fine testo.
+ * @param {string} text
+ * @returns {string}
+ */
+function stripLiterals(text) {
+    return text.replace(/"[^"]*(?:"|$)|'[^']*(?:'|$)/g, '""');
+}
+
+/**
+ * Rimuove un commento inline "*>" (fuori dai letterali) da una riga fisica.
+ * @param {string} line
+ * @returns {string}
+ */
+function stripInlineComment(line) {
+    let quote = '';
+    for (let k = 0; k < line.length; k++) {
+        const ch = line[k];
+        if (quote) {
+            if (ch === quote) quote = '';
+        } else if (ch === '"' || ch === "'") {
+            quote = ch;
+        } else if (ch === '*' && line[k + 1] === '>') {
+            return line.slice(0, k);
+        }
+    }
+    return line;
 }
 
 /**
@@ -116,11 +157,12 @@ function countNumericDigits(expanded) {
  * La keyword USAGE viene riconosciuta solo se NON fa parte di un nome dato
  * (che puo' contenere lettere, cifre e trattini, es. "PGTN1186-ANNO-COMP"):
  * non deve quindi essere preceduta ne' seguita da [A-Z0-9-].
+ * Il contenuto dei letterali viene ignorato.
  * @param {string} text
  * @returns {string}
  */
 function detectUsage(text) {
-    const u = text.toUpperCase();
+    const u = stripLiterals(text.toUpperCase());
     const has = (kw) => new RegExp('(?<![A-Z0-9-])(?:' + kw + ')(?![A-Z0-9-])').test(u);
     if (has('COMP-3|COMPUTATIONAL-3|PACKED-DECIMAL')) return 'COMP-3';
     if (has('COMP-5|COMPUTATIONAL-5')) return 'COMP-5';
@@ -134,6 +176,8 @@ function detectUsage(text) {
     if (has('BINARY-SHORT')) return 'BINARY-SHORT';
     if (has('BINARY-LONG')) return 'BINARY-LONG';
     if (has('BINARY-DOUBLE')) return 'BINARY-DOUBLE';
+    if (has('FLOAT-SHORT')) return 'FLOAT-SHORT';
+    if (has('FLOAT-LONG')) return 'FLOAT-LONG';
     if (has('NATIONAL')) return 'NATIONAL';
     if (has('DISPLAY-1')) return 'DISPLAY-1';
     if (has('INDEX')) return 'INDEX';
@@ -147,7 +191,7 @@ function detectUsage(text) {
  * @returns {string|null}
  */
 function detectPicture(text) {
-    const m = /\bPIC(?:TURE)?\b\s+(?:IS\s+)?(\S+)/i.exec(text);
+    const m = /\bPIC(?:TURE)?\b\s+(?:IS\s+)?(\S+)/i.exec(stripLiterals(text));
     if (!m) return null;
     let pic = m[1];
     // Rimuove un eventuale punto terminatore (es. "X(4065)." -> "X(4065)")
@@ -265,7 +309,7 @@ function collectDataEntries(lines, workspaceRoot, visited, fromCopy) {
         }
 
         const startLine = i;
-        let text = line;
+        let text = stripInlineComment(line);
 
         // Unisci le righe di continuazione: righe non vuote, non commento,
         // che non iniziano una nuova definizione ne' una COPY.
@@ -277,7 +321,7 @@ function collectDataEntries(lines, workspaceRoot, visited, fromCopy) {
             if (COPY_REGEX.test(nxt)) break;
             const nu = nxt.toUpperCase();
             if (nu.includes('PROCEDURE') && nu.includes('DIVISION')) break;
-            text += ' ' + nxt;
+            text += ' ' + stripInlineComment(nxt);
             j++;
         }
         i = j;
@@ -306,6 +350,8 @@ function collectDataEntries(lines, workspaceRoot, visited, fromCopy) {
         if (copyOnSame) expandCopy(copyOnSame[1]);
     }
 
+    // Lo USAGE di gruppo va propagato solo a raccolta completa (copybook incluse).
+    if (!fromCopy) inheritGroupUsage(entries);
     return entries;
 }
 
@@ -316,6 +362,8 @@ function collectDataEntries(lines, workspaceRoot, visited, fromCopy) {
 const IMPLICIT_SIZE_USAGE = {
     'COMP-1': 4,
     'COMP-2': 8,
+    'FLOAT-SHORT': 4,
+    'FLOAT-LONG': 8,
     'INDEX': 4,
     'POINTER': 4,
     'BINARY-CHAR': 1,
@@ -327,8 +375,36 @@ const IMPLICIT_SIZE_USAGE = {
 /**
  * Byte occupati da un COMP-X con PIC 9(n), indicizzati per numero di cifre:
  * e' il minimo numero di byte il cui valore binario massimo contiene n cifre.
+ * Vale anche per COMP/COMP-4/COMP-5 senza segno in modalita' NOIBMCOMP.
  */
 const COMP_X_BYTES = [0, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 5, 5, 6, 6, 7, 7, 8, 8];
+
+/**
+ * Byte occupati da un COMP/COMP-4/COMP-5 con segno in modalita' NOIBMCOMP,
+ * indicizzati per numero di cifre: il minimo numero di byte il cui range in
+ * complemento a due contiene n cifre (es. 1 byte = -128..127 -> 2 cifre).
+ */
+const COMP_SIGNED_MIN_BYTES = [0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5, 5, 6, 6, 6, 7, 7, 8, 8];
+
+/** @type {'ibmcomp'|'noibmcomp'} */
+let binaryStorageMode = 'ibmcomp';
+
+/**
+ * Imposta la modalita' di storage dei campi binari (COMP/COMP-4/BINARY/COMP-5),
+ * corrispondente alla direttiva IBMCOMP / NOIBMCOMP del compilatore Micro Focus.
+ * Valori non riconosciuti riportano al default 'ibmcomp'.
+ * @param {string} mode
+ */
+function setBinaryStorageMode(mode) {
+    binaryStorageMode = String(mode || '').toLowerCase() === 'noibmcomp' ? 'noibmcomp' : 'ibmcomp';
+}
+
+/**
+ * @returns {'ibmcomp'|'noibmcomp'}
+ */
+function getBinaryStorageMode() {
+    return binaryStorageMode;
+}
 
 /**
  * Indica se l'usage ha dimensione fissa e non richiede PICTURE.
@@ -337,6 +413,55 @@ const COMP_X_BYTES = [0, 1, 1, 2, 2, 3, 3, 3, 4, 4, 5, 5, 5, 6, 6, 7, 7, 8, 8];
  */
 function hasImplicitSize(usage) {
     return Object.prototype.hasOwnProperty.call(IMPLICIT_SIZE_USAGE, usage);
+}
+
+/**
+ * Indica se l'entry idx ha campi subordinati (e' quindi un gruppo).
+ * @param {Array<{level:number}>} entries
+ * @param {number} idx
+ * @returns {boolean}
+ */
+function hasSubordinates(entries, idx) {
+    const e = entries[idx];
+    const n = entries[idx + 1];
+    if (!n || e.level > 49) return false;
+    return n.level > e.level && n.level <= 49;
+}
+
+/**
+ * Indica se l'entry idx e' un campo elementare: ha una PICTURE, oppure ha un
+ * USAGE a dimensione fissa (POINTER, INDEX, COMP-1, ...) e nessun subordinato.
+ * Un gruppo con USAGE POINTER (ecc.) resta un gruppo: lo USAGE passa ai figli.
+ * @param {Array<{level:number, pic:string|null, usage:string}>} entries
+ * @param {number} idx
+ * @returns {boolean}
+ */
+function isElementaryEntry(entries, idx) {
+    const e = entries[idx];
+    if (e.pic) return true;
+    return hasImplicitSize(e.usage) && !hasSubordinates(entries, idx);
+}
+
+/**
+ * Applica la regola COBOL per cui lo USAGE dichiarato su un gruppo vale per
+ * tutti i campi subordinati che non ne dichiarano uno (es. "01 G COMP-3."
+ * rende COMP-3 i campi PIC 9 sottostanti). Modifica gli item in place.
+ * @param {Array<{level:number, usage:string}>} items - in ordine di dichiarazione
+ */
+function inheritGroupUsage(items) {
+    /** @type {Array<{level:number, usage:string}>} */
+    const stack = [];
+    for (const it of items) {
+        if (it.level === 88 || it.level === 66) continue;
+        if (it.level === 1 || it.level > 49) stack.length = 0;
+        while (stack.length && stack[stack.length - 1].level >= it.level) stack.pop();
+        if (it.usage === 'DISPLAY') {
+            for (let k = stack.length - 1; k >= 0; k--) {
+                if (stack[k].usage !== 'DISPLAY') { it.usage = stack[k].usage; break; }
+            }
+        }
+        if (it.level <= 49) stack.push({ level: it.level, usage: it.usage });
+    }
 }
 
 /**
@@ -361,7 +486,14 @@ function elementarySize(e) {
     }
 
     if (e.usage === 'COMP' || e.usage === 'COMP-4' || e.usage === 'COMP-5') {
+        // PICTURE alfanumerica (estensione MF per i binari): n byte.
+        if (expanded.includes('X')) return countDisplayPositions(expanded);
         const digits = countNumericDigits(expanded);
+        if (binaryStorageMode === 'noibmcomp') {
+            if (digits <= 0) return 0;
+            if (digits > 18) return 8;
+            return expanded.includes('S') ? COMP_SIGNED_MIN_BYTES[digits] : COMP_X_BYTES[digits];
+        }
         if (digits <= 4) return 2;
         if (digits <= 9) return 4;
         return 8;
@@ -404,7 +536,7 @@ function sizeOfEntryAt(entries, idx) {
     }
 
     // Campo elementare: ha PICTURE oppure usage con dimensione implicita
-    if (e.pic || hasImplicitSize(e.usage)) {
+    if (isElementaryEntry(entries, idx)) {
         const size = elementarySize(e) * e.occurs;
         return { size, isGroup: false, next: idx + 1 };
     }
@@ -498,7 +630,7 @@ function layoutEntryAt(entries, idx, base, out, depth) {
     }
 
     // Campo elementare.
-    if (e.pic || hasImplicitSize(e.usage)) {
+    if (isElementaryEntry(entries, idx)) {
         push(elementarySize(e) * e.occurs, false);
         return idx + 1;
     }
@@ -583,5 +715,10 @@ module.exports = {
     detectOccursMin,
     detectDependingOn,
     detectRedefinesTarget,
-    hasSignSeparate
+    hasSignSeparate,
+    stripLiterals,
+    inheritGroupUsage,
+    isElementaryEntry,
+    setBinaryStorageMode,
+    getBinaryStorageMode
 };
