@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.30.1] - 2026-10-02
+
+### Fixed
+- `end-structure`: an out-of-line `PERFORM paragraph UNTIL ...` / `VARYING ...` / `n TIMES` was reported as "closed by a period instead of END-PERFORM" (an out-of-line PERFORM has no END-PERFORM).
+- `end-structure`: `IF`, `EVALUATE` and `PERFORM` inside a hyphenated name (e.g. `WS-IF-FLAG`, paragraph `V0001-SOLO-IF`) were taken as the start of a structure.
+- `end-structure` / `orphan-scope-delimiter`: a decimal point in a numeric literal (e.g. `COMPUTE X = Y * 1.05`) closed all open scopes, so the following `END-IF` was reported as orphan.
+- `orphan-scope-delimiter`: an inline `PERFORM` on its own line followed by statements (no `UNTIL`/`VARYING`/`TIMES`) reported its `END-PERFORM` as orphan. Several scope openers/terminators on the same line are now all counted.
+- `undefined-paragraph`: `PERFORM` / `GO TO` of a SECTION name was reported as an undefined paragraph. Sections are now valid targets (also in procedure copybooks and for `undefined-variable`).
+- `unused-paragraph`: paragraphs inside a SECTION that is performed (or inside the first section, the entry point) were reported as never called; they run by fall-through.
+- `unused-paragraph`: a `PERFORM` not at the start of the line (e.g. `IF X PERFORM P1 END-IF`, `ELSE PERFORM P2`) and the target of `PERFORM ... THROUGH` were not recognized.
+- `perform-thru-order`: `THROUGH` was ignored, and a `THRU` on the line after the `PERFORM` was never checked. SECTION ranges are checked too.
+- `PERFORM WS-N TIMES`: the counter `WS-N` is no longer taken as a paragraph name.
+
 ## [1.30.0] - 2026-10-02
 
 > **⚠️ ACTION REQUIRED -- check the new `cobolLens.binaryStorage` setting.**

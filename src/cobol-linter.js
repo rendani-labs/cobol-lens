@@ -731,6 +731,25 @@ function checkWsLevelSpacing(lines) {
     return diags;
 }
 
+// Conta le occorrenze di una parola COBOL intera (il trattino fa parte del nome).
+function countWord(text, word) {
+    const re = new RegExp('(?<![\\w-])' + word + '(?![\\w-])', 'g');
+    return (text.match(re) || []).length;
+}
+
+/**
+ * Classifica un PERFORM dai token che seguono il verbo.
+ * @param {string[]} tokens
+ * @returns {'inline'|'outline'|'pending'}
+ */
+function performKind(tokens) {
+    if (!tokens.length) return 'pending';
+    if (['UNTIL', 'VARYING', 'WITH', 'TEST'].includes(tokens[0])) return 'inline';
+    // PERFORM n TIMES / PERFORM WS-N TIMES (inline); PERFORM PARA n TIMES e' out-of-line
+    if (tokens[1] === 'TIMES') return 'inline';
+    return 'outline';
+}
+
 // ---------------------------------------------------------------------------
 // end-structure
 // ---------------------------------------------------------------------------
@@ -769,19 +788,21 @@ function checkEndStructure(lines) {
 
         // ----- Risolvi PERFORM pendente dalla riga precedente -----
         if (pendingPerformLine >= 0) {
-            if (/\bUNTIL\b|\bVARYING\b|\bTIMES\b/.test(upper)) {
-                // E' un PERFORM inline multi-riga -> push sullo stack
+            // PERFORM da solo sulla riga: e' inline se la riga dopo apre il loop
+            // o contiene gia' il corpo; e' out-of-line se riporta il nome del paragrafo.
+            const nextTokens = stripLiterals(upper).split(/\s+/).filter(Boolean)
+                .map(t => t.replace(/\.$/, ''));
+            if (performKind(nextTokens) === 'inline' || STATEMENT_START_VERBS.has(nextTokens[0])) {
                 stack.push({ type: 'PERFORM', line: pendingPerformLine });
             }
-            // Se non ha UNTIL/VARYING/TIMES, era un PERFORM <paragrafo> -> ignora
             pendingPerformLine = -1;
         }
 
         // ----- Detect aperture sulla riga "pulita" (senza END-xxx e senza letterali) -----
-        if (/\bIF\b/.test(cleanedNoLit)) {
+        for (let n = countWord(cleanedNoLit, 'IF'); n > 0; n--) {
             stack.push({ type: 'IF', line: i });
         }
-        if (/\bEVALUATE\b/.test(cleanedNoLit)) {
+        for (let n = countWord(cleanedNoLit, 'EVALUATE'); n > 0; n--) {
             stack.push({ type: 'EVALUATE', line: i });
         }
         if (/(?<!-)\bSEARCH\b(?!-)/.test(cleanedNoLit)) {
@@ -797,27 +818,16 @@ function checkEndStructure(lines) {
             stack.push({ type: 'CALL', line: i });
         }
 
-        // PERFORM: distingui inline da out-of-line
-        const perfMatch = /\bPERFORM\b/.exec(cleanedNoLit);
+        // PERFORM: distingui inline da out-of-line (PERFORM PARA UNTIL ... e' out-of-line)
+        const perfMatch = /(?<![\w-])PERFORM(?![\w-])/.exec(cleanedNoLit);
         if (perfMatch) {
-            const afterPerform = cleanedNoLit.substring(perfMatch.index + 7).trim();
-            if (/\bUNTIL\b|\bVARYING\b|\bTIMES\b/.test(afterPerform)) {
-                // Inline PERFORM con keyword sulla stessa riga
+            const afterTokens = cleanedNoLit.substring(perfMatch.index + 7).split(/\s+/)
+                .filter(Boolean).map(t => t.replace(/\.$/, ''));
+            const kind = performKind(afterTokens);
+            if (kind === 'inline') {
                 stack.push({ type: 'PERFORM', line: i });
-            } else if (/\bTHRU\b|\bTHROUGH\b/.test(afterPerform)) {
-                // Out-of-line PERFORM THRU -> non serve END-PERFORM
-            } else if (!afterPerform) {
-                // PERFORM "bare" -> controlla riga successiva
+            } else if (kind === 'pending') {
                 pendingPerformLine = i;
-            } else {
-                // PERFORM <something>: se il token dopo e' un nome paragrafo -> out-of-line
-                const firstToken = afterPerform.split(/\s+/)[0].replace(/\.$/, '');
-                // Se sembra un paragrafo (non e' una keyword inline), e' out-of-line
-                if (firstToken && !/\bUNTIL\b|\bVARYING\b|\bTIMES\b/.test(firstToken)) {
-                    // Out-of-line: PERFORM <paragraph-name> [THRU ...]
-                } else {
-                    stack.push({ type: 'PERFORM', line: i });
-                }
             }
         }
 
@@ -828,7 +838,7 @@ function checkEndStructure(lines) {
             ['END-UNSTRING', 'UNSTRING'],
             ['END-SEARCH', 'SEARCH'], ['END-CALL', 'CALL']
         ]) {
-            if (upperNoLit.includes(endKw)) {
+            for (let n = countWord(upperNoLit, endKw); n > 0; n--) {
                 let matched = false;
                 for (let j = stack.length - 1; j >= 0; j--) {
                     if (stack[j].type === openKw) {
@@ -846,9 +856,8 @@ function checkEndStructure(lines) {
             }
         }
 
-        // Punto sulla riga: in COBOL il punto chiude TUTTI gli scope aperti.
-        // Rimuovi stringhe letterali per non confondere '.' con punto di chiusura.
-        if (upperNoLit.includes('.')) {
+        // Punto terminatore: chiude TUTTI gli scope aperti (non il punto decimale di 1.05).
+        if (findTerminatorPeriod(upperNoLit) >= 0) {
             if (cfg.enabled) {
                 for (const item of stack) {
                     diags.push(makeDiag(item.line, cfg.severity, 'end-structure',
@@ -1498,6 +1507,9 @@ function checkPerformThruOrder(lines) {
             if (paraMatch) paraPositions[paraMatch[1]] = i;
         }
     }
+    for (const [s, line] of collectSections(lines).sections) {
+        if (!(s in paraPositions)) paraPositions[s] = line;
+    }
 
     // Cerca PERFORM ... THRU
     const ctx2 = new AnalysisContext();
@@ -1510,13 +1522,13 @@ function checkPerformThruOrder(lines) {
         if (!code.trim()) continue;
         ctx2.update(raw, code);
         if (!ctx2.inProcedure) continue;
-        const upper = code.trim().toUpperCase();
+        const upper = stripLiterals(code.trim().toUpperCase());
 
-        const perfMatch = /\bPERFORM\s+([A-Z0-9][\w-]*)/.exec(upper);
+        const perfMatch = /(?<![\w-])PERFORM\s+([A-Z0-9][\w-]*)/.exec(upper);
         if (perfMatch) {
             performTarget = perfMatch[1];
             performStart = i;
-            const thruMatch = /\bTHRU\s+([A-Z0-9][\w-]*)/.exec(upper);
+            const thruMatch = /\b(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/.exec(upper);
             if (thruMatch) {
                 const thruTarget = thruMatch[1];
                 if (performTarget in paraPositions && thruTarget in paraPositions) {
@@ -1528,10 +1540,13 @@ function checkPerformThruOrder(lines) {
                 performTarget = null;
                 continue;
             }
+            // THRU eventualmente sulla riga successiva
+            if (findTerminatorPeriod(upper) >= 0) performTarget = null;
+            continue;
         }
 
         if (performTarget) {
-            const thruMatch = /^\s*THRU\s+([A-Z0-9][\w-]*)/.exec(upper);
+            const thruMatch = /^\s*(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/.exec(upper);
             if (thruMatch) {
                 const thruTarget = thruMatch[1];
                 if (performTarget in paraPositions && thruTarget in paraPositions) {
@@ -2270,7 +2285,42 @@ function collectParagraphs(lines) {
 }
 
 /**
- * Raccoglie target dei PERFORM.
+ * Raccoglie le SECTION della PROCEDURE DIVISION e la sezione di appartenenza
+ * di ogni paragrafo.
+ * @param {string[]} lines
+ * @returns {{sections: Map<string, number>, paraSection: Map<string, string>}}
+ */
+function collectSections(lines) {
+    const sections = new Map();
+    const paraSection = new Map();
+    const ctx = new AnalysisContext();
+    let current = null;
+    for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        if (isSkippable(raw)) continue;
+        const code = getCodeContent(raw);
+        if (!code.trim()) continue;
+        ctx.update(raw, code);
+        if (!ctx.inProcedure || /^\s/.test(code)) continue;
+        const upper = code.trim().toUpperCase().replace(/<[^>]*>/g, 'PLACEHOLDER');
+        const secMatch = upper.match(/^([A-Z0-9][\w-]*)\s+SECTION\b/);
+        if (secMatch) {
+            if (!COBOL_RESERVED_EXTENDED.has(secMatch[1])) {
+                sections.set(secMatch[1], i);
+                current = secMatch[1];
+            }
+            continue;
+        }
+        const paraMatch = upper.match(/^([A-Z0-9][\w-]*)\./);
+        if (paraMatch && current && !COBOL_RESERVED_EXTENDED.has(paraMatch[1])) {
+            paraSection.set(paraMatch[1], current);
+        }
+    }
+    return { sections, paraSection };
+}
+
+/**
+ * Raccoglie target dei PERFORM (in qualunque punto della riga, es. dopo IF/ELSE).
  * @param {string[]} lines
  * @returns {Array<{line: number, target: string}>}
  */
@@ -2285,29 +2335,28 @@ function collectPerformTargets(lines) {
         if (!code.trim()) continue;
         ctx.update(raw, code);
         if (!ctx.inProcedure) continue;
-        const upper = code.trim().toUpperCase().replace(/<[^>]*>/g, 'PLACEHOLDER');
+        const upper = stripLiterals(code.trim().toUpperCase().replace(/<[^>]*>/g, 'PLACEHOLDER'));
 
         // Controlla se la riga e' un THRU di continuazione da un PERFORM precedente
         if (pendingPerformLine >= 0) {
-            const thruCont = /^\s*THRU\s+([A-Z0-9][A-Z0-9-]*[A-Z0-9])/.exec(upper);
-            if (thruCont) {
-                targets.push({ line: pendingPerformLine, target: thruCont[1] });
-            }
+            const thruCont = /^\s*(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/.exec(upper);
+            if (thruCont) targets.push({ line: pendingPerformLine, target: thruCont[1] });
             pendingPerformLine = -1;
             if (thruCont) continue;
         }
 
-        const perfMatch = upper.match(/^\s*PERFORM\s+([A-Z0-9][A-Z0-9-]*[A-Z0-9])/);
-        if (perfMatch) {
-            const target = perfMatch[1];
-            if (!COBOL_RESERVED_EXTENDED.has(target) && !/^\d+$/.test(target)) {
-                targets.push({ line: i, target });
-            }
-            const thruMatch = /\bTHRU\s+([A-Z0-9][A-Z0-9-]*[A-Z0-9])/.exec(upper);
-            if (thruMatch) {
-                targets.push({ line: i, target: thruMatch[1] });
-            } else if (!upper.endsWith('.')) {
-                // PERFORM senza THRU sulla stessa riga e senza punto: THRU potrebbe essere sulla riga successiva
+        const perfRe = /(?<![\w-])PERFORM\s+([A-Z0-9][\w-]*)(?:\s+(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*))?/g;
+        let m;
+        while ((m = perfRe.exec(upper)) !== null) {
+            const target = m[1];
+            const rest = upper.substring(perfRe.lastIndex);
+            // "PERFORM WS-N TIMES": WS-N e' il contatore, non un paragrafo
+            if (COBOL_RESERVED_EXTENDED.has(target) || /^\d+$/.test(target) || /^\s+TIMES\b/.test(rest)) continue;
+            targets.push({ line: i, target });
+            if (m[2]) {
+                targets.push({ line: i, target: m[2] });
+            } else if (!rest.trim()) {
+                // Nessun THRU e niente dopo il target: il THRU puo' stare sulla riga successiva
                 pendingPerformLine = i;
             }
         }
@@ -2379,8 +2428,9 @@ function extractVariableRefs(lines) {
         // ritorno CICS (costante), non una variabile del programma: va rimosso
         // insieme alla macro prima dell'estrazione dei token.
         cleaned = cleaned.replace(/\b(?:DFHRESP|DFHVALUE)\s*\([^)]*\)/g, ' ');
-        cleaned = cleaned.replace(/\bPERFORM\s+([A-Z0-9][\w-]*)/g, 'PERFORM');
-        cleaned = cleaned.replace(/\bTHRU\s+([A-Z0-9][\w-]*)/g, 'THRU');
+        // "PERFORM WS-N TIMES": WS-N e' una variabile, va lasciata
+        cleaned = cleaned.replace(/\bPERFORM\s+([A-Z0-9][\w-]*)(?![\w-])(?!\s+TIMES\b)/g, 'PERFORM');
+        cleaned = cleaned.replace(/\b(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/g, 'THRU');
         cleaned = cleaned.replace(/\bCOPY\s+([A-Z0-9][\w-]*)/g, 'COPY');
         // END PROGRAM nome-programma: il nome e' l'identificativo del programma
         cleaned = cleaned.replace(/\bEND\s+PROGRAM\s+[A-Z0-9][\w-]*/g, ' ');
@@ -2541,8 +2591,13 @@ function loadCopyParagraphs(copyName, workspaceRoot) {
             if (!code.trim()) continue;
             if (code && !/^\s/.test(code)) {
                 const upper = code.trim().toUpperCase();
+                const secMatch = upper.match(/^([A-Z0-9][\w-]*)\s+SECTION\b/);
+                if (secMatch) {
+                    if (!COBOL_RESERVED_EXTENDED.has(secMatch[1])) paras.add(secMatch[1]);
+                    continue;
+                }
                 const paraMatch = upper.match(/^([A-Z0-9][\w-]*)\s*\./);
-                if (paraMatch && !COBOL_RESERVED_EXTENDED.has(paraMatch[1]) && !upper.includes(' SECTION')) {
+                if (paraMatch && !COBOL_RESERVED_EXTENDED.has(paraMatch[1])) {
                     paras.add(paraMatch[1]);
                 }
             }
@@ -2716,6 +2771,7 @@ function checkUndefinedVariables(lines, workspaceRoot) {
     }
     const paragraphs = collectParagraphs(lines);
     for (const p of paragraphs.keys()) defined.add(p);
+    for (const s of collectSections(lines).sections.keys()) defined.add(s);
 
     const refs = extractVariableRefs(lines);
     const reported = new Set();
@@ -2739,6 +2795,9 @@ function checkUndefinedParagraph(lines, workspaceRoot) {
     if (!cfg.enabled) return [];
     const diags = [];
     const defined = collectParagraphs(lines);
+    for (const [s, line] of collectSections(lines).sections) {
+        if (!defined.has(s)) defined.set(s, line);
+    }
     if (workspaceRoot) {
         const procCopies = collectProcedureCopyNames(lines);
         for (const cn of procCopies) {
@@ -2773,11 +2832,19 @@ function checkUnusedParagraph(lines) {
     const targets = collectPerformTargets(lines).concat(collectGoToTargets(lines));
     const called = new Set(targets.map(t => t.target));
     const minLine = Math.min(...defined.values());
+    // Una SECTION eseguita esegue tutti i suoi paragrafi in sequenza; la prima e' l'entry point.
+    const { sections, paraSection } = collectSections(lines);
+    let entrySection = null;
+    for (const [s, line] of sections) {
+        if (entrySection === null || line < sections.get(entrySection)) entrySection = s;
+    }
 
     for (const [name, line] of defined) {
         if (called.has(name)) continue;
         if (name.endsWith('-EX')) continue;
         if (line === minLine) continue;
+        const sec = paraSection.get(name);
+        if (sec && (sec === entrySection || called.has(sec))) continue;
         diags.push(makeDiag(line, cfg.severity, 'unused-paragraph',
             msg('unusedParagraph', name),
             undefined, undefined, name));
