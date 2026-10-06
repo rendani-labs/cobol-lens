@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.33.0] - 2026-10-06
+
+### Changed
+- Copybooks opened in the editor no longer light up as "Christmas trees". `unused-variable` used to judge a copybook on its own text, so every field was reported as unused even when the including program used it. Now:
+  - A copybook opened **from a program** (F12 / Ctrl+click on the `COPY` name, the "Open copybook" hover link, or the Copybook Dependencies tree) is linked to that program: `unused-variable` checks whether the program uses the field, including fields renamed by `COPY ... REPLACING` and usage inside procedure copybooks. The link lasts until the copybook tab is closed; the copybook is re-linted when the program changes.
+  - A copybook opened **by hand** (no program context) no longer reports `unused-variable`, `undefined-variable`, `undefined-paragraph` or `unused-paragraph` (they need the whole program). All other rules stay active.
+  - Whole programs are unaffected.
+  - If the program includes the same copybook several times (e.g. with different `REPLACING`), only the inclusion you navigated from is considered; if that is not known (e.g. opened from a nested copybook, or the program was edited by adding/removing lines since), any inclusion counts.
+  - The hover on a symbol inside a copybook now ends with the origin: "Copybook opened from: PROGRAM (line N)" or "Copybook opened manually: no program context".
+
+### Fixed
+- F12 on a **field or paragraph** defined in a copybook (not only on the `COPY` name) now also links the opened copybook to the program and to the specific `COPY` statement that produced the symbol.
+- Hover / F12 on placeholder names such as `:PFX:-CODICE` inside a copybook did nothing: the `:` was not part of the word under the cursor. `:TAG:` names are now recognized (a DB2 host variable with indicator, `:HV:IND`, is still read as before).
+- Go to Definition / hover / references on fields coming from a copybook with `REPLACING` (e.g. `CLI-CODICE` from `:PFX:-CODICE` via `==:PFX:== BY ==CLI==`) reported "No definition found". Three causes: (1) the data-item regex did not accept names starting with `:` (`:PFX:-CODICE`), so those fields were never indexed; (2) a copybook included several times in the same program was parsed only the first time, so the names produced by the later `REPLACING` clauses did not exist; (3) when one `REPLACING` had several partial-word pairs (`==:PFX:== BY ==FOR== ==-OLD== BY ====`), only the first pair was applied to a name (`FOR-STATO-OLD` instead of `FOR-STATO`); now each pair acts on its own occurrence, left to right. The linter's COPY handling shares this routine, so it is fixed there too. Side effect: field sizes in the hover now also count fields named `:TAG:-...`.
+
+## [1.32.1] - 2026-10-05
+
+### Changed
+- Performance: the linter is about 20% faster on large sources (14,677 lines: ~880 ms -> ~700 ms). Every rule re-read the same lines through `isSkippable` / `getCodeContent` (~86 calls per line per run); the results are now cached for the duration of a single run. The cache exists only inside a run, is keyed on the line text and the source format (it is emptied if the format changes) and is always discarded when the run ends, even if a rule throws. Diagnostics are unchanged (verified bit-for-bit on all test sources in fixed, variable and free format).
+
 ## [1.32.0] - 2026-10-02
 
 ### Added

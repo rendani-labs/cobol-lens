@@ -26,7 +26,7 @@ const REPLACING_PAIR_REGEX = /==([^=]+)==\s+BY\s+==([^=]*)==/gi;
  * (numeri di sequenza, tag di modifica, spazi); la col 7 (indicatore) è
  * gestita separatamente da isComment().
  */
-const VARIABLE_DEF_REGEX = /^.{0,6}\s+(0[1-9]|[1-4]\d|66|77|88)\s+([A-Za-z][A-Za-z0-9-]*)/i;
+const VARIABLE_DEF_REGEX = /^.{0,6}\s+(0[1-9]|[1-4]\d|66|77|88)\s+([A-Za-z:][A-Za-z0-9:-]*)/i;
 
 /**
  * Regex per definizioni di paragrafi (nome che inizia in area A, colonne 8-11).
@@ -94,6 +94,7 @@ const COBOL_RESERVED = new Set([
  * @property {number} column - Colonna iniziale (0-based)
  * @property {number} [level] - Livello per le variabili (01-49, 66, 77, 88)
  * @property {string} [lineText] - Testo completo della riga
+ * @property {number} [copyLine] - Per i simboli arrivati da una COPY: riga 0-based della COPY di primo livello nel file analizzato
  */
 
 /**
@@ -199,6 +200,7 @@ function isWholeCobolWord(s) {
  * @returns {string}
  */
 function replaceCopyName(name, pairs) {
+    const partial = [];
     for (const r of pairs || []) {
         if (!r.from || r.mode === 'literal') continue;
         if (r.mode === 'leading') {
@@ -206,12 +208,26 @@ function replaceCopyName(name, pairs) {
         } else if (r.mode === 'trailing') {
             if (name.endsWith(r.from)) return name.substring(0, name.length - r.from.length) + r.to;
         } else if (!isWholeCobolWord(r.from)) {
-            if (name.includes(r.from)) return name.split(r.from).join(r.to);
+            partial.push(r);
         } else if (name === r.from) {
             return r.to;
         }
     }
-    return name;
+    if (partial.length === 0) return name;
+    // Pezzi di parola (:TAG:, -OLD): scansione da sinistra, a ogni posizione
+    // vince la prima coppia; il testo sostituito non viene riesaminato, ma le
+    // coppie diverse agiscono su occorrenze diverse dello stesso nome.
+    let out = '';
+    for (let i = 0; i < name.length;) {
+        const r = partial.find(p => name.startsWith(p.from, i));
+        if (r) {
+            out += r.to;
+            i += r.from.length;
+        } else {
+            out += name[i++];
+        }
+    }
+    return out;
 }
 
 /**
@@ -248,6 +264,8 @@ function parseCobolSymbols(filePath, content, workspaceRoot, visitedCopybooks, i
 
     /** @type {CobolSymbol[]} */
     const symbols = [];
+    /** @type {Set<string>} */
+    const seenCopySymbols = new Set();
     const lines = content.split(/\r?\n/);
     let currentDivision = initialDivision || '';
 
@@ -285,9 +303,12 @@ function parseCobolSymbols(filePath, content, workspaceRoot, visitedCopybooks, i
                 i = endLine; // Salta le righe della clausola REPLACING
             }
 
-            // Risolvi e parsa la copybook ricorsivamente
-            if (!visitedCopybooks.has(copyName.toUpperCase())) {
-                visitedCopybooks.add(copyName.toUpperCase());
+            // Risolvi e parsa la copybook ricorsivamente. visitedCopybooks e' la
+            // catena delle copy in corso (anti-ricorsione): la stessa copy puo'
+            // comparire piu' volte, con REPLACING diversi.
+            const copyKey = copyName.toUpperCase();
+            if (!visitedCopybooks.has(copyKey)) {
+                visitedCopybooks.add(copyKey);
                 const resolved = resolveCopybookPath(copyName, workspaceRoot);
                 if (resolved) {
                     try {
@@ -301,11 +322,19 @@ function parseCobolSymbols(filePath, content, workspaceRoot, visitedCopybooks, i
                         );
                         // Applica REPLACING ai simboli della copybook
                         copySymbols = applyReplacements(copySymbols, replacements);
-                        symbols.push(...copySymbols);
+                        // Stessa copy inclusa piu' volte senza cambiare i nomi: niente doppioni
+                        for (const s of copySymbols) {
+                            const k = s.name + '|' + s.filePath + '|' + s.line;
+                            if (!seenCopySymbols.has(k)) {
+                                seenCopySymbols.add(k);
+                                symbols.push({ ...s, copyLine: i });
+                            }
+                        }
                     } catch (e) {
                         // Ignora errori di lettura
                     }
                 }
+                visitedCopybooks.delete(copyKey);
             }
             continue;
         }

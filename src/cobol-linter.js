@@ -42,6 +42,27 @@ let currentSourceFormat = 'fixed';
 let currentIsCopybook = false;
 
 /**
+ * Cache per-run di isSkippable/getCodeContent: ogni regola rilegge le stesse
+ * righe (~86 chiamate a riga). Non nulla SOLO dentro runLinter, che la azzera
+ * nel finally. I risultati dipendono dal source format: se cambia, si svuota.
+ * @type {{format: string, skip: Map<string, boolean>, code: Map<string, string>} | null}
+ */
+let lineCache = null;
+
+/**
+ * @returns {typeof lineCache}
+ */
+function activeLineCache() {
+    const c = lineCache;
+    if (c !== null && c.format !== currentSourceFormat) {
+        c.skip.clear();
+        c.code.clear();
+        c.format = currentSourceFormat;
+    }
+    return c;
+}
+
+/**
  * Rileva se il contenuto e' una copybook di DATI.
  * Una copybook e' un frammento incluso via COPY: non contiene alcun header di
  * DIVISION. Per distinguere una copy di dati da una copy di procedure, si
@@ -66,6 +87,24 @@ function detectCopybook(lines) {
     // E un nome valido (almeno una lettera), non una continuazione numerica
     // (es. un elenco di VALUES su piu' righe).
     return !!isDataItemStart(firstCode);
+}
+
+/**
+ * Rileva se il contenuto e' un frammento incluso via COPY (dati O procedure):
+ * nessun header DIVISION in tutto il file.
+ * @param {string[]} lines
+ * @returns {boolean}
+ */
+function detectCopyFile(lines) {
+    let hasCode = false;
+    for (let i = 0; i < lines.length; i++) {
+        if (isSkippable(lines[i])) continue;
+        const upper = getCodeContent(lines[i]).trim().toUpperCase();
+        if (!upper) continue;
+        hasCode = true;
+        if (/\bDIVISION\b/.test(upper)) return false;
+    }
+    return hasCode;
 }
 
 /**
@@ -111,6 +150,21 @@ function isSetDirective(line) {
  * @returns {boolean}
  */
 function isSkippable(line) {
+    const c = activeLineCache();
+    if (c === null) return computeSkippable(line);
+    let v = c.skip.get(line);
+    if (v === undefined) {
+        v = computeSkippable(line);
+        c.skip.set(line, v);
+    }
+    return v;
+}
+
+/**
+ * @param {string} line
+ * @returns {boolean}
+ */
+function computeSkippable(line) {
     if (isBlank(line)) return true;
     if (isComment(line)) return true;
     if (isSetDirective(line)) return true;
@@ -130,6 +184,21 @@ function isSkippable(line) {
  * @returns {string}
  */
 function getCodeContent(line) {
+    const c = activeLineCache();
+    if (c === null) return computeCodeContent(line);
+    let v = c.code.get(line);
+    if (v === undefined) {
+        v = computeCodeContent(line);
+        c.code.set(line, v);
+    }
+    return v;
+}
+
+/**
+ * @param {string} line
+ * @returns {string}
+ */
+function computeCodeContent(line) {
     if (isComment(line) || isSetDirective(line) || isBlank(line)) return '';
 
     if (currentSourceFormat === 'free') {
@@ -3234,7 +3303,60 @@ function collectScreenFieldRefs(lines) {
     return refs;
 }
 
-function checkUnusedVariable(lines, workspaceRoot) {
+/**
+ * Uso dei nomi nel programma che include una copybook: riferimenti (PROCEDURE,
+ * DEPENDING ON, SCREEN, copy di procedure) e, per la copy in esame, le REPLACING
+ * con cui il programma la include (un campo puo' comparire col nome sostituito).
+ * Calcolato col source format del programma, non quello della copy.
+ * @param {string[]} parentLines
+ * @param {string|undefined} workspaceRoot
+ * @param {string} copyName
+ * @param {number} [copyLine] - riga 0-based della COPY di primo livello da cui la copy e' stata aperta; se non
+ *   corrisponde a nessuna inclusione (o e' < 0) valgono tutte le inclusioni
+ * @returns {{refs: Set<string>, stagesList: Array<Array<Array<{from: string, to: string, mode: string}>>>} | null} null se il "programma" e' a sua volta una copy
+ */
+function collectParentUsage(parentLines, workspaceRoot, copyName, copyLine) {
+    const savedFormat = currentSourceFormat;
+    const savedIsCopybook = currentIsCopybook;
+    currentSourceFormat = detectSourceFormat(parentLines);
+    currentIsCopybook = detectCopybook(parentLines);
+    try {
+        if (detectCopyFile(parentLines)) return null;
+        const refs = new Set(extractVariableRefs(parentLines).map(r => r.name));
+        for (const item of parseDataItems(parentLines)) {
+            if (item.dependingOn) refs.add(item.dependingOn);
+        }
+        for (const n of collectScreenFieldRefs(parentLines)) refs.add(n);
+
+        const stagesList = [];
+        const target = copyName.toUpperCase();
+        const tree = collectCopyTree(parentLines, workspaceRoot);
+        const matches = tree.filter(cp => cp.name === target);
+        const specific = copyLine !== undefined && copyLine >= 0 ? matches.filter(cp => cp.line === copyLine) : [];
+        for (const cp of (specific.length > 0 ? specific : matches)) stagesList.push(cp.stages);
+        for (const cp of tree) {
+            const hasData = cp.lines.some(l => !isSkippable(l)
+                && isDataItemStart(getCodeContent(l).trim().toUpperCase()));
+            if (hasData) continue;
+            // Copy di procedure: i suoi riferimenti sono usi nel programma.
+            const asProc = ['       PROCEDURE DIVISION.', ...cp.lines];
+            for (const r of extractVariableRefs(asProc)) {
+                refs.add(applyCopyStages(r.name, cp.stages));
+            }
+        }
+        return { refs, stagesList };
+    } finally {
+        currentSourceFormat = savedFormat;
+        currentIsCopybook = savedIsCopybook;
+    }
+}
+
+/**
+ * @param {string[]} lines
+ * @param {string} [workspaceRoot]
+ * @param {{refs: Set<string>, stagesList: Array<Array<Array<{from: string, to: string, mode: string}>>>}} [usage] - uso nel programma che include la copy
+ */
+function checkUnusedVariable(lines, workspaceRoot, usage) {
     const cfg = getRuleConfig('unused-variable');
     if (!cfg.enabled) return [];
     const diags = [];
@@ -3290,6 +3412,14 @@ function checkUnusedVariable(lines, workspaceRoot) {
     // Riferimenti nella SCREEN SECTION (USING/FROM/TO): collegano il campo
     // video a un item del programma, e' un uso a tutti gli effetti.
     for (const name of collectScreenFieldRefs(lines)) procRefs.add(name);
+
+    // Copybook aperta dal programma: un campo e' usato se il programma usa il
+    // nome (eventualmente sostituito dalle REPLACING della COPY).
+    if (usage) {
+        for (const name of wsVars.keys()) {
+            if (usage.stagesList.some(st => usage.refs.has(applyCopyStages(name, st)))) procRefs.add(name);
+        }
+    }
 
     // Gruppi REDEFINES: campi che condividono lo stesso storage. Se si usa
     // SOLO la vista ridefinita (o viceversa solo l'originale), l'altro non va
@@ -4769,9 +4899,28 @@ function computeSuppressions(lines) {
  * @param {string} text - Contenuto del file
  * @param {string} [workspaceRoot] - Root del workspace per risolvere le copy
  * @param {string} [fileBaseName] - Nome del file senza estensione, per il check program-id-filename
+ * @param {{copyAware?: boolean, parentText?: string, parentCopyLine?: number}} [opts] - copyAware: le regole che dipendono dal programma
+ *   (unused/undefined-*) sono nascoste sulle copybook; parentText: testo del programma da cui la copy e' stata
+ *   aperta, con cui unused-variable valuta l'uso dei campi
  * @returns {vscode.Diagnostic[]}
  */
-function runLinter(text, workspaceRoot, fileBaseName) {
+function runLinter(text, workspaceRoot, fileBaseName, opts) {
+    try {
+        return lintSource(text, workspaceRoot, fileBaseName, opts);
+    } finally {
+        // Anche su eccezione: la cache non deve mai sopravvivere al run
+        lineCache = null;
+    }
+}
+
+/**
+ * @param {string} text
+ * @param {string} [workspaceRoot]
+ * @param {string} [fileBaseName]
+ * @param {{copyAware?: boolean, parentText?: string, parentCopyLine?: number}} [opts]
+ * @returns {vscode.Diagnostic[]}
+ */
+function lintSource(text, workspaceRoot, fileBaseName, opts) {
     // Verifica se il linter e' abilitato
     const config = vscode.workspace.getConfiguration('cobolLens.linter');
     if (!config.get('enabled', true)) return [];
@@ -4783,10 +4932,19 @@ function runLinter(text, workspaceRoot, fileBaseName) {
 
     // Rileva il source format e imposta la variabile globale
     currentSourceFormat = detectSourceFormat(lines);
+    lineCache = { format: currentSourceFormat, skip: new Map(), code: new Map() };
 
     // Rileva se il file e' una copybook di dati: in tal caso le regole sui
     // dati devono trattare l'intero file come contesto di sezione dati.
     currentIsCopybook = detectCopybook(lines);
+
+    // Copybook (dati o procedure): le regole che richiedono il programma intero
+    // (unused/undefined-*) sono mute; unused-variable torna attiva se si conosce
+    // il programma da cui la copy e' stata aperta.
+    const isCopyFile = !!(opts && opts.copyAware) && detectCopyFile(lines);
+    const usage = (isCopyFile && opts && opts.parentText && fileBaseName)
+        ? collectParentUsage(opts.parentText.split(/\r?\n/), workspaceRoot, fileBaseName, opts.parentCopyLine)
+        : null;
 
     /** @type {vscode.Diagnostic[]} */
     const allDiags = [];
@@ -4826,14 +4984,23 @@ function runLinter(text, workspaceRoot, fileBaseName) {
     // In free format: nessuno di questi tre
 
     for (const check of basicChecks) {
+        if (isCopyFile && check === checkUnusedParagraph) continue;
         allDiags.push(...check(lines));
     }
 
     // Regole che richiedono workspaceRoot
     allDiags.push(...checkMismatchedCopy(lines, workspaceRoot));
-    allDiags.push(...checkUndefinedVariables(lines, workspaceRoot));
-    allDiags.push(...checkUndefinedParagraph(lines, workspaceRoot));
-    allDiags.push(...checkUnusedVariable(lines, workspaceRoot));
+    if (!isCopyFile) {
+        allDiags.push(...checkUndefinedVariables(lines, workspaceRoot));
+        allDiags.push(...checkUndefinedParagraph(lines, workspaceRoot));
+    }
+    // Programma intero: sempre. Copy: solo se il programma di partenza include
+    // davvero questa copy (altrimenti l'uso non e' valutabile).
+    if (!isCopyFile) {
+        allDiags.push(...checkUnusedVariable(lines, workspaceRoot));
+    } else if (usage && usage.stagesList.length > 0) {
+        allDiags.push(...checkUnusedVariable(lines, workspaceRoot, usage));
+    }
     allDiags.push(...checkDuplicateVariable(lines, workspaceRoot));
     allDiags.push(...checkUnsubscriptedOccurs(lines, workspaceRoot));
     allDiags.push(...checkAlphanumericInCompute(lines, workspaceRoot));
@@ -4895,4 +5062,4 @@ function runLinter(text, workspaceRoot, fileBaseName) {
     return result;
 }
 
-module.exports = { runLinter };
+module.exports = { runLinter, detectCopyFile };

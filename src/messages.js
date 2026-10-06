@@ -330,6 +330,14 @@ const MESSAGES = {
         it: () => 'Apri copybook',
         en: () => 'Open copybook',
     },
+    hoverCopyFrom: {
+        it: (prog, line) => `Copy aperta da: ${prog}${line > 0 ? ` (riga ${line})` : ''}`,
+        en: (prog, line) => `Copybook opened from: ${prog}${line > 0 ? ` (line ${line})` : ''}`,
+    },
+    hoverCopyManual: {
+        it: () => 'Copy aperta a mano: nessun programma di contesto',
+        en: () => 'Copybook opened manually: no program context',
+    },
     hoverContinued: {
         it: () => '... (continua)',
         en: () => '... (continued)',

@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { resolveCopybookPath, COPY_REGEX, isComment, COBOL_RESERVED, parseCallStatement, resolveProgramPath, parseValueClause, findConditionNames, findConditionParent, expandCopyText, findExecBlocks, classifyWriteOccurrence } = require('./cobol-parser');
 const { SymbolIndex } = require('./symbol-index');
-const { runLinter } = require('./cobol-linter');
+const { runLinter, detectCopyFile } = require('./cobol-linter');
 const { computeFieldSize, collectLayout, computeFieldInfoAt, setBinaryStorageMode } = require('./cobol-layout');
 const { msg, getLang, setLang } = require('./messages');
 const { CobolSemanticTokensProvider, SEMANTIC_LEGEND } = require('./cobol-semantic');
@@ -51,6 +51,20 @@ function getWorkspaceRoot(document) {
  */
 function getWordAtPosition(document, position) {
     const line = document.lineAt(position.line).text;
+
+    // Segnaposto di copy template (:PFX:-CODICE): i due punti fanno parte del nome.
+    // Escluso :HV:IND (host variable con indicatore): dopo il secondo ':' c'e' una lettera.
+    const tagRegex = /[A-Za-z0-9-]*:[A-Za-z0-9][A-Za-z0-9-]*:(?![A-Za-z0-9:])[A-Za-z0-9-]*/g;
+    let tm;
+    while ((tm = tagRegex.exec(line)) !== null) {
+        if (position.character >= tm.index && position.character <= tm.index + tm[0].length) {
+            return {
+                word: tm[0],
+                range: new vscode.Range(position.line, tm.index, position.line, tm.index + tm[0].length)
+            };
+        }
+    }
+
     let col = position.character;
 
     // Se il cursore è alla fine della selezione o dopo l'ultimo carattere
@@ -226,6 +240,7 @@ class CobolDefinitionProvider {
                 if (!wsRoot) return undefined;
                 const resolved = resolveCopybookPath(copyInfo.copyName, wsRoot);
                 if (resolved) {
+                    notePendingCopyParent(resolved, document, position.line);
                     return new vscode.Location(vscode.Uri.file(resolved), new vscode.Position(0, 0));
                 }
                 return undefined;
@@ -250,6 +265,11 @@ class CobolDefinitionProvider {
 
         const symbol = symbolIndex.findSymbol(document, wordInfo.word);
         if (!symbol) return undefined;
+
+        // Simbolo definito in una copy: se la si apre, resta collegata a questo programma.
+        if (symbol.copyLine !== undefined && symbol.filePath !== document.uri.fsPath) {
+            notePendingCopyParent(symbol.filePath, document, symbol.copyLine);
+        }
 
         return new vscode.Location(
             vscode.Uri.file(symbol.filePath),
@@ -294,7 +314,8 @@ class CobolHoverProvider {
                         const relPath = path.relative(wsRoot, resolved);
                         content.appendMarkdown(`**Copybook:** \`${copyInfo.copyName}\`\n\n`);
                         content.appendMarkdown(`**Path:** \`${relPath}\`\n\n`);
-                        content.appendMarkdown(`[${msg('hoverOpenCopybook')}](${vscode.Uri.file(resolved)})`);
+                        const openArgs = encodeURIComponent(JSON.stringify([resolved, document.uri.fsPath, position.line]));
+                        content.appendMarkdown(`[${msg('hoverOpenCopybook')}](command:cobolLens.openCopybook?${openArgs})`);
                         content.isTrusted = true;
                         // Mostra anteprima contenuto (max 30 righe)
                         try {
@@ -398,6 +419,13 @@ class CobolHoverProvider {
             }
         }
 
+        if (isCopyDocument(document)) {
+            const link = getCopyLink(document);
+            content.appendMarkdown(link
+                ? `*${msg('hoverCopyFrom', path.basename(link.parent), link.line + 1)}*\n\n`
+                : `*${msg('hoverCopyManual')}*\n\n`);
+        }
+
         return new vscode.Hover(content, wordInfo.range);
     }
 }
@@ -428,7 +456,8 @@ class CobolCopyLinkProvider {
                         i, copyInfo.nameStart,
                         i, copyInfo.nameStart + copyInfo.copyName.length
                     );
-                    const link = new vscode.DocumentLink(range, vscode.Uri.file(resolved));
+                    const openArgs = encodeURIComponent(JSON.stringify([resolved, document.uri.fsPath, i]));
+                    const link = new vscode.DocumentLink(range, vscode.Uri.parse(`command:cobolLens.openCopybook?${openArgs}`));
                     link.tooltip = `Apri copybook: ${path.basename(resolved)}`;
                     links.push(link);
                 }
@@ -513,14 +542,17 @@ class CobolExpandContentProvider {
 class CopyTreeItem extends vscode.TreeItem {
     /**
      * @param {import('./cobol-copytree').CopyNode} node
+     * @param {string} [rootPath] - file da cui parte l'albero (programma di partenza)
+     * @param {number} [rootLine] - riga della COPY nel programma (-1 per i nodi annidati)
      */
-    constructor(node) {
+    constructor(node, rootPath, rootLine = -1) {
         const hasChildren = node.children && node.children.length > 0;
         super(node.name,
             hasChildren
                 ? vscode.TreeItemCollapsibleState.Expanded
                 : vscode.TreeItemCollapsibleState.None);
         this.copyNode = node;
+        this.rootPath = rootPath;
 
         if (!node.resolved) {
             this.description = msg('copyTreeMissing');
@@ -540,9 +572,9 @@ class CopyTreeItem extends vscode.TreeItem {
         // Cliccando l'elemento apre la copybook (se risolta).
         if (node.resolved && node.filePath) {
             this.command = {
-                command: 'vscode.open',
+                command: 'cobolLens.openCopybook',
                 title: 'Open Copybook',
-                arguments: [vscode.Uri.file(node.filePath)]
+                arguments: [node.filePath, rootPath, rootLine]
             };
         }
         this.contextValue = node.resolved ? 'copybook' : 'copybookMissing';
@@ -577,7 +609,7 @@ class CobolCopyTreeProvider {
      */
     getChildren(element) {
         if (element) {
-            return (element.copyNode.children || []).map(n => new CopyTreeItem(n));
+            return (element.copyNode.children || []).map(n => new CopyTreeItem(n, element.rootPath));
         }
         // Radice: costruisci l'albero dal documento attivo.
         if (!this._document || !this._document.uri.fsPath) return [];
@@ -590,7 +622,7 @@ class CobolCopyTreeProvider {
                 ? this._document.getText()
                 : fs.readFileSync(p, 'utf-8'))
         });
-        return roots.map(n => new CopyTreeItem(n));
+        return roots.map(n => new CopyTreeItem(n, rootPath, n.line));
     }
 }
 
@@ -2322,6 +2354,149 @@ function isCobolDocument(document) {
     return false;
 }
 
+// Copy -> programma da cui e' stata aperta (F12, link, albero copybook): il
+// linter lo usa per sapere se i campi della copy sono usati.
+// line = riga 0-based della COPY nel programma (-1 = sconosciuta: vale ogni inclusione).
+/** @type {Map<string, {parent: string, line: number}>} */
+const copyParents = new Map();
+// F12 chiama solo il definition provider: il collegamento diventa valido se la
+// copy si apre subito dopo (finestra breve), cosi' un hover non lo imposta.
+/** @type {Map<string, {parent: string, line: number, ts: number}>} */
+const pendingCopyParents = new Map();
+const PENDING_COPY_MS = 5000;
+
+/** @param {string} p */
+function pathKey(p) {
+    return path.normalize(p).toLowerCase();
+}
+
+/** @param {string} fsPath */
+function rootProgramOf(fsPath) {
+    const link = copyParents.get(pathKey(fsPath));
+    return link ? link.parent : fsPath;
+}
+
+/**
+ * Programma e riga della COPY per un file di partenza. La riga vale solo se si
+ * parte dal programma stesso: da una copy annidata non e' una riga del programma.
+ * @param {string} fromPath
+ * @param {number} fromLine
+ * @returns {{parent: string, line: number}}
+ */
+function resolveCopyOrigin(fromPath, fromLine) {
+    const parent = rootProgramOf(fromPath);
+    const line = pathKey(parent) === pathKey(fromPath) ? fromLine : -1;
+    return { parent, line };
+}
+
+/**
+ * @param {string} copyPath
+ * @param {vscode.TextDocument} fromDoc
+ * @param {number} fromLine
+ */
+function notePendingCopyParent(copyPath, fromDoc, fromLine) {
+    if (fromDoc.uri.scheme !== 'file') return;
+    const { parent, line } = resolveCopyOrigin(fromDoc.uri.fsPath, fromLine);
+    if (pathKey(parent) === pathKey(copyPath)) return;
+    pendingCopyParents.set(pathKey(copyPath), { parent, line, ts: Date.now() });
+}
+
+/**
+ * Collegamento esplicito (link, albero): vale subito.
+ * @param {string} copyPath
+ * @param {string} fromPath
+ * @param {number} fromLine
+ */
+function linkCopyParent(copyPath, fromPath, fromLine) {
+    const { parent, line } = resolveCopyOrigin(fromPath, fromLine);
+    if (pathKey(parent) === pathKey(copyPath)) return;
+    copyParents.set(pathKey(copyPath), { parent, line });
+    pendingCopyParents.delete(pathKey(copyPath));
+    const open = vscode.workspace.textDocuments.find(d => pathKey(d.fileName) === pathKey(copyPath));
+    if (open) updateDiagnostics(open);
+}
+
+/**
+ * Promuove il collegamento pendente se la copy si e' aperta subito dopo il F12.
+ * @param {vscode.TextDocument} document
+ * @returns {boolean}
+ */
+function consumePendingCopyParent(document) {
+    const key = pathKey(document.fileName);
+    const pending = pendingCopyParents.get(key);
+    if (!pending) return false;
+    pendingCopyParents.delete(key);
+    if (Date.now() - pending.ts > PENDING_COPY_MS) return false;
+    copyParents.set(key, { parent: pending.parent, line: pending.line });
+    return true;
+}
+
+/**
+ * Il documento e' una copybook (nessun header DIVISION)? Memorizzato per versione: l'hover e' frequente.
+ * @param {vscode.TextDocument} document
+ * @returns {boolean}
+ */
+function isCopyDocument(document) {
+    const key = document.uri.toString();
+    const cached = copyDocCache.get(key);
+    if (cached && cached.version === document.version) return cached.isCopy;
+    const isCopy = detectCopyFile(document.getText().split(/\r?\n/));
+    copyDocCache.set(key, { version: document.version, isCopy });
+    return isCopy;
+}
+/** @type {Map<string, {version: number, isCopy: boolean}>} */
+const copyDocCache = new Map();
+
+/**
+ * Collegamento copy -> programma, se esiste.
+ * @param {vscode.TextDocument} document
+ * @returns {{parent: string, line: number} | undefined}
+ */
+function getCopyLink(document) {
+    return copyParents.get(pathKey(document.fileName));
+}
+
+/**
+ * Se la modifica sposta righe del programma, i numeri di riga memorizzati per le
+ * sue COPY non sono piu' affidabili: si torna a "qualsiasi inclusione".
+ * @param {vscode.TextDocumentChangeEvent} e
+ */
+function dropStaleCopyLines(e) {
+    const shifted = e.contentChanges.some(c => c.range.start.line !== c.range.end.line || c.text.includes('\n'));
+    if (!shifted) return;
+    const parentKey = pathKey(e.document.fileName);
+    for (const link of copyParents.values()) {
+        if (pathKey(link.parent) === parentKey) link.line = -1;
+    }
+}
+
+/** @param {string} parentPath */
+function readParentText(parentPath) {
+    const open = vscode.workspace.textDocuments.find(d => pathKey(d.fileName) === pathKey(parentPath));
+    if (open) return open.getText();
+    try {
+        return fs.readFileSync(parentPath, 'utf-8');
+    } catch (e) {
+        return undefined;
+    }
+}
+
+/**
+ * Rilinta le copy aperte collegate a questo programma (il loro unused-variable dipende dal suo testo).
+ * @param {vscode.TextDocument} parentDoc
+ * @param {boolean} immediate
+ */
+function relintDependentCopies(parentDoc, immediate) {
+    const parentKey = pathKey(parentDoc.fileName);
+    for (const [copyKey, link] of copyParents) {
+        if (pathKey(link.parent) !== parentKey) continue;
+        const copyDoc = vscode.workspace.textDocuments.find(d => pathKey(d.fileName) === copyKey);
+        if (!copyDoc) continue;
+        if (immediate) updateDiagnostics(copyDoc);
+        else scheduleLint(copyDoc);
+    }
+}
+
 /**
  * Aggiorna la diagnostica completa per un documento (linter + copy mancanti).
  * @param {vscode.TextDocument} document
@@ -2332,11 +2507,13 @@ function updateDiagnostics(document) {
 
     const { fsPath: workspaceRoot } = getWorkspaceRoot(document);
     const fileBaseName = path.basename(document.fileName, path.extname(document.fileName));
+    const link = getCopyLink(document);
+    const parentText = link ? readParentText(link.parent) : undefined;
 
     // Esegue il linter integrato (include gia' il check mismatched-copy)
     let diagnostics;
     try {
-        diagnostics = runLinter(document.getText(), workspaceRoot, fileBaseName);
+        diagnostics = runLinter(document.getText(), workspaceRoot, fileBaseName, { copyAware: true, parentText, parentCopyLine: link ? link.line : -1 });
     } catch (e) {
         // Senza questo try/catch un'eccezione nel linter lascia il Problems
         // panel silenziosamente vuoto, senza alcuna traccia visibile.
@@ -2698,11 +2875,23 @@ function activate(context) {
     // Righelli di colonna in base al formato sorgente
     updateSourceFormatRulers();
 
+    // Apertura di una copy da link/albero: registra il programma di partenza
+    // e la apre (la copy resta collegata finche' non viene chiusa).
+    context.subscriptions.push(
+        vscode.commands.registerCommand('cobolLens.openCopybook', async (copyPath, fromPath, fromLine) => {
+            if (typeof copyPath !== 'string') return;
+            if (typeof fromPath === 'string') linkCopyParent(copyPath, fromPath, typeof fromLine === 'number' ? fromLine : -1);
+            await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(copyPath));
+        })
+    );
+
     // Linter in tempo reale (debounced) durante la modifica
     context.subscriptions.push(
         vscode.workspace.onDidChangeTextDocument(e => {
             symbolIndex.invalidate(e.document.uri.toString());
+            dropStaleCopyLines(e);
             scheduleLint(e.document);
+            relintDependentCopies(e.document, false);
         })
     );
 
@@ -2710,13 +2899,22 @@ function activate(context) {
     context.subscriptions.push(
         vscode.workspace.onDidSaveTextDocument(doc => {
             updateDiagnostics(doc);
+            relintDependentCopies(doc, true);
         })
     );
 
     // Linter all'apertura del file
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(doc => {
+            consumePendingCopyParent(doc);
             updateDiagnostics(doc);
+        })
+    );
+
+    // F12 su una copy gia' aperta in un tab: non scatta l'apertura, solo il cambio editor
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(editor => {
+            if (editor && consumePendingCopyParent(editor.document)) updateDiagnostics(editor.document);
         })
     );
 
@@ -2724,6 +2922,9 @@ function activate(context) {
     context.subscriptions.push(
         vscode.workspace.onDidCloseTextDocument(doc => {
             symbolIndex.invalidate(doc.uri.toString());
+            copyParents.delete(pathKey(doc.fileName));
+            copyDocCache.delete(doc.uri.toString());
+            pendingCopyParents.delete(pathKey(doc.fileName));
             diagnosticCollection.delete(doc.uri);
             const key = doc.uri.toString();
             const timer = lintTimers.get(key);
