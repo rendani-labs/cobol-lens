@@ -267,6 +267,32 @@
             "completionEvents": ["onCommand:workbench.action.openSettings"]
           }
         ]
+      },
+      {
+        "id": "cobolLens.whatsNew",
+        "title": "%cobolLens.whatsNew.title%",
+        "description": "%cobolLens.whatsNew.description%",
+        "steps": [
+          {
+            "id": "whatsnew-binary",
+            "title": "%cobolLens.whatsNew.binary.title%",
+            "description": "%cobolLens.whatsNew.binary.description%",
+            "media": { "markdown": "media/walkthrough/whatsnew-binary.md" },
+            "completionEvents": ["onSettingChanged:cobolLens.binaryStorage"]
+          },
+          {
+            "id": "whatsnew-copybooks",
+            "title": "%cobolLens.whatsNew.copybooks.title%",
+            "description": "%cobolLens.whatsNew.copybooks.description%",
+            "media": { "markdown": "media/walkthrough/whatsnew-copybooks.md" }
+          },
+          {
+            "id": "whatsnew-linter",
+            "title": "%cobolLens.whatsNew.linter.title%",
+            "description": "%cobolLens.whatsNew.linter.description%",
+            "media": { "markdown": "media/walkthrough/whatsnew-linter.md" }
+          }
+        ]
       }
     ],
     "configuration": {
@@ -357,6 +383,11 @@
           "type": "boolean",
           "default": true,
           "description": "%cobolLens.showWelcomeOnStartup.description%"
+        },
+        "cobolLens.showWhatsNewOnUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "%cobolLens.showWhatsNewOnUpdate.description%"
         },
         "cobolLens.sourceFormat": {
           "type": "string",

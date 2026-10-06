@@ -3005,8 +3005,53 @@ function activate(context) {
         })
     );
 
+    // Novita' dopo un aggiornamento (prima del benvenuto: questo segna welcomeShown)
+    maybeShowWhatsNew(context);
+
     // Apri la guida introduttiva (walkthrough) solo alla primissima installazione
     maybeShowWelcomeWalkthrough(context);
+}
+
+// Versione che introduce le novita' del walkthrough "cobolLens.whatsNew": a ogni release
+// con novita' importanti aggiornare questa costante e i file media/walkthrough/whatsnew-*.md.
+const WHATS_NEW_VERSION = '1.33.0';
+
+/**
+ * @param {string} a
+ * @param {string} b
+ * @returns {number} <0, 0, >0 come un comparatore
+ */
+function compareVersions(a, b) {
+    const pa = a.split('.').map(n => parseInt(n, 10) || 0);
+    const pb = b.split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < 3; i++) {
+        const d = (pa[i] || 0) - (pb[i] || 0);
+        if (d !== 0) return d;
+    }
+    return 0;
+}
+
+/** Apre il pannello "Novita'" una sola volta, per chi aggiorna attraversando WHATS_NEW_VERSION. */
+function maybeShowWhatsNew(context) {
+    const current = context.extension.packageJSON.version;
+    const prevKey = 'cobolLens.lastVersion';
+    const stored = context.globalState.get(prevKey);
+    context.globalState.update(prevKey, current);
+    if (stored === current) return;
+
+    // Prima di questa funzione la versione non era memorizzata: chi ha gia' visto il benvenuto e' un utente esistente.
+    const from = stored || (context.globalState.get('cobolLens.welcomeShown') ? '0.0.0' : undefined);
+    if (!from) return; // prima installazione: ci pensa il walkthrough di benvenuto
+    if (compareVersions(from, WHATS_NEW_VERSION) >= 0) return;
+    if (compareVersions(current, WHATS_NEW_VERSION) < 0) return;
+
+    const cfg = vscode.workspace.getConfiguration('cobolLens');
+    if (!cfg.get('showWhatsNewOnUpdate', true)) return;
+    vscode.commands.executeCommand(
+        'workbench.action.openWalkthrough',
+        'rendani-labs.cobol-lens#cobolLens.whatsNew',
+        true
+    );
 }
 
 function maybeShowWelcomeWalkthrough(context) {

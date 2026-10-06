@@ -2,6 +2,9 @@
 
 ## [1.33.0] - 2026-10-06
 
+### Added
+- "What's new" panel: a second walkthrough (`cobolLens.whatsNew`) that opens by itself **once**, the first time the extension starts after an update that crosses a release with important changes (never on a fresh install, where the welcome walkthrough is shown instead). This release's panel covers the `cobolLens.binaryStorage` setting (with a button to open it), copybooks linked to their program and the `COPY ... REPLACING` / linter fixes. New setting `cobolLens.showWhatsNewOnUpdate` (default `true`) turns the automatic opening off; the panel can always be reopened from `Help > Welcome`.
+
 ### Changed
 - Copybooks opened in the editor no longer light up as "Christmas trees". `unused-variable` used to judge a copybook on its own text, so every field was reported as unused even when the including program used it. Now:
   - A copybook opened **from a program** (F12 / Ctrl+click on the `COPY` name, the "Open copybook" hover link, or the Copybook Dependencies tree) is linked to that program: `unused-variable` checks whether the program uses the field, including fields renamed by `COPY ... REPLACING` and usage inside procedure copybooks. The link lasts until the copybook tab is closed; the copybook is re-linted when the program changes.
@@ -85,7 +88,7 @@
 
 ## [1.30.0] - 2026-10-02
 
-> **⚠️ ACTION REQUIRED -- check the new `cobolLens.binaryStorage` setting.**
+> **ACTION REQUIRED -- check the new `cobolLens.binaryStorage` setting.**
 > The byte size of binary items (`COMP`, `COMP-4`, `BINARY`, `COMP-5`) depends on the Micro Focus `IBMCOMP` compiler directive, and until now COBOL Lens always assumed `IBMCOMP` (2/4/8 bytes). The default stays `ibmcomp`, so nothing changes if you compile with `IBMCOMP`. **If you compile without it (`NOIBMCOMP`, the Micro Focus compiler default), set `"cobolLens.binaryStorage": "noibmcomp"`**, otherwise sizes of binary fields in hover, inlay hints, Record Layout and `redefines-size` are wrong (e.g. `PIC S9(2) COMP` is 1 byte, not 2). To find out which one you use, look for `IBMCOMP` in your compiler listing (`.lst`) or run `DISPLAY LENGTH OF` on a `PIC S9(2) COMP` field. See "Byte Sizes and the IBMCOMP Directive" in the README.
 
 ### Added
