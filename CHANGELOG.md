@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.33.1] - 2026-10-06
+
+### Changed
+- "Get Started" walkthrough (shown on first install) reviewed: the first step is now the `cobolLens.binaryStorage` setting (with a button to open it), a new "Format your code" step covers the formatter, Trim Trailing Whitespace and Toggle Comment, and the other steps now mention Go to Called Program, copybooks linked to their program, `COMP-X`/IBMCOMP-aware sizes, real paragraph reachability and the `programFolders`/`format.*` settings.
+
 ## [1.33.0] - 2026-10-06
 
 ### Added

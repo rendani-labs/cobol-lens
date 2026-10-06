@@ -2,7 +2,7 @@
   "name": "cobol-lens",
   "displayName": "COBOL Lens",
   "description": "COBOL tooling tailored for the Micro Focus / Rocket COBOL dialect: syntax highlighting, Go to Definition, Peek, Find All References, hover with field size, copybook autocomplete, code folding, and a 53-rule integrated linter. No compiler required.",
-  "version": "1.33.0",
+  "version": "1.33.1",
   "publisher": "rendani-labs",
   "license": "MIT",
   "icon": "icon.png",
@@ -216,6 +216,13 @@
         "description": "%cobolLens.walkthrough.description%",
         "steps": [
           {
+            "id": "binary",
+            "title": "%cobolLens.walkthrough.binary.title%",
+            "description": "%cobolLens.walkthrough.binary.description%",
+            "media": { "markdown": "media/walkthrough/whatsnew-binary.md" },
+            "completionEvents": ["onSettingChanged:cobolLens.binaryStorage"]
+          },
+          {
             "id": "welcome",
             "title": "%cobolLens.walkthrough.welcome.title%",
             "description": "%cobolLens.walkthrough.welcome.description%",
@@ -252,6 +259,12 @@
             "title": "%cobolLens.walkthrough.ifblocks.title%",
             "description": "%cobolLens.walkthrough.ifblocks.description%",
             "media": { "markdown": "media/walkthrough/ifblocks.md" }
+          },
+          {
+            "id": "format",
+            "title": "%cobolLens.walkthrough.format.title%",
+            "description": "%cobolLens.walkthrough.format.description%",
+            "media": { "markdown": "media/walkthrough/format.md" }
           },
           {
             "id": "completion",

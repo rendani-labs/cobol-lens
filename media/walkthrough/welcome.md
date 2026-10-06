@@ -8,5 +8,6 @@ A lightweight VS Code extension for COBOL, tailored for the **Micro Focus / Rock
 - **No language server, no network** -- everything runs locally, ideal for locked-down mainframe workstations.
 - **Standalone** -- works without any other COBOL extension installed.
 - **Fast and lightweight** -- zero runtime dependencies.
+- **Complete** -- navigation (including `CALL` and copybooks), byte layout, a 53-rule linter with Quick Fixes, formatter, completion and more.
 
 Use the steps on the left to discover the main features.

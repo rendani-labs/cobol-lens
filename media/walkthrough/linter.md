@@ -7,5 +7,6 @@ A built-in linter with **53 configurable rules** runs in real time (or on save):
 - **Code quality** -- undefined/unused variables and paragraphs, duplicates
 - **Best practices** -- no GOTO, REDEFINES size check, missing STOP RUN
 - **File handling** -- missing FILE STATUS, COPY resolution, PERFORM THRU order
+- **Control flow** -- unused paragraphs found by real reachability (PERFORM ranges, GO TO, ALTER), PERFORM THRU range exits and mismatches
 
 Every rule can be enabled/disabled and set to `error`, `warning` or `info`. When a fix is available, the **light bulb** (Quick Fix) applies it in one click -- adding a missing `END-IF`, a trailing period, a level number, or realigning a keyword to its standard column.
