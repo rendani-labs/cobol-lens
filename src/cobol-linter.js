@@ -2884,7 +2884,9 @@ function checkUnsubscriptedOccurs(lines, workspaceRoot) {
         if (!ctx.inProcedure) continue;
         if (ctx.inExecBlock) continue;
         if (namePhraseLines.has(i)) continue;
-        const upper = code.trim().toUpperCase();
+        // Letterali mascherati (non rimossi) per non scambiare il testo di una stringa per una variabile
+        const upper = maskLiterals(code).trim().toUpperCase();
+        const colOffset = (currentSourceFormat === 'free' ? 0 : 7) + (code.length - code.trimStart().length);
         if (code && !/^\s/.test(code) && /^[A-Z0-9][\w-]*\.\s*$/.test(upper)) continue;
         if (/^\s*(SEARCH|SORT|INITIALIZE)\b/.test(upper)) continue;
         for (const varName of occursVars) {
@@ -2919,7 +2921,7 @@ function checkUnsubscriptedOccurs(lines, workspaceRoot) {
                         if (!hasSubscriptNextLine) {
                             diags.push(makeDiag(i, cfg.severity, 'unsubscripted-occurs',
                                 msg('unsubscriptedOccurs', varName),
-                                undefined, undefined, varName));
+                                colOffset + idx, colOffset + idx + varName.length, varName));
                             reported.add(varName);
                             break;
                         }

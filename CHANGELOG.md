@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.33.2] - 2026-10-26
+
+### Fixed
+- `unsubscripted-occurs` no longer reports a table name that appears only inside a string literal (e.g. `MOVE 'CODE NOT IN ELEANA' TO ...`). Literals are now masked before the search, and the diagnostic range points at the real reference.
+
 ## [1.33.1] - 2026-10-06
 
 ### Changed
