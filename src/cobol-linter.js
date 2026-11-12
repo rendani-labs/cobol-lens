@@ -1884,7 +1884,10 @@ function checkAndOrIf(lines) {
         if (!ctx.inProcedure) { prevEndsWithConnector = false; continue; }
         if (ctx.inExecBlock) { prevEndsWithConnector = false; continue; }
 
-        const upper = stripLiterals(code).trim().toUpperCase();
+        // Letterali sostituiti da un segnaposto: rimuoverli farebbe sembrare
+        // che "OR '04'" termini con OR.
+        const upper = stripLiterals(code.replace(/'[^']*'|"[^"]*"/g, ' L '))
+            .trim().toUpperCase();
 
         // Stessa riga: AND IF / OR IF
         if (/\b(AND|OR)\s+IF\b/.test(upper)) {
