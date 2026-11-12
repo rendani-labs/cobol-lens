@@ -6,7 +6,7 @@
 - New rule `end-structure-strict` (off by default, warning): a `CALL` or `UNSTRING` closed by a period instead of `END-CALL`/`END-UNSTRING`. Turn it on for a fully structured style. The Quick Fix that inserts the `END-` keyword also works for this rule.
 
 ### Changed
-- `end-structure` no longer reports `CALL` and `UNSTRING` closed by a period: `END-CALL`/`END-UNSTRING` are optional in COBOL and a plain `CALL 'PGM' USING X.` is perfectly valid. These checks moved to `end-structure-strict`. `IF`, `EVALUATE`, `PERFORM` (inline) and `SEARCH` are still reported.
+- `end-structure` no longer reports `CALL` and `UNSTRING` closed by a period: `END-CALL`/`END-UNSTRING` are optional in COBOL and a plain `CALL 'PGM' USING X.` is perfectly valid. These checks moved to `end-structure-strict`. `IF`, `EVALUATE`, `PERFORM` (inline) and `SEARCH` are still reported. Exception: a `CALL ... ON EXCEPTION` / `UNSTRING ... ON OVERFLOW` nested inside another structure (e.g. an `IF`) without `END-CALL`/`END-UNSTRING` is still reported by `end-structure`, because every following statement of the branch silently becomes part of the `ON EXCEPTION`/`ON OVERFLOW` clause.
 - `paragraph-naming` no longer checks `SECTION` headers: the naming convention applies to paragraphs only.
 
 ### Fixed

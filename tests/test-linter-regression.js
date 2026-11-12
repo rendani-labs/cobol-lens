@@ -4198,6 +4198,18 @@ function runPerformSectionTests() {
     "           CALL 'SUBPGM' USING WS-N.",
     "           UNSTRING WS-EOF DELIMITED BY SPACE INTO WS-IF-FLAG.",
     "           CALL 'SUBPGM' USING WS-X END-CALL.",
+    "           IF WS-EOF = 'S'",
+    "              CALL 'SUBNEST' USING WS-N",
+    '                 ON EXCEPTION MOVE 1 TO WS-N',
+    '              MOVE 2 TO WS-N',
+    '           END-IF.',
+    "           IF WS-EOF = 'S'",
+    "              CALL 'SUBENDC' USING WS-N",
+    '                 ON EXCEPTION MOVE 1 TO WS-N',
+    '              END-CALL',
+    '           END-IF.',
+    "           CALL 'SUBTOP' USING WS-N",
+    '              ON EXCEPTION MOVE 1 TO WS-N.',
     '           GOBACK.',
     '       CICLO-PARA.',
     "           MOVE 'S' TO WS-EOF.",
@@ -4223,6 +4235,12 @@ function runPerformSectionTests() {
   }
   assert(!has(esDiags, es, 'end-structure-strict', 'END-CALL'),
     'end-structure-strict: CALL chiusa da END-CALL non va segnalata');
+  assert(has(esDiags, es, 'end-structure', "CALL 'SUBNEST'"),
+    'end-structure: CALL con ON EXCEPTION dentro un IF senza END-CALL va segnalata di default');
+  assert(!has(esDiags, es, 'end-structure', "CALL 'SUBENDC'") && !has(esDiags, es, 'end-structure-strict', "CALL 'SUBENDC'"),
+    'end-structure: CALL con ON EXCEPTION annidata e chiusa da END-CALL non va segnalata');
+  assert(!has(esDiags, es, 'end-structure', "CALL 'SUBTOP'") && has(esDiags, es, 'end-structure-strict', "CALL 'SUBTOP'"),
+    'end-structure: CALL con ON EXCEPTION non annidata chiusa dal punto e\' solo stile (strict)');
   assert(!esDiags.some(d => ['undefined-paragraph', 'unused-variable'].includes(String(d.code)) && d._symbolName === 'WS-N'),
     'PERFORM WS-N TIMES: WS-N e\' un contatore, non un paragrafo');
 

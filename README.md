@@ -268,7 +268,7 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `no-else-if` | off | warning | No ELSE IF -- nest IF inside ELSE instead |
 | `move-to-alignment` | off | warning | In MOVE...TO, the word TO must start at position 45 |
 | `ws-level-spacing` | off | warning | Exactly 1 space between level number and variable name |
-| `end-structure` | on | warning | Every IF/PERFORM/EVALUATE/SEARCH must have its END- counterpart |
+| `end-structure` | on | warning | Every IF/PERFORM/EVALUATE/SEARCH must have its END- counterpart; also a CALL/UNSTRING with ON EXCEPTION/ON OVERFLOW nested in another structure |
 | `end-structure-strict` | off | warning | Every CALL/UNSTRING must be closed by END-CALL/END-UNSTRING instead of a period (optional structured style) |
 | `string-delimited` | on | error | STRING must have a DELIMITED BY clause before INTO |
 | `undefined-variable` | on | error | Variables used must be defined in program or copybooks |

@@ -910,14 +910,16 @@ function checkEndStructure(lines) {
     const cfg = getRuleConfig('end-structure');
     const orphanCfg = getRuleConfig('orphan-scope-delimiter');
     // CALL/UNSTRING senza END-x sono legali e comunissimi: segnalati solo su richiesta.
+    // Eccezione: con ON EXCEPTION/OVERFLOW dentro un'altra struttura, senza END-x le
+    // istruzioni successive del ramo finiscono nella clausola: quello resta in end-structure.
     const strictCfg = getRuleConfig('end-structure-strict');
     if (!cfg.enabled && !orphanCfg.enabled && !strictCfg.enabled) return [];
-    const ruleFor = type => (type === 'CALL' || type === 'UNSTRING')
+    const ruleFor = item => ((item.type === 'CALL' || item.type === 'UNSTRING') && !(item.nested && item.cond))
         ? { cfg: strictCfg, id: 'end-structure-strict' }
         : { cfg, id: 'end-structure' };
     const diags = [];
     const ctx = new AnalysisContext();
-    const stack = []; // {type, line}
+    const stack = []; // {type, line, nested?, cond?}
     let pendingPerformLine = -1; // riga di un PERFORM "bare" da risolvere
 
     for (let i = 0; i < lines.length; i++) {
@@ -968,12 +970,21 @@ function checkEndStructure(lines) {
         }
 
         if (/(?<!-)\bUNSTRING\b(?!-)/.test(cleanedNoLit)) {
-            stack.push({ type: 'UNSTRING', line: i });
+            stack.push({ type: 'UNSTRING', line: i, nested: stack.length > 0 });
         }
 
         // CALL: verbo in PROCEDURE DIVISION (escludi CALL- nei nomi paragrafo e literal)
         if (/(?<!-)\bCALL\b(?!-)/.test(cleanedNoLit)) {
-            stack.push({ type: 'CALL', line: i });
+            stack.push({ type: 'CALL', line: i, nested: stack.length > 0 });
+        }
+
+        if (/(?<![\w-])(?:EXCEPTION|OVERFLOW)(?![\w-])/.test(cleanedNoLit)) {
+            for (let j = stack.length - 1; j >= 0; j--) {
+                if (stack[j].type === 'CALL' || stack[j].type === 'UNSTRING') {
+                    stack[j].cond = true;
+                    break;
+                }
+            }
         }
 
         // PERFORM: distingui inline da out-of-line (PERFORM PARA UNTIL ... e' out-of-line)
@@ -1017,7 +1028,7 @@ function checkEndStructure(lines) {
         // Punto terminatore: chiude TUTTI gli scope aperti (non il punto decimale di 1.05).
         if (findTerminatorPeriod(upperNoLit) >= 0) {
             for (const item of stack) {
-                const r = ruleFor(item.type);
+                const r = ruleFor(item);
                 if (r.cfg.enabled) {
                     diags.push(makeDiag(item.line, r.cfg.severity, r.id,
                         msg('endStructurePoint', item.type, item.line + 1)));
@@ -1030,7 +1041,7 @@ function checkEndStructure(lines) {
 
     // Fine file: segnala strutture rimaste aperte
     for (const item of stack) {
-        const r = ruleFor(item.type);
+        const r = ruleFor(item);
         if (r.cfg.enabled) {
             diags.push(makeDiag(item.line, r.cfg.severity, r.id,
                 msg('endStructureUnclosed', item.type, item.line + 1)));
