@@ -3,7 +3,7 @@
 ## [1.33.3] - 2026-10-28
 
 ### Fixed
-- `and-or-if` no longer reports an `IF` that follows a line ending with a literal after `OR`/`AND` (e.g. `WHEN AUT-FERIE EQUAL '02'` / `OR '04'` / `IF ...`). Literals were removed before the check, so the line looked like it ended with `OR`.
+- `and-or-if` no longer reports an `IF` that follows a line ending with a literal after `OR`/`AND` (e.g. `WHEN WS-CODICE EQUAL '02'` / `OR '04'` / `IF ...`). Literals were removed before the check, so the line looked like it ended with `OR`.
 
 ## [1.33.2] - 2026-10-26
 

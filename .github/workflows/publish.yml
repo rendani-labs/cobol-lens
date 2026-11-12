@@ -16,6 +16,9 @@ jobs:
 
       - run: npm install
 
+      - name: Linter regression tests
+        run: npm test
+
       - name: Publish to VS Code Marketplace
         run: npx @vscode/vsce publish --no-dependencies
         env:

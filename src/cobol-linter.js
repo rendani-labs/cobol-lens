@@ -479,53 +479,53 @@ function getRuleConfig(ruleId) {
     const severity = config.get(`${ruleId}.severity`, undefined);
     const enabled = config.get(`${ruleId}.enabled`, true);
 
-    // Severity defaults per regola
-    const defaultSeverities = {
-        'col72': 'error', 'no-goto': 'warning', 'no-at-end': 'error',
-        'no-level-77-78': 'error', 'uppercase': 'warning',
-        'division-separator': 'warning', 'pic-alignment': 'warning',
-        'select-col12': 'warning', 'assign-col29': 'warning',
-        'ws-levels': 'warning', 'paragraph-naming': 'warning',
-        'no-else-if': 'warning', 'move-to-alignment': 'warning',
-        'ws-level-spacing': 'warning', 'end-structure': 'warning',
-        'undefined-variable': 'error', 'undefined-paragraph': 'error',
-        'unused-paragraph': 'warning', 'unused-variable': 'warning',
-        'duplicate-variable': 'error', 'missing-period': 'error',
-        'pic-missing': 'error', 'mismatched-copy': 'error',
-        'perform-thru-order': 'error', 'section-order': 'error',
-        'empty-paragraph': 'warning', 'consecutive-perform-spacing': 'warning',
-        'missing-file-status': 'warning', 'missing-stop-run': 'warning',
-        'and-or-if': 'error',
-        'redefines-size': 'error',
-        'invalid-column-7': 'error',
-        'unsubscripted-occurs': 'error',
-        'orphan-scope-delimiter': 'error',
-        'variable-name-length': 'error',
-        'missing-level': 'error',
-        'chars-after-period': 'error',
-        'compute-multiline-asterisk': 'warning',
-        'alphanumeric-in-compute': 'error',
-        'move-alphanumeric-to-numeric': 'error',
-        'duplicate-paragraph': 'error',
-        'alter-statement': 'warning',
-        'next-sentence': 'warning',
-        'evaluate-without-when-other': 'warning',
-        'perform-varying-without-until': 'warning',
-        'level-88-without-parent': 'error',
-        'move-truncation': 'warning',
-        'odo-not-last': 'error',
-        'consecutive-periods': 'error',
-        'program-id-filename': 'error',
-        'perform-range-exit': 'error',
-        'perform-thru-mismatch': 'warning',
-        'string-delimited': 'error'
-    };
-
     return {
         enabled: enabled !== false,
-        severity: severity || defaultSeverities[ruleId] || 'warning'
+        severity: severity || RULE_DEFAULT_SEVERITIES[ruleId] || 'warning'
     };
 }
+
+// Devono coincidere con i default di package.json (verificato dai test).
+const RULE_DEFAULT_SEVERITIES = {
+    'col72': 'error', 'no-goto': 'warning', 'no-at-end': 'error',
+    'no-level-77-78': 'error', 'uppercase': 'warning',
+    'division-separator': 'warning', 'pic-alignment': 'warning',
+    'select-col12': 'warning', 'assign-col29': 'warning',
+    'ws-levels': 'warning', 'paragraph-naming': 'warning',
+    'no-else-if': 'warning', 'move-to-alignment': 'warning',
+    'ws-level-spacing': 'warning', 'end-structure': 'warning',
+    'undefined-variable': 'error', 'undefined-paragraph': 'error',
+    'unused-paragraph': 'warning', 'unused-variable': 'warning',
+    'duplicate-variable': 'error', 'missing-period': 'error',
+    'pic-missing': 'error', 'mismatched-copy': 'error',
+    'perform-thru-order': 'error', 'section-order': 'error',
+    'empty-paragraph': 'warning', 'consecutive-perform-spacing': 'warning',
+    'missing-file-status': 'warning', 'missing-stop-run': 'warning',
+    'and-or-if': 'error',
+    'redefines-size': 'error',
+    'invalid-column-7': 'error',
+    'unsubscripted-occurs': 'error',
+    'orphan-scope-delimiter': 'error',
+    'variable-name-length': 'error',
+    'missing-level': 'error',
+    'chars-after-period': 'error',
+    'compute-multiline-asterisk': 'warning',
+    'alphanumeric-in-compute': 'error',
+    'move-alphanumeric-to-numeric': 'error',
+    'duplicate-paragraph': 'error',
+    'alter-statement': 'warning',
+    'next-sentence': 'warning',
+    'evaluate-without-when-other': 'warning',
+    'perform-varying-without-until': 'warning',
+    'level-88-without-parent': 'error',
+    'move-truncation': 'warning',
+    'odo-not-last': 'error',
+    'consecutive-periods': 'error',
+    'program-id-filename': 'error',
+    'perform-range-exit': 'error',
+    'perform-thru-mismatch': 'warning',
+    'string-delimited': 'error'
+};
 
 // ---------------------------------------------------------------------------
 // col72
@@ -5067,4 +5067,4 @@ function lintSource(text, workspaceRoot, fileBaseName, opts) {
     return result;
 }
 
-module.exports = { runLinter, detectCopyFile };
+module.exports = { runLinter, detectCopyFile, RULE_DEFAULT_SEVERITIES };

@@ -2,7 +2,15 @@ node_modules/
 *.vsix
 .vscode-test/
 .vscode/
-tests/
+# Solo la suite di regressione e le fixture anonime sono tracciate:
+# demo, probe e fixture da codice reale restano locali.
+tests/*
+!tests/test-linter-regression.js
+!tests/test-linter-regression.ps1
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/SAMPLE01_all.CBL
+!tests/fixtures/SAMPLE01_all_fixed.CBL
 roadmap/
 
 # Copilot instructions - local only
