@@ -1057,8 +1057,8 @@ function checkStringDelimited(lines) {
         const upper = code.trim().toUpperCase();
 
         if (inString) {
-            stringStmt += ' ' + upper;
-            if (/\bEND-STRING\b/.test(upper) || stripLiterals(upper).includes('.')) {
+            stringStmt += ' ' + stripLiterals(upper);
+            if (/\bEND-STRING\b/.test(upper) || findTerminatorPeriod(stripLiterals(upper)) >= 0) {
                 const delimPos = stringStmt.search(/\bDELIMITED\s+(?:BY\s+)?/);
                 const intoPos = stringStmt.search(/\bINTO\b/);
                 if (intoPos >= 0 && (delimPos < 0 || delimPos > intoPos)) {
@@ -1075,8 +1075,8 @@ function checkStringDelimited(lines) {
         const noEnd = upper.replace(/\bEND-STRING\b/g, ' ').replace(/\bUNSTRING\b/g, ' ').replace(/\bEND-UNSTRING\b/g, ' ');
         if (/\bSTRING\b/.test(noEnd)) {
             stringLine = i;
-            stringStmt = upper;
-            if (/\bEND-STRING\b/.test(upper) || stripLiterals(upper).includes('.')) {
+            stringStmt = stripLiterals(upper);
+            if (/\bEND-STRING\b/.test(upper) || findTerminatorPeriod(stripLiterals(upper)) >= 0) {
                 const delimPos = stringStmt.search(/\bDELIMITED\s+(?:BY\s+)?/);
                 const intoPos = stringStmt.search(/\bINTO\b/);
                 if (intoPos >= 0 && (delimPos < 0 || delimPos > intoPos)) {
@@ -1227,7 +1227,7 @@ function checkMissingPeriod(lines) {
         if (!isDataItemStart(upper)) continue;
         // Controlla se c'e' un punto nel codice (escludendo i literal)
         const withoutLit = stripLiterals(upper);
-        if (withoutLit.includes('.')) continue;
+        if (findTerminatorPeriod(withoutLit) >= 0) continue;
 
         // Controlla riga successiva
         for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
@@ -3693,19 +3693,19 @@ function checkMissingLevel(lines) {
         // Skip COPY, FD, SD, directives
         if (upper.startsWith('COPY ') || upper.startsWith('FD ') ||
             upper.startsWith('SD ') || upper.includes('SECTION')) {
-            prevLineHasPeriod = stripLiterals(upper).includes('.');
+            prevLineHasPeriod = findTerminatorPeriod(stripLiterals(upper)) >= 0;
             continue;
         }
 
         // Se la riga precedente non ha un punto, questa potrebbe essere continuazione
         if (!prevLineHasPeriod) {
-            prevLineHasPeriod = stripLiterals(upper).includes('.');
+            prevLineHasPeriod = findTerminatorPeriod(stripLiterals(upper)) >= 0;
             continue;
         }
 
         // Se inizia con un numero di livello, OK
         if (/^\s*\d{1,2}\s+/.test(upper)) {
-            prevLineHasPeriod = stripLiterals(upper).includes('.');
+            prevLineHasPeriod = findTerminatorPeriod(stripLiterals(upper)) >= 0;
             continue;
         }
 
@@ -3726,7 +3726,7 @@ function checkMissingLevel(lines) {
                 msg('orphanLiteral')));
         }
 
-        prevLineHasPeriod = stripLiterals(upper).includes('.');
+        prevLineHasPeriod = findTerminatorPeriod(stripLiterals(upper)) >= 0;
     }
     return diags;
 }
@@ -3917,7 +3917,7 @@ function checkComputeMultilineAsterisk(lines) {
             }
 
             // Fine della COMPUTE (punto o END-COMPUTE)
-            if (withoutLit.includes('.') || /\bEND-COMPUTE\b/.test(upper)) {
+            if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-COMPUTE\b/.test(upper)) {
                 inCompute = false;
             }
         }
@@ -4045,7 +4045,7 @@ function checkAlphanumericInCompute(lines, workspaceRoot) {
                 mathStmt = upper;
                 mathVerb = verbMatch[1];
                 mathLines = [{ line: i, text: withoutLit }];
-                if (withoutLit.includes('.') || /\bEND-COMPUTE\b|\bEND-ADD\b|\bEND-SUBTRACT\b|\bEND-MULTIPLY\b|\bEND-DIVIDE\b/.test(upper)) {
+                if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-COMPUTE\b|\bEND-ADD\b|\bEND-SUBTRACT\b|\bEND-MULTIPLY\b|\bEND-DIVIDE\b/.test(upper)) {
                     // Istruzione su una riga
                     inMath = false;
                     _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg, mathLines);
@@ -4068,7 +4068,7 @@ function checkAlphanumericInCompute(lines, workspaceRoot) {
                     mathStmt = upper;
                     mathVerb = verbMatch2[1];
                     mathLines = [{ line: i, text: withoutLit }];
-                    if (withoutLit.includes('.') || /\bEND-COMPUTE\b|\bEND-ADD\b|\bEND-SUBTRACT\b|\bEND-MULTIPLY\b|\bEND-DIVIDE\b/.test(upper)) {
+                    if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-COMPUTE\b|\bEND-ADD\b|\bEND-SUBTRACT\b|\bEND-MULTIPLY\b|\bEND-DIVIDE\b/.test(upper)) {
                         inMath = false;
                         _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg, mathLines);
                     }
@@ -4076,7 +4076,7 @@ function checkAlphanumericInCompute(lines, workspaceRoot) {
             } else {
                 mathStmt += ' ' + upper;
                 mathLines.push({ line: i, text: withoutLit });
-                if (withoutLit.includes('.') || /\bEND-COMPUTE\b|\bEND-ADD\b|\bEND-SUBTRACT\b|\bEND-MULTIPLY\b|\bEND-DIVIDE\b/.test(upper)) {
+                if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-COMPUTE\b|\bEND-ADD\b|\bEND-SUBTRACT\b|\bEND-MULTIPLY\b|\bEND-DIVIDE\b/.test(upper)) {
                     inMath = false;
                     _checkMathStatement(mathStmt, mathVerb, mathStartLine, alphanumericVars, diags, cfg, mathLines);
                 }
@@ -4227,7 +4227,7 @@ function checkMoveAlphaToNumeric(lines, workspaceRoot) {
                 inMove = true;
                 moveStartLine = i;
                 moveStmt = upper;
-                if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+                if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-MOVE\b/.test(upper)) flush();
             }
         } else if (newVerbOrTerminator.test(upper)) {
             // Termina l'istruzione MOVE corrente senza includere questa riga
@@ -4237,11 +4237,11 @@ function checkMoveAlphaToNumeric(lines, workspaceRoot) {
                 inMove = true;
                 moveStartLine = i;
                 moveStmt = upper;
-                if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+                if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-MOVE\b/.test(upper)) flush();
             }
         } else {
             moveStmt += ' ' + upper;
-            if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+            if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-MOVE\b/.test(upper)) flush();
         }
     }
     flush();
@@ -4700,7 +4700,7 @@ function checkMoveTruncation(lines, workspaceRoot) {
                 inMove = true;
                 moveStartLine = i;
                 moveStmt = upper;
-                if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+                if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-MOVE\b/.test(upper)) flush();
             }
         } else if (newVerbOrTerminator.test(upper)) {
             flush();
@@ -4708,11 +4708,11 @@ function checkMoveTruncation(lines, workspaceRoot) {
                 inMove = true;
                 moveStartLine = i;
                 moveStmt = upper;
-                if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+                if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-MOVE\b/.test(upper)) flush();
             }
         } else {
             moveStmt += ' ' + upper;
-            if (withoutLit.includes('.') || /\bEND-MOVE\b/.test(upper)) flush();
+            if (findTerminatorPeriod(withoutLit) >= 0 || /\bEND-MOVE\b/.test(upper)) flush();
         }
     }
     flush();

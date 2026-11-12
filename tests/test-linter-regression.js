@@ -4965,6 +4965,42 @@ function runLineCacheTests() {
   console.log('OK - test regressione cache per-run isSkippable/getCodeContent (formati, ripetizione, eccezione) superati');
 }
 
+// Un punto decimale (PIC ZZ9.99, 1.5) non chiude la frase; INTO dentro un letterale non e' la clausola INTO.
+function runDecimalPeriodTests() {
+  const { runLinter } = require('../src/cobol-linter');
+  const program = [
+    '       IDENTIFICATION DIVISION.',
+    '       PROGRAM-ID. PGM-DECPER.',
+    '       DATA DIVISION.',
+    '       WORKING-STORAGE SECTION.',
+    '       01 WS-IMP                     PIC ZZ9.99',
+    '       01 WS-N                       PIC 9(5)V99.',
+    '       01 WS-ALFA                    PIC X(5).',
+    '       01 WS-OUT                     PIC X(20).',
+    '       PROCEDURE DIVISION.',
+    '       MAIN.',
+    '           COMPUTE WS-N = WS-N * 1.5',
+    '                        + WS-ALFA.',
+    "           STRING 'INTO' DELIMITED BY SIZE",
+    '                  WS-ALFA DELIMITED BY SIZE',
+    '                  INTO WS-OUT.',
+    '           MOVE WS-IMP TO WS-OUT.',
+    '           STOP RUN.',
+    ''
+  ].join('\n');
+  const diags = runLinter(program, workDir);
+  const has = (code, line) => diags.some(d => String(d.code) === code && d.range.start.line === line);
+
+  assert(has('missing-period', 4),
+    'decimale: WS-IMP (PIC ZZ9.99 senza punto finale) deve dare missing-period');
+  assert(has('alphanumeric-in-compute', 11),
+    'decimale: la COMPUTE non finisce su "1.5", WS-ALFA alla riga dopo deve essere segnalata');
+  assert(!diags.some(d => String(d.code) === 'string-delimited'),
+    "string-delimited: 'INTO' dentro un letterale non e' la clausola INTO");
+
+  console.log('OK - test regressione punto decimale come terminatore / INTO nel letterale superati');
+}
+
 function loadPackageRuleDefaults() {
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   const prefix = 'cobolLens.linter.rules.';
@@ -5089,6 +5125,7 @@ try {
   runBlock3Tests();
   runBlock4Tests();
   runLineCacheTests();
+  runDecimalPeriodTests();
   runRealDefaultsTests();
 } catch (err) {
   console.error('KO - test regressione falliti');

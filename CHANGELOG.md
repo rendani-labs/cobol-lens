@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.33.4] - 2026-11-12
+
+### Fixed
+- A decimal point (`PIC ZZ9.99`, `1.5`) was taken as the end of the sentence. Effects: `missing-period` missed a data item without the final period when its PIC had a decimal point; `alphanumeric-in-compute`, `move-truncation`, `move-alphanumeric-to-numeric`, `compute-multiline-asterisk`, `string-delimited` and `missing-level` stopped reading the statement at the decimal point. Only a period followed by a space or the end of the line now ends a sentence.
+- `string-delimited` no longer reports a `STRING` whose literal contains the word `INTO` (e.g. `STRING 'INTO' DELIMITED BY SIZE ...`).
+
 ## [1.33.3] - 2026-10-28
 
 ### Fixed
