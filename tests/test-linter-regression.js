@@ -4195,6 +4195,9 @@ function runPerformSectionTests() {
     '              MOVE 3 TO WS-N.',
     "           PERFORM UNTIL WS-EOF = 'S'",
     "              MOVE 'S' TO WS-EOF.",
+    "           CALL 'SUBPGM' USING WS-N.",
+    "           UNSTRING WS-EOF DELIMITED BY SPACE INTO WS-IF-FLAG.",
+    "           CALL 'SUBPGM' USING WS-X END-CALL.",
     '           GOBACK.',
     '       CICLO-PARA.',
     "           MOVE 'S' TO WS-EOF.",
@@ -4212,6 +4215,14 @@ function runPerformSectionTests() {
     'end-structure: un IF chiuso dal punto deve restare segnalato');
   assert(has(esDiags, es, 'end-structure', "PERFORM UNTIL WS-EOF = 'S'"),
     'end-structure: un PERFORM inline chiuso dal punto deve restare segnalato');
+  for (const s of ["CALL 'SUBPGM' USING WS-N.", 'UNSTRING WS-EOF']) {
+    assert(!has(esDiags, es, 'end-structure', s),
+      'end-structure: ' + s + ' chiusa dal punto e\' legale, non va segnalata');
+    assert(has(esDiags, es, 'end-structure-strict', s),
+      'end-structure-strict: ' + s + ' chiusa dal punto va segnalata se la regola e\' accesa');
+  }
+  assert(!has(esDiags, es, 'end-structure-strict', 'END-CALL'),
+    'end-structure-strict: CALL chiusa da END-CALL non va segnalata');
   assert(!esDiags.some(d => ['undefined-paragraph', 'unused-variable'].includes(String(d.code)) && d._symbolName === 'WS-N'),
     'PERFORM WS-N TIMES: WS-N e\' un contatore, non un paragrafo');
 
@@ -4266,6 +4277,12 @@ function runPerformSectionTests() {
     'perform-thru-order: P-TRE THROUGH P-UNO (su riga successiva) va segnalato');
   assert(!secDiags.some(d => String(d.code) === 'undefined-variable'),
     'undefined-variable: nessuno atteso: ' + secDiags.filter(d => String(d.code) === 'undefined-variable').map(d => d.message).join(' | '));
+  for (const s of ['MAIN SECTION.', 'ALTRA SECTION.']) {
+    assert(!has(secDiags, sec, 'paragraph-naming', s),
+      'paragraph-naming: ' + s + ' e\' una SECTION, non un paragrafo');
+  }
+  assert(has(secDiags, sec, 'paragraph-naming', 'MAIN-INIZIO.'),
+    'paragraph-naming: un paragrafo fuori convenzione resta segnalato');
 
   console.log('OK - test regressione end-structure / SECTION / PERFORM superati');
 }
@@ -5048,6 +5065,7 @@ function runRealDefaultsTests() {
     '              CONTINUE',
     '           END-IF',
     '           END-IF',
+    "           CALL 'SUBPGM' USING WS-A.",
     '           GO TO FINE.',
     '       FINE.',
     '           STOP RUN.',
@@ -5056,7 +5074,7 @@ function runRealDefaultsTests() {
   const codes = (diags) => new Set(diags.map(d => String(d.code)));
 
   const allOn = codes(runLinter(program, workDir));
-  for (const id of ['uppercase', 'no-else-if', 'no-goto']) {
+  for (const id of ['uppercase', 'no-else-if', 'no-goto', 'end-structure-strict']) {
     assert(allOn.has(id), 'default: premessa del test, con tutte le regole accese ' + id + ' deve scattare');
   }
 
@@ -5072,6 +5090,7 @@ function runRealDefaultsTests() {
     assert(!real.has(id), 'default: ' + id + ' e\' spenta in package.json ma ha prodotto diagnostiche');
   }
   assert(real.has('no-goto'), 'default: no-goto e\' accesa di default e deve scattare');
+  assert(!real.has('end-structure'), 'default: una CALL chiusa dal punto non deve far scattare end-structure');
 
   console.log('OK - test regressione default reali di package.json (allineamento linter, regole spente) superati');
 }

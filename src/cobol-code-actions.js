@@ -24,6 +24,7 @@ const HANDLED_CODES = new Set([
     'missing-stop-run',
     'missing-level',
     'end-structure',
+    'end-structure-strict',
     'missing-file-status',
     'pic-alignment',
     'move-to-alignment',
@@ -137,7 +138,8 @@ class CobolCodeActionProvider {
                 case 'missing-period': action = this._fixMissingPeriod(document, diag); break;
                 case 'missing-stop-run': action = this._fixMissingStopRun(document, diag); break;
                 case 'missing-level': action = this._fixMissingLevel(document, diag); break;
-                case 'end-structure': action = this._fixEndStructure(document, diag); break;
+                case 'end-structure':
+                case 'end-structure-strict': action = this._fixEndStructure(document, diag); break;
                 case 'missing-file-status': action = this._fixMissingFileStatus(document, diag); break;
                 case 'pic-alignment': action = this._fixPicAlignment(document, diag); break;
                 case 'move-to-alignment': action = this._fixMoveToAlignment(document, diag); break;

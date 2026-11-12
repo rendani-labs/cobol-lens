@@ -1,6 +1,13 @@
 # Changelog
 
-## [1.33.4] - 2026-11-12
+## [1.34.0] - 2026-11-12
+
+### Added
+- New rule `end-structure-strict` (off by default, warning): a `CALL` or `UNSTRING` closed by a period instead of `END-CALL`/`END-UNSTRING`. Turn it on for a fully structured style. The Quick Fix that inserts the `END-` keyword also works for this rule.
+
+### Changed
+- `end-structure` no longer reports `CALL` and `UNSTRING` closed by a period: `END-CALL`/`END-UNSTRING` are optional in COBOL and a plain `CALL 'PGM' USING X.` is perfectly valid. These checks moved to `end-structure-strict`. `IF`, `EVALUATE`, `PERFORM` (inline) and `SEARCH` are still reported.
+- `paragraph-naming` no longer checks `SECTION` headers: the naming convention applies to paragraphs only.
 
 ### Fixed
 - A decimal point (`PIC ZZ9.99`, `1.5`) was taken as the end of the sentence. Effects: `missing-period` missed a data item without the final period when its PIC had a decimal point; `alphanumeric-in-compute`, `move-truncation`, `move-alphanumeric-to-numeric`, `compute-multiline-asterisk`, `string-delimited` and `missing-level` stopped reading the statement at the decimal point. Only a period followed by a space or the end of the line now ends a sentence.

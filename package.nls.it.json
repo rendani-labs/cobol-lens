@@ -119,6 +119,8 @@
   "cobolLens.linter.rules.ws-level-spacing.severity.description": "Severita' per la regola ws-level-spacing",
   "cobolLens.linter.rules.end-structure.enabled.description": "Ogni IF/PERFORM/EVALUATE deve avere la corrispondente chiusura END-",
   "cobolLens.linter.rules.end-structure.severity.description": "Severita' per la regola end-structure",
+  "cobolLens.linter.rules.end-structure-strict.enabled.description": "Ogni CALL/UNSTRING deve essere chiusa da END-CALL/END-UNSTRING anziche' da un punto (stile strutturato, facoltativo)",
+  "cobolLens.linter.rules.end-structure-strict.severity.description": "Severita' per la regola end-structure-strict",
   "cobolLens.linter.rules.string-delimited.enabled.description": "Verifica che STRING abbia una clausola DELIMITED BY prima di INTO",
   "cobolLens.linter.rules.string-delimited.severity.description": "Severita' per la regola string-delimited",
   "cobolLens.linter.rules.undefined-variable.enabled.description": "Verifica che le variabili usate siano definite nel programma o nelle copy",

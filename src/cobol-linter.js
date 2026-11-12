@@ -494,6 +494,7 @@ const RULE_DEFAULT_SEVERITIES = {
     'ws-levels': 'warning', 'paragraph-naming': 'warning',
     'no-else-if': 'warning', 'move-to-alignment': 'warning',
     'ws-level-spacing': 'warning', 'end-structure': 'warning',
+    'end-structure-strict': 'warning',
     'undefined-variable': 'error', 'undefined-paragraph': 'error',
     'unused-paragraph': 'warning', 'unused-variable': 'warning',
     'duplicate-variable': 'error', 'missing-period': 'error',
@@ -908,7 +909,12 @@ function performKind(tokens) {
 function checkEndStructure(lines) {
     const cfg = getRuleConfig('end-structure');
     const orphanCfg = getRuleConfig('orphan-scope-delimiter');
-    if (!cfg.enabled && !orphanCfg.enabled) return [];
+    // CALL/UNSTRING senza END-x sono legali e comunissimi: segnalati solo su richiesta.
+    const strictCfg = getRuleConfig('end-structure-strict');
+    if (!cfg.enabled && !orphanCfg.enabled && !strictCfg.enabled) return [];
+    const ruleFor = type => (type === 'CALL' || type === 'UNSTRING')
+        ? { cfg: strictCfg, id: 'end-structure-strict' }
+        : { cfg, id: 'end-structure' };
     const diags = [];
     const ctx = new AnalysisContext();
     const stack = []; // {type, line}
@@ -1010,9 +1016,10 @@ function checkEndStructure(lines) {
 
         // Punto terminatore: chiude TUTTI gli scope aperti (non il punto decimale di 1.05).
         if (findTerminatorPeriod(upperNoLit) >= 0) {
-            if (cfg.enabled) {
-                for (const item of stack) {
-                    diags.push(makeDiag(item.line, cfg.severity, 'end-structure',
+            for (const item of stack) {
+                const r = ruleFor(item.type);
+                if (r.cfg.enabled) {
+                    diags.push(makeDiag(item.line, r.cfg.severity, r.id,
                         msg('endStructurePoint', item.type, item.line + 1)));
                 }
             }
@@ -1022,9 +1029,10 @@ function checkEndStructure(lines) {
     }
 
     // Fine file: segnala strutture rimaste aperte
-    if (cfg.enabled) {
-        for (const item of stack) {
-            diags.push(makeDiag(item.line, cfg.severity, 'end-structure',
+    for (const item of stack) {
+        const r = ruleFor(item.type);
+        if (r.cfg.enabled) {
+            diags.push(makeDiag(item.line, r.cfg.severity, r.id,
                 msg('endStructureUnclosed', item.type, item.line + 1)));
         }
     }
@@ -1182,6 +1190,9 @@ function checkParagraphNaming(lines) {
 
         // E' un paragrafo: il punto chiude la label
         prevStmtClosed = true;
+
+        // Le SECTION non seguono la convenzione dei paragrafi
+        if (parts.length === 2 && parts[1].replace(/\.$/, '') === 'SECTION') continue;
 
         if (!validPatterns.some(p => p.test(firstName))) {
             diags.push(makeDiag(i, cfg.severity, 'paragraph-naming',
