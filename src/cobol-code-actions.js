@@ -16,6 +16,7 @@
 
 const vscode = require('vscode');
 const { msg } = require('./messages');
+const { findEndStructureClosing } = require('./cobol-linter');
 
 /** Codici diagnostica gestiti da un Quick Fix. */
 const HANDLED_CODES = new Set([
@@ -246,50 +247,47 @@ class CobolCodeActionProvider {
     }
 
     /**
-     * end-structure -> inserisce END-xxx su una riga propria, allineato alla
-     * colonna dello statement di apertura, spostando il punto di chiusura dopo
-     * END-xxx. Il tipo viene estratto dal messaggio (END-<TYPE>, identico in
-     * italiano e inglese); il punto di chiusura e' il primo terminatore di
-     * frase a partire dalla riga di apertura.
+     * end-structure -> inserisce END-xxx su una riga propria, allineato allo
+     * statement di apertura, nel punto in cui il compilatore chiude la struttura:
+     * prima del punto (che resta dopo END-xxx) oppure prima della parola che la
+     * chiude implicitamente (END-x/ELSE/WHEN del contenitore, istruzione successiva).
+     * Il tipo e' l'ultimo END-<TYPE> del messaggio (identico in italiano e inglese).
      * @param {vscode.TextDocument} document
      * @param {vscode.Diagnostic} diag
      * @returns {vscode.CodeAction|null}
      */
     _fixEndStructure(document, diag) {
-        // Gestisce solo il caso "chiusa da un punto" (endStructurePoint),
-        // che contiene il token END-<TYPE> nel messaggio.
-        const m = /END-([A-Z]+)/.exec(diag.message);
-        if (!m) return null;
-        const type = m[1];
+        const ends = diag.message.match(/END-[A-Z]+/g);
+        if (!ends) return null;
+        const type = ends[ends.length - 1].substring(4);
 
         const openLine = diag.range.start.line;
         if (openLine >= document.lineCount) return null;
+        const target = findEndStructureClosing(document.getText(), openLine, type, diag.range.start.character);
+        if (!target || target.how === 'eof' || target.line >= document.lineCount) return null;
 
-        // Indentazione dello statement di apertura: numero di spazi iniziali.
-        const openText = document.lineAt(openLine).text;
-        const openIndent = openText.length - openText.replace(/^\s+/, '').length;
-        const indentStr = ' '.repeat(openIndent);
+        const indentStr = ' '.repeat(target.openCol);
         const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+        const endKw = 'END-' + type;
+        const raw = document.lineAt(target.line).text;
+        const cutStart = raw.substring(0, target.col).replace(/\s+$/, '').length;
 
-        // Trova la riga e la colonna del punto di chiusura
-        for (let i = openLine; i < document.lineCount; i++) {
-            const raw = document.lineAt(i).text;
-            // Salta righe di commento (col 7 = * o /) e righe troppo corte
-            if (raw.length > 6 && (raw[6] === '*' || raw[6] === '/')) continue;
-            const period = findClosingPeriod(raw);
-            if (period < 0) continue;
-
-            // Sostituisce gli spazi residui prima del punto e il punto stesso con
-            // una nuova riga "<indent>END-TYPE." mantenendo l'eventuale coda.
-            const cutStart = raw.substring(0, period).replace(/\s+$/, '').length;
-            const replacement = eol + indentStr + 'END-' + type + '.';
-            return makeFix(msg('fixEndStructure', type), diag, document.uri, edit => {
+        return makeFix(msg('fixEndStructure', type), diag, document.uri, edit => {
+            if (target.how === 'period') {
+                // Il punto resta, dopo END-xxx su una riga propria
                 edit.replace(document.uri,
-                    new vscode.Range(i, cutStart, i, period + 1),
-                    replacement);
-            });
-        }
-        return null;
+                    new vscode.Range(target.line, cutStart, target.line, target.col + 1),
+                    eol + indentStr + endKw + '.');
+            } else if (target.first) {
+                edit.insert(document.uri, new vscode.Position(target.line, 0),
+                    indentStr + endKw + eol);
+            } else {
+                // La parola che chiude resta alla sua colonna, sulla riga dopo END-xxx
+                edit.replace(document.uri,
+                    new vscode.Range(target.line, cutStart, target.line, target.col),
+                    eol + indentStr + endKw + eol + ' '.repeat(target.col));
+            }
+        });
     }
 
     /**

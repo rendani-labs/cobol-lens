@@ -96,6 +96,10 @@ const MESSAGES = {
         it: (type, line) => `Struttura ${type} aperta alla riga ${line} chiusa da un punto anziche' da END-${type}`,
         en: (type, line) => `${type} structure opened at line ${line} closed by a period instead of END-${type}`,
     },
+    endStructureImplicit: {
+        it: (type, line, by) => `Struttura ${type} aperta alla riga ${line} chiusa implicitamente da ${by} anziche' da END-${type}`,
+        en: (type, line, by) => `${type} structure opened at line ${line} implicitly closed by ${by} instead of END-${type}`,
+    },
     endStructureUnclosed: {
         it: (type, line) => `Struttura ${type} aperta alla riga ${line} senza chiusura (manca END-${type})`,
         en: (type, line) => `${type} structure opened at line ${line} is not closed (missing END-${type})`,

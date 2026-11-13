@@ -119,7 +119,7 @@ Can be controlled via `cobolLens.ifBlockHighlight.enabled` and `cobolLens.ifBloc
 
 ### Integrated Linter
 
-A built-in COBOL linter with **53 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
+A built-in COBOL linter with **54 configurable rules** that checks your code in real-time as you type (or on save). Every rule can be individually enabled/disabled and its severity set to `error`, `warning`, or `info`.
 
 Categories of rules:
 
@@ -145,7 +145,7 @@ When the linter reports certain issues, a **light bulb** (Code Action) offers a 
 
 | Diagnostic | Quick Fix |
 |------------|-----------|
-| `end-structure` | Insert the matching `END-IF` / `END-PERFORM` / `END-EVALUATE` / `END-CALL`... on its own line, aligned to the opening statement (the closing period moves after it) |
+| `end-structure` | Insert the matching `END-IF` / `END-PERFORM` / `END-EVALUATE` / `END-CALL`... on its own line, aligned to the opening statement, where the structure actually ends: before the closing period (which moves after it) or before the word that implicitly closes it (`END-IF`, `ELSE`, `WHEN`, next statement) |
 | `missing-period` | Add the trailing period |
 | `uppercase` | Convert the code to UPPERCASE (string literals are preserved) |
 | `missing-stop-run` | Append a `GOBACK.` line |
@@ -268,8 +268,8 @@ Each rule has `.enabled` (boolean) and `.severity` (`"error"`, `"warning"`, or `
 | `no-else-if` | off | warning | No ELSE IF -- nest IF inside ELSE instead |
 | `move-to-alignment` | off | warning | In MOVE...TO, the word TO must start at position 45 |
 | `ws-level-spacing` | off | warning | Exactly 1 space between level number and variable name |
-| `end-structure` | on | warning | Every IF/PERFORM/EVALUATE/SEARCH must have its END- counterpart; also a CALL/UNSTRING with ON EXCEPTION/ON OVERFLOW nested in another structure |
-| `end-structure-strict` | off | warning | Every CALL/UNSTRING must be closed by END-CALL/END-UNSTRING instead of a period (optional structured style) |
+| `end-structure` | on | warning | Every IF/PERFORM/EVALUATE/SEARCH must have its END- counterpart; also a CALL/UNSTRING with ON EXCEPTION/ON OVERFLOW inside an IF, EVALUATE, SEARCH, inline PERFORM or the handler of another statement |
+| `end-structure-strict` | off | warning | Every CALL/UNSTRING must be closed by END-CALL/END-UNSTRING instead of a period, the next statement or the end of the containing structure (optional structured style) |
 | `string-delimited` | on | error | STRING must have a DELIMITED BY clause before INTO |
 | `undefined-variable` | on | error | Variables used must be defined in program or copybooks |
 | `undefined-paragraph` | on | error | Every PERFORM must reference a defined paragraph |

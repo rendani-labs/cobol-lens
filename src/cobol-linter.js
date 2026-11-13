@@ -884,20 +884,17 @@ function checkWsLevelSpacing(lines) {
     return diags;
 }
 
-// Conta le occorrenze di una parola COBOL intera (il trattino fa parte del nome).
-function countWord(text, word) {
-    const re = new RegExp('(?<![\\w-])' + word + '(?![\\w-])', 'g');
-    return (text.match(re) || []).length;
-}
-
 /**
  * Classifica un PERFORM dai token che seguono il verbo.
  * @param {string[]} tokens
+ * @param {boolean} [complete] - false se lo statement puo' continuare sulla riga dopo
  * @returns {'inline'|'outline'|'pending'}
  */
-function performKind(tokens) {
+function performKind(tokens, complete = true) {
     if (!tokens.length) return 'pending';
-    if (['UNTIL', 'VARYING', 'WITH', 'TEST'].includes(tokens[0])) return 'inline';
+    if (['UNTIL', 'VARYING', 'WITH', 'TEST'].includes(tokens[0]) || STATEMENT_START_VERBS.has(tokens[0])) return 'inline';
+    // "PERFORM 2" / "PERFORM WS-N" a fine riga: TIMES puo' arrivare sulla riga dopo
+    if (tokens.length < 2 && !complete) return 'pending';
     // PERFORM n TIMES / PERFORM WS-N TIMES (inline); PERFORM PARA n TIMES e' out-of-line
     if (tokens[1] === 'TIMES') return 'inline';
     return 'outline';
@@ -906,149 +903,256 @@ function performKind(tokens) {
 // ---------------------------------------------------------------------------
 // end-structure
 // ---------------------------------------------------------------------------
-function checkEndStructure(lines) {
-    const cfg = getRuleConfig('end-structure');
-    const orphanCfg = getRuleConfig('orphan-scope-delimiter');
-    // CALL/UNSTRING senza END-x sono legali e comunissimi: segnalati solo su richiesta.
-    // Eccezione: con ON EXCEPTION/OVERFLOW dentro un'altra struttura, senza END-x le
-    // istruzioni successive del ramo finiscono nella clausola: quello resta in end-structure.
-    const strictCfg = getRuleConfig('end-structure-strict');
-    if (!cfg.enabled && !orphanCfg.enabled && !strictCfg.enabled) return [];
-    const ruleFor = item => ((item.type === 'CALL' || item.type === 'UNSTRING') && !(item.nested && item.cond))
-        ? { cfg: strictCfg, id: 'end-structure-strict' }
-        : { cfg, id: 'end-structure' };
-    const diags = [];
+// Strutture controllate da end-structure / end-structure-strict / orphan-scope-delimiter.
+const END_SCOPE_TYPES = new Set(['IF', 'EVALUATE', 'PERFORM', 'SEARCH', 'CALL', 'UNSTRING']);
+
+// Frasi condizionali che aprono un handler (accetta solo istruzioni imperative)
+// e verbi a cui appartengono. CALL/UNSTRING sono tracciate a parte.
+const HANDLER_PHRASE_OWNERS = {
+    EXCEPTION: new Set(['ACCEPT', 'DISPLAY']),
+    OVERFLOW: new Set(['STRING']),
+    ERROR: new Set(['ADD', 'SUBTRACT', 'MULTIPLY', 'DIVIDE', 'COMPUTE']),
+    KEY: new Set(['READ', 'WRITE', 'REWRITE', 'DELETE', 'START']),
+    END: new Set(['READ', 'RETURN']),
+    'END-OF-PAGE': new Set(['WRITE']),
+};
+const HANDLER_OWNER_VERBS = new Set(Object.values(HANDLER_PHRASE_OWNERS).flatMap(s => [...s]));
+
+/**
+ * Riconosce la parola chiave di una frase condizionale (ON EXCEPTION, ON OVERFLOW,
+ * ON SIZE ERROR, INVALID KEY, AT END, AT END-OF-PAGE), anche preceduta da NOT.
+ * @param {string} word
+ * @param {string} prevWord
+ * @returns {string|null}
+ */
+function conditionalPhraseOf(word, prevWord) {
+    if (word === 'EXCEPTION' || word === 'OVERFLOW' || word === 'END-OF-PAGE') return word;
+    if (word === 'EOP') return 'END-OF-PAGE';
+    if (word === 'ERROR' && prevWord === 'SIZE') return 'ERROR';
+    if (word === 'KEY' && prevWord === 'INVALID') return 'KEY';
+    if (word === 'END' && prevWord === 'AT') return 'END';
+    return null;
+}
+
+/**
+ * Analisi degli scope in ordine lessicale (parola per parola, attraverso le righe).
+ * Ogni struttura aperta viene chiusa da: END-x esplicito, punto, chiusura implicita
+ * (END-x / ELSE / WHEN del contenitore, oppure istruzione successiva per una
+ * CALL/UNSTRING senza clausola condizionale) o fine file.
+ * Una CALL/UNSTRING e' "annidata" se al suo inizio e' aperto un contenitore vero:
+ * IF, EVALUATE, SEARCH, PERFORM inline, handler di un'altra istruzione condizionale.
+ * @param {string[]} lines
+ * @returns {{events: Array<{item: any, how: 'period'|'implicit'|'eof', by: string, line: number, col: number, first: boolean}>,
+ *            orphans: Array<{line: number, endKw: string, openKw: string}>}}
+ */
+function scanEndStructure(lines) {
+    const events = [];
+    const orphans = [];
     const ctx = new AnalysisContext();
-    const stack = []; // {type, line, nested?, cond?}
-    let pendingPerformLine = -1; // riga di un PERFORM "bare" da risolvere
+    // {type, line, col, nested?, cond?, handler?, open?}; handler = verbo con frasi condizionali
+    // (READ, WRITE, ADD...), mai segnalato: e' un contenitore solo dopo la sua frase (open)
+    const stack = [];
+    // Ultimo statement iniziato: proprietario delle frasi condizionali che seguono
+    let last = null;
+    let pendingPerform = null;
+    let prevWord = '';
+    // Ultime parole della frase: servono a trovare l'inizio di "NOT AT END", "ON SIZE ERROR"...
+    let recent = [];
+
+    const close = (from, how, by, line, col, first) => {
+        for (let j = stack.length - 1; j >= from; j--) {
+            if (!stack[j].handler) events.push({ item: stack[j], how, by, line, col, first });
+        }
+        stack.length = from;
+    };
+    const findOpen = types => {
+        for (let j = stack.length - 1; j >= 0; j--) {
+            if (types.includes(stack[j].type)) return j;
+        }
+        return -1;
+    };
 
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
         const code = getCodeContent(raw);
         ctx.update(raw, code);
-        if (!ctx.inProcedure) continue;
-        if (ctx.inExecBlock) continue;
+        if (!ctx.inProcedure || ctx.inExecBlock) continue;
 
-        const upper = code.trim().toUpperCase();
+        const offset = currentSourceFormat === 'free' ? 0 : 7;
+        const text = maskLiterals(code.toUpperCase());
+        const tokens = [];
+        const re = /[^\s,;]+/g;
+        let m;
+        while ((m = re.exec(text)) !== null) tokens.push({ w: m[0], col: offset + m.index });
+        if (!tokens.length) continue;
+        const wordOf = t => t.w.replace(/\.+$/, '');
 
-        // Rimuovi END-xxx per evitare che le keyword apertura matchino dentro la chiusura
-        const cleaned = upper
-            .replace(/\bEND-IF\b/g, ' ')
-            .replace(/\bEND-EVALUATE\b/g, ' ')
-            .replace(/\bEND-PERFORM\b/g, ' ')
-            .replace(/\bEND-STRING\b/g, ' ')
-            .replace(/\bEND-UNSTRING\b/g, ' ')
-            .replace(/\bEND-SEARCH\b/g, ' ')
-            .replace(/\bEND-READ\b/g, ' ')
-            .replace(/\bEND-CALL\b/g, ' ');
-
-        // Rimuovi anche i letterali stringa per non confondere keyword dentro virgolette
-        const cleanedNoLit = stripLiterals(cleaned);
-
-        // ----- Risolvi PERFORM pendente dalla riga precedente -----
-        if (pendingPerformLine >= 0) {
-            // PERFORM da solo sulla riga: e' inline se la riga dopo apre il loop
-            // o contiene gia' il corpo; e' out-of-line se riporta il nome del paragrafo.
-            const nextTokens = stripLiterals(upper).split(/\s+/).filter(Boolean)
-                .map(t => t.replace(/\.$/, ''));
-            if (performKind(nextTokens) === 'inline' || STATEMENT_START_VERBS.has(nextTokens[0])) {
-                stack.push({ type: 'PERFORM', line: pendingPerformLine });
+        // PERFORM non ancora classificabile: si completa con le parole della riga dopo
+        if (pendingPerform) {
+            const p = pendingPerform;
+            pendingPerform = null;
+            let ended = false;
+            for (const t of tokens) {
+                const ww = wordOf(t);
+                if (ww) p.words.push(ww);
+                if (ww.length < t.w.length) { ended = true; break; }
             }
-            pendingPerformLine = -1;
+            const kind = performKind(p.words, ended);
+            if (kind === 'inline') stack.push({ type: 'PERFORM', line: p.line, col: p.col });
+            else if (kind === 'pending') pendingPerform = p;
         }
 
-        // ----- Detect aperture sulla riga "pulita" (senza END-xxx e senza letterali) -----
-        for (let n = countWord(cleanedNoLit, 'IF'); n > 0; n--) {
-            stack.push({ type: 'IF', line: i });
-        }
-        for (let n = countWord(cleanedNoLit, 'EVALUATE'); n > 0; n--) {
-            stack.push({ type: 'EVALUATE', line: i });
-        }
-        if (/(?<!-)\bSEARCH\b(?!-)/.test(cleanedNoLit)) {
-            stack.push({ type: 'SEARCH', line: i });
-        }
+        for (let k = 0; k < tokens.length; k++) {
+            const tok = tokens[k];
+            const w = wordOf(tok);
+            const hasPeriod = w.length < tok.w.length;
+            const first = k === 0;
 
-        if (/(?<!-)\bUNSTRING\b(?!-)/.test(cleanedNoLit)) {
-            stack.push({ type: 'UNSTRING', line: i, nested: stack.length > 0 });
-        }
-
-        // CALL: verbo in PROCEDURE DIVISION (escludi CALL- nei nomi paragrafo e literal)
-        if (/(?<!-)\bCALL\b(?!-)/.test(cleanedNoLit)) {
-            stack.push({ type: 'CALL', line: i, nested: stack.length > 0 });
-        }
-
-        if (/(?<![\w-])(?:EXCEPTION|OVERFLOW)(?![\w-])/.test(cleanedNoLit)) {
-            for (let j = stack.length - 1; j >= 0; j--) {
-                if (stack[j].type === 'CALL' || stack[j].type === 'UNSTRING') {
-                    stack[j].cond = true;
-                    break;
-                }
-            }
-        }
-
-        // PERFORM: distingui inline da out-of-line (PERFORM PARA UNTIL ... e' out-of-line)
-        const perfMatch = /(?<![\w-])PERFORM(?![\w-])/.exec(cleanedNoLit);
-        if (perfMatch) {
-            const afterTokens = cleanedNoLit.substring(perfMatch.index + 7).split(/\s+/)
-                .filter(Boolean).map(t => t.replace(/\.$/, ''));
-            const kind = performKind(afterTokens);
-            if (kind === 'inline') {
-                stack.push({ type: 'PERFORM', line: i });
-            } else if (kind === 'pending') {
-                pendingPerformLine = i;
-            }
-        }
-
-        // ----- Chiusure END-xxx sulla riga originale (senza letterali) -----
-        const upperNoLit = stripLiterals(upper);
-        for (const [endKw, openKw] of [
-            ['END-IF', 'IF'], ['END-EVALUATE', 'EVALUATE'], ['END-PERFORM', 'PERFORM'],
-            ['END-UNSTRING', 'UNSTRING'],
-            ['END-SEARCH', 'SEARCH'], ['END-CALL', 'CALL']
-        ]) {
-            for (let n = countWord(upperNoLit, endKw); n > 0; n--) {
-                let matched = false;
-                for (let j = stack.length - 1; j >= 0; j--) {
-                    if (stack[j].type === openKw) {
-                        stack.splice(j, 1);
-                        matched = true;
-                        break;
+            const phrase = w ? conditionalPhraseOf(w, prevWord) : null;
+            if (phrase) {
+                const item = last && last.item;
+                if (item && stack.includes(item) && !item.handler &&
+                    (phrase === 'OVERFLOW' || (phrase === 'EXCEPTION' && item.type === 'CALL'))) {
+                    item.cond = true;
+                } else if (item && stack.includes(item) && item.handler && !item.open &&
+                    HANDLER_PHRASE_OWNERS[phrase].has(item.type)) {
+                    item.open = true;
+                } else {
+                    // Frase alternativa (NOT AT END, NOT ON EXCEPTION...) dello statement che
+                    // possiede l'handler: chiude tutto quello che era aperto nel ramo precedente
+                    let j = stack.length - 1;
+                    while (j >= 0 && !(stack[j].handler ? HANDLER_PHRASE_OWNERS[phrase].has(stack[j].type)
+                        : stack[j].cond && (phrase === 'OVERFLOW' || (phrase === 'EXCEPTION' && stack[j].type === 'CALL')))) j--;
+                    if (j >= 0 && j < stack.length - 1) {
+                        let s = recent.length;
+                        while (s > 0 && ['AT', 'ON', 'SIZE', 'INVALID'].includes(recent[s - 1].w)) s--;
+                        if (s > 0 && recent[s - 1].w === 'NOT') s--;
+                        const start = s < recent.length ? recent[s] : { line: i, col: tok.col, first };
+                        const by = recent.slice(s).map(r => r.w).concat(w).join(' ');
+                        close(j + 1, 'implicit', by, start.line, start.col, start.first);
                     }
                 }
-                if (!matched && orphanCfg.enabled &&
-                    ['IF', 'EVALUATE', 'PERFORM', 'UNSTRING', 'SEARCH',
-                     'CALL'].includes(openKw)) {
-                    diags.push(makeDiag(i, orphanCfg.severity, 'orphan-scope-delimiter',
-                        msg('orphanScope', endKw, openKw)));
+            } else if (w.startsWith('END-')) {
+                const type = w.substring(4);
+                const j = findOpen([type]);
+                if (j >= 0) {
+                    close(j + 1, 'implicit', w, i, tok.col, first);
+                    stack.length = j;
+                } else if (END_SCOPE_TYPES.has(type)) {
+                    orphans.push({ line: i, endKw: w, openKw: type });
                 }
+            } else if (w === 'ELSE' || w === 'WHEN') {
+                const j = findOpen(w === 'ELSE' ? ['IF'] : ['EVALUATE', 'SEARCH']);
+                if (j >= 0) close(j + 1, 'implicit', w, i, tok.col, first);
+                last = null;
+            } else if (STATEMENT_START_VERBS.has(w) && !(w === 'PERFORM' && prevWord === 'EXIT')) {
+                // CALL/UNSTRING senza clausola e verbi senza handler aperto finiscono dove inizia lo statement dopo
+                while (stack.length) {
+                    const top = stack[stack.length - 1];
+                    const plain = top.handler ? !top.open
+                        : (top.type === 'CALL' || top.type === 'UNSTRING') && !top.cond;
+                    if (!plain) break;
+                    close(stack.length - 1, 'implicit', w, i, tok.col, first);
+                }
+                let item = null;
+                if (w === 'IF' || w === 'EVALUATE' || w === 'SEARCH') {
+                    stack.push({ type: w, line: i, col: tok.col });
+                } else if (w === 'CALL' || w === 'UNSTRING') {
+                    // Restano sullo stack solo contenitori veri: lo stack non vuoto e' annidamento
+                    item = { type: w, line: i, col: tok.col, nested: stack.length > 0, cond: false };
+                    stack.push(item);
+                } else if (HANDLER_OWNER_VERBS.has(w)) {
+                    item = { type: w, line: i, col: tok.col, handler: true, open: false };
+                    stack.push(item);
+                } else if (w === 'PERFORM') {
+                    const after = [];
+                    let ended = hasPeriod;
+                    if (!hasPeriod) {
+                        for (let q = k + 1; q < tokens.length; q++) {
+                            const ww = wordOf(tokens[q]);
+                            if (ww) after.push(ww);
+                            if (ww.length < tokens[q].w.length) { ended = true; break; }
+                        }
+                    }
+                    const kind = performKind(after, ended);
+                    if (kind === 'inline') stack.push({ type: 'PERFORM', line: i, col: tok.col });
+                    else if (kind === 'pending') pendingPerform = { line: i, col: tok.col, words: after };
+                }
+                last = { verb: w, item };
+            }
+
+            prevWord = w;
+            recent.push({ w, line: i, col: tok.col, first });
+            if (recent.length > 4) recent.shift();
+            if (hasPeriod) {
+                // Il punto terminatore chiude tutti gli scope aperti (1.05 non e' un terminatore)
+                close(0, 'period', '.', i, tok.col + w.length, false);
+                last = null;
+                pendingPerform = null;
+                prevWord = '';
+                recent = [];
             }
         }
+    }
+    close(0, 'eof', '', lines.length, 0, false);
+    return { events, orphans };
+}
 
-        // Punto terminatore: chiude TUTTI gli scope aperti (non il punto decimale di 1.05).
-        if (findTerminatorPeriod(upperNoLit) >= 0) {
-            for (const item of stack) {
-                const r = ruleFor(item);
-                if (r.cfg.enabled) {
-                    diags.push(makeDiag(item.line, r.cfg.severity, r.id,
-                        msg('endStructurePoint', item.type, item.line + 1)));
-                }
-            }
-            stack.length = 0;
-            pendingPerformLine = -1;
+function checkEndStructure(lines) {
+    const cfg = getRuleConfig('end-structure');
+    const orphanCfg = getRuleConfig('orphan-scope-delimiter');
+    // CALL/UNSTRING senza END-x sono legali e comunissimi: segnalati solo su richiesta.
+    // Eccezione: con ON EXCEPTION/OVERFLOW dentro un contenitore (IF, EVALUATE, SEARCH,
+    // PERFORM inline, handler) senza END-x le istruzioni successive finiscono nella clausola.
+    const strictCfg = getRuleConfig('end-structure-strict');
+    if (!cfg.enabled && !orphanCfg.enabled && !strictCfg.enabled) return [];
+    const ruleFor = item => ((item.type === 'CALL' || item.type === 'UNSTRING') && !(item.nested && item.cond))
+        ? { cfg: strictCfg, id: 'end-structure-strict' }
+        : { cfg, id: 'end-structure' };
+    const diags = [];
+    const { events, orphans } = scanEndStructure(lines);
+
+    for (const e of events) {
+        const r = ruleFor(e.item);
+        if (!r.cfg.enabled) continue;
+        const text = e.how === 'period' ? msg('endStructurePoint', e.item.type, e.item.line + 1)
+            : e.how === 'eof' ? msg('endStructureUnclosed', e.item.type, e.item.line + 1)
+            : msg('endStructureImplicit', e.item.type, e.item.line + 1, e.by);
+        diags.push(makeDiag(e.item.line, r.cfg.severity, r.id, text, e.item.col, e.item.col + e.item.type.length));
+    }
+    if (orphanCfg.enabled) {
+        for (const o of orphans) {
+            diags.push(makeDiag(o.line, orphanCfg.severity, 'orphan-scope-delimiter',
+                msg('orphanScope', o.endKw, o.openKw)));
         }
     }
-
-    // Fine file: segnala strutture rimaste aperte
-    for (const item of stack) {
-        const r = ruleFor(item);
-        if (r.cfg.enabled) {
-            diags.push(makeDiag(item.line, r.cfg.severity, r.id,
-                msg('endStructureUnclosed', item.type, item.line + 1)));
-        }
-    }
-
     return diags;
+}
+
+/**
+ * Per il Quick Fix di end-structure: dove si chiude (senza END-x) la struttura
+ * `type` aperta alla riga `line` (e colonna `col`, se piu' strutture sulla stessa riga).
+ * @param {string} text
+ * @param {number} line
+ * @param {string} type
+ * @param {number} [col]
+ * @returns {{how: string, line: number, col: number, first: boolean, openCol: number}|null}
+ */
+function findEndStructureClosing(text, line, type, col) {
+    const savedFormat = currentSourceFormat;
+    const savedIsCopybook = currentIsCopybook;
+    const lines = text.split(/\r?\n/);
+    currentSourceFormat = detectSourceFormat(lines);
+    currentIsCopybook = detectCopybook(lines);
+    try {
+        const e = scanEndStructure(lines).events.find(ev => ev.item.line === line && ev.item.type === type &&
+            (col === undefined || ev.item.col === col));
+        return e ? { how: e.how, line: e.line, col: e.col, first: e.first, openCol: e.item.col } : null;
+    } finally {
+        currentSourceFormat = savedFormat;
+        currentIsCopybook = savedIsCopybook;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1203,7 +1307,7 @@ function checkParagraphNaming(lines) {
         prevStmtClosed = true;
 
         // Le SECTION non seguono la convenzione dei paragrafi
-        if (parts.length === 2 && parts[1].replace(/\.$/, '') === 'SECTION') continue;
+        if (parts.length === 2 && parts[1].replace(/\.$/, '').toUpperCase() === 'SECTION') continue;
 
         if (!validPatterns.some(p => p.test(firstName))) {
             diags.push(makeDiag(i, cfg.severity, 'paragraph-naming',
@@ -5089,4 +5193,4 @@ function lintSource(text, workspaceRoot, fileBaseName, opts) {
     return result;
 }
 
-module.exports = { runLinter, detectCopyFile, RULE_DEFAULT_SEVERITIES };
+module.exports = { runLinter, detectCopyFile, findEndStructureClosing, RULE_DEFAULT_SEVERITIES };

@@ -81,6 +81,26 @@ function mockVscode() {
       },
       Range,
       Diagnostic,
+      Position: class {
+        constructor(line, character) {
+          this.line = line;
+          this.character = character;
+        }
+      },
+      EndOfLine: { LF: 1, CRLF: 2 },
+      CodeActionKind: { QuickFix: 'quickfix' },
+      CodeAction: class {
+        constructor(title, kind) {
+          this.title = title;
+          this.kind = kind;
+        }
+      },
+      // Registra le modifiche: applyEdits() le applica al testo nei test
+      WorkspaceEdit: class {
+        constructor() { this.ops = []; }
+        replace(uri, range, text) { this.ops.push({ start: range.start, end: range.end, text }); }
+        insert(uri, pos, text) { this.ops.push({ start: pos, end: pos, text }); }
+      },
       SemanticTokensLegend: class {
         constructor(tokenTypes, tokenModifiers) {
           this.tokenTypes = tokenTypes;
@@ -4306,6 +4326,280 @@ function runPerformSectionTests() {
 }
 
 // ---------------------------------------------------------------------------
+// end-structure in ordine lessicale: annidamento vero, proprietario delle
+// clausole, indipendenza dagli a capo, Quick Fix END-x nel punto giusto.
+// ---------------------------------------------------------------------------
+function runEndStructureScopeTests() {
+  const { runLinter } = require('../src/cobol-linter');
+  const { CobolCodeActionProvider } = require('../src/cobol-code-actions');
+  const has = (diags, lines, code, snippet) => !!findDiagOnLine(diags, lines, code, snippet);
+
+  const head = [
+    '       IDENTIFICATION DIVISION.',
+    '       PROGRAM-ID. PGM-SCOPE.',
+    '       DATA DIVISION.',
+    '       WORKING-STORAGE SECTION.',
+    '       01 WS-EOF        PIC X.',
+    '       01 WS-FLAG       PIC X.',
+    '       01 WS-N          PIC 9.',
+    '       01 WS-X          PIC 9(5).',
+    '       PROCEDURE DIVISION.',
+    '       MAIN-PARA.'
+  ];
+  const src = head.concat([
+    "           CALL 'SEQ1' USING WS-N",
+    "           CALL 'SEQ2' USING WS-N ON EXCEPTION CONTINUE.",
+    "           IF WS-EOF = 'S'",
+    "              CALL 'PLAIN1' USING WS-N",
+    '              ACCEPT WS-EOF ON EXCEPTION CONTINUE',
+    '           END-IF.',
+    "           IF WS-EOF = 'S'",
+    "              CALL 'PLAIN2' USING WS-N",
+    '              STRING WS-EOF DELIMITED BY SIZE INTO WS-FLAG',
+    '                 ON OVERFLOW CONTINUE',
+    '           END-IF.',
+    "           PERFORM 2 TIMES CALL 'ONEL' ON EXCEPTION CONTINUE",
+    '           END-PERFORM.',
+    '           PERFORM 2 TIMES',
+    "              CALL 'SPLIT'",
+    '                 ON EXCEPTION CONTINUE',
+    '           END-PERFORM.',
+    "           CALL 'ROOT1' ON EXCEPTION IF WS-N = 1 CONTINUE END-IF.",
+    "           CALL 'ROOT2'",
+    '              ON EXCEPTION',
+    '                 IF WS-N = 1 CONTINUE END-IF.',
+    '           EVALUATE WS-N',
+    '              WHEN 1',
+    "                 CALL 'INWHEN' ON EXCEPTION CONTINUE",
+    '              WHEN OTHER',
+    '                 CONTINUE',
+    '           END-EVALUATE.',
+    '           COMPUTE WS-X = WS-X * 2 ON SIZE ERROR',
+    "              CALL 'INSIZE' USING WS-N ON EXCEPTION CONTINUE",
+    '           END-COMPUTE.',
+    "           PERFORM UNTIL WS-EOF = 'S'",
+    '              IF WS-N = 1 EXIT PERFORM',
+    '              MOVE 1 TO WS-N',
+    '              END-IF',
+    "              MOVE 'S' TO WS-EOF",
+    '           END-PERFORM.',
+    '           GOBACK.',
+    ''
+  ]);
+  const d = runLinter(src.join('\n'), workDir);
+  const endCodes = ['end-structure', 'end-structure-strict'];
+  const report = s => d.filter(x => endCodes.includes(String(x.code)) && src[x.range.start.line].includes(s))
+    .map(x => x.code + ': ' + x.message).join(' | ');
+
+  for (const s of ["CALL 'SEQ1'", "CALL 'SEQ2'"]) {
+    assert(!has(d, src, 'end-structure', s) && has(d, src, 'end-structure-strict', s),
+      'end-structure: CALL consecutive al livello principale non sono annidate (' + s + '): ' + report(s));
+  }
+  for (const s of ["CALL 'PLAIN1'", "CALL 'PLAIN2'"]) {
+    assert(!has(d, src, 'end-structure', s),
+      'end-structure: la clausola di ACCEPT/STRING non appartiene alla CALL precedente (' + s + '): ' + report(s));
+  }
+  for (const s of ["CALL 'ONEL'", "CALL 'SPLIT'", "CALL 'INWHEN'", "CALL 'INSIZE'"]) {
+    assert(has(d, src, 'end-structure', s),
+      'end-structure: CALL con ON EXCEPTION in un contenitore va segnalata (' + s + '): ' + report(s));
+  }
+  for (const s of ["CALL 'ROOT1'", "CALL 'ROOT2'"]) {
+    assert(!has(d, src, 'end-structure', s) && has(d, src, 'end-structure-strict', s),
+      'end-structure: CALL principale con un IF nell\'handler non e\' annidata (' + s + '): ' + report(s));
+  }
+  const inWhen = findDiagOnLine(d, src, 'end-structure', "CALL 'INWHEN'");
+  assert(inWhen && /WHEN/.test(inWhen.message) && /END-CALL$/.test(inWhen.message),
+    'end-structure: la CALL nel WHEN e\' chiusa implicitamente dal WHEN successivo: ' + (inWhen && inWhen.message));
+  assert(!d.some(x => String(x.code) === 'orphan-scope-delimiter'),
+    'orphan-scope-delimiter: EXIT PERFORM non apre un PERFORM: '
+      + d.filter(x => String(x.code) === 'orphan-scope-delimiter').map(x => x.message).join(' | '));
+  assert(!has(d, src, 'end-structure', "PERFORM UNTIL WS-EOF = 'S'"),
+    'end-structure: il PERFORM chiuso da END-PERFORM non va segnalato con EXIT PERFORM nel corpo');
+
+  // Quick Fix: END-x prima della parola che chiude davvero la struttura
+  const provider = new CobolCodeActionProvider();
+  const applyFix = (lines, snippet, code) => {
+    const diag = findDiagOnLine(runLinter(lines.join('\n'), workDir), lines, code, snippet);
+    assert(diag, 'Quick Fix: premessa, ' + code + ' atteso su ' + snippet);
+    const doc = {
+      uri: 'mem://fix', lineCount: lines.length, eol: 1,
+      getText: () => lines.join('\n'), lineAt: n => ({ text: lines[n] })
+    };
+    const action = provider._fixEndStructure(doc, diag);
+    assert(action, 'Quick Fix: nessuna correzione proposta per ' + snippet);
+    const starts = [0];
+    for (const l of lines) starts.push(starts[starts.length - 1] + l.length + 1);
+    let text = lines.join('\n');
+    const ops = action.edit.ops.slice().sort((a, b) =>
+      (starts[b.start.line] + b.start.character) - (starts[a.start.line] + a.start.character));
+    for (const op of ops) {
+      const s = starts[op.start.line] + op.start.character;
+      const e = starts[op.end.line] + op.end.character;
+      text = text.substring(0, s) + op.text + text.substring(e);
+    }
+    return text.split('\n');
+  };
+
+  const nested = head.concat([
+    "           IF WS-EOF = 'S'",
+    "              CALL 'SUBNEST' USING WS-N",
+    '                 ON EXCEPTION MOVE 1 TO WS-N',
+    '              MOVE 2 TO WS-N',
+    '           END-IF.',
+    '           GOBACK.',
+    ''
+  ]);
+  const fixedNested = applyFix(nested, "CALL 'SUBNEST'", 'end-structure');
+  const endIfAt = fixedNested.indexOf('           END-IF.');
+  assert(endIfAt > 0 && fixedNested[endIfAt - 1] === '              END-CALL',
+    'Quick Fix: END-CALL va dentro l\'IF, prima di END-IF: ' + JSON.stringify(fixedNested.slice(10, 17)));
+  assert(!runLinter(fixedNested.join('\n'), workDir).some(x => endCodes.concat('orphan-scope-delimiter').includes(String(x.code))),
+    'Quick Fix: dopo la correzione non devono restare diagnostiche di scope');
+
+  const top = head.concat([
+    "           CALL 'SUBTOP' USING WS-N",
+    '              ON EXCEPTION MOVE 1 TO WS-N.',
+    '           GOBACK.',
+    ''
+  ]);
+  const fixedTop = applyFix(top, "CALL 'SUBTOP'", 'end-structure-strict');
+  assert(fixedTop[11] === '              ON EXCEPTION MOVE 1 TO WS-N' && fixedTop[12] === '           END-CALL.',
+    'Quick Fix: CALL chiusa dal punto -> END-CALL. sulla riga dopo: ' + JSON.stringify(fixedTop.slice(10, 14)));
+
+  const sameLine = head.concat([
+    "           CALL 'SUBSEQ' USING WS-N MOVE 1 TO WS-N.",
+    '           GOBACK.',
+    ''
+  ]);
+  const moveCol = sameLine[10].indexOf('MOVE');
+  const fixedSame = applyFix(sameLine, "CALL 'SUBSEQ'", 'end-structure-strict');
+  assert(fixedSame[10] === "           CALL 'SUBSEQ' USING WS-N" && fixedSame[11] === '           END-CALL' &&
+    fixedSame[12] === ' '.repeat(moveCol) + 'MOVE 1 TO WS-N.',
+    'Quick Fix: CALL chiusa dall\'istruzione successiva sulla stessa riga: ' + JSON.stringify(fixedSame.slice(10, 14)));
+
+  // Il cambio di handler (NOT AT END) chiude quello che era aperto nel ramo AT END
+  const readAlt = head.concat([
+    '           READ INPUT-FILE',
+    "               AT END CALL 'SUBREAD'",
+    '               NOT AT END CONTINUE',
+    '           END-READ.',
+    '           GOBACK.',
+    ''
+  ]);
+  const readDiag = findDiagOnLine(runLinter(readAlt.join('\n'), workDir), readAlt, 'end-structure-strict', "CALL 'SUBREAD'");
+  assert(readDiag && /NOT AT END/.test(readDiag.message),
+    'end-structure-strict: la CALL nel ramo AT END e\' chiusa da NOT AT END: ' + (readDiag && readDiag.message));
+  const fixedRead = applyFix(readAlt, "CALL 'SUBREAD'", 'end-structure-strict');
+  assert(fixedRead[12] === '                      END-CALL' && fixedRead[13] === '               NOT AT END CONTINUE',
+    'Quick Fix: END-CALL va prima di NOT AT END: ' + JSON.stringify(fixedRead.slice(10, 16)));
+  assert(!runLinter(fixedRead.join('\n'), workDir).some(x => endCodes.concat('orphan-scope-delimiter').includes(String(x.code))),
+    'Quick Fix: dopo END-CALL prima di NOT AT END non devono restare diagnostiche di scope');
+
+  const readExc = head.concat([
+    '           READ INPUT-FILE',
+    "               AT END CALL 'SUBEXC' ON EXCEPTION CONTINUE",
+    '               NOT AT END CONTINUE',
+    '           END-READ.',
+    '           GOBACK.',
+    ''
+  ]);
+  const readExcDiags = runLinter(readExc.join('\n'), workDir);
+  assert(has(readExcDiags, readExc, 'end-structure', "CALL 'SUBEXC'"),
+    'end-structure: CALL con ON EXCEPTION nel ramo AT END senza END-CALL va segnalata');
+  const fixedExc = applyFix(readExc, "CALL 'SUBEXC'", 'end-structure');
+  assert(fixedExc[12] === '                      END-CALL' && fixedExc[13] === '               NOT AT END CONTINUE',
+    'Quick Fix: END-CALL dell\'handler AT END va prima di NOT AT END: ' + JSON.stringify(fixedExc.slice(10, 16)));
+
+  // Un READ interno chiuso da END-READ non deve chiudere il READ esterno
+  const readNested = head.concat([
+    '           READ INPUT-FILE',
+    '               AT END',
+    '                  READ OTHER-FILE END-READ',
+    "                  CALL 'SUBINR' ON EXCEPTION CONTINUE",
+    '               NOT AT END CONTINUE',
+    '           END-READ.',
+    '           GOBACK.',
+    ''
+  ]);
+  const readNestedDiag = findDiagOnLine(runLinter(readNested.join('\n'), workDir), readNested, 'end-structure', "CALL 'SUBINR'");
+  assert(readNestedDiag && /NOT AT END/.test(readNestedDiag.message),
+    'end-structure: CALL dopo un READ interno chiuso, nel ramo AT END, va chiusa da NOT AT END: ' + (readNestedDiag && readNestedDiag.message));
+  const fixedNestedRead = applyFix(readNested, "CALL 'SUBINR'", 'end-structure');
+  assert(fixedNestedRead[14] === '                  END-CALL' && fixedNestedRead[15] === '               NOT AT END CONTINUE',
+    'Quick Fix: END-CALL prima di NOT AT END anche dopo un READ interno: ' + JSON.stringify(fixedNestedRead.slice(10, 17)));
+  assert(!runLinter(fixedNestedRead.join('\n'), workDir).some(x => endCodes.concat('orphan-scope-delimiter').includes(String(x.code))),
+    'Quick Fix: READ annidato corretto senza diagnostiche di scope residue');
+
+  // Due CALL sulla stessa riga: il Quick Fix chiude quella segnalata
+  const twoCalls = head.concat([
+    "           IF WS-N = 1 CALL 'SUBA' CALL 'SUBB' ON EXCEPTION CONTINUE",
+    '           END-IF.',
+    '           GOBACK.',
+    ''
+  ]);
+  const twoDiag = runLinter(twoCalls.join('\n'), workDir).find(x => String(x.code) === 'end-structure');
+  assert(twoDiag && twoDiag.range.start.character === twoCalls[10].indexOf("CALL 'SUBB'"),
+    'end-structure: il range punta alla CALL segnalata (SUBB)');
+  const fixedTwo = applyFix(twoCalls, "CALL 'SUBB'", 'end-structure');
+  assert(fixedTwo[11] === ' '.repeat(twoCalls[10].indexOf("CALL 'SUBB'")) + 'END-CALL' && fixedTwo[12] === '           END-IF.',
+    'Quick Fix: END-CALL di SUBB prima di END-IF: ' + JSON.stringify(fixedTwo.slice(10, 14)));
+  assert(!runLinter(fixedTwo.join('\n'), workDir).some(x => String(x.code) === 'end-structure'),
+    'Quick Fix: dopo la correzione SUBB non resta segnalata');
+
+  // PERFORM spezzato su piu' righe: stessa diagnosi della forma su una riga
+  const performForms = [
+    ['           PERFORM 2 TIMES'],
+    ['           PERFORM 2', '              TIMES'],
+    ['           PERFORM WS-N', '              TIMES'],
+    ['           PERFORM'],
+  ];
+  for (const form of performForms) {
+    const p = head.concat(form, [
+      "              CALL 'SUBPERF' ON EXCEPTION CONTINUE END-CALL",
+      '           END-PERFORM.',
+      '           GOBACK.',
+      ''
+    ]);
+    const pd = runLinter(p.join('\n'), workDir).filter(x => endCodes.concat('orphan-scope-delimiter').includes(String(x.code)));
+    assert(!pd.length, 'PERFORM inline ' + JSON.stringify(form) + ': nessuna diagnostica di scope attesa: '
+      + pd.map(x => x.code + ': ' + x.message).join(' | '));
+  }
+  const performBody = head.concat([
+    "           PERFORM CALL 'SUBBODY' ON EXCEPTION CONTINUE",
+    '           END-PERFORM.',
+    '           GOBACK.',
+    ''
+  ]);
+  const bodyDiags = runLinter(performBody.join('\n'), workDir);
+  assert(has(bodyDiags, performBody, 'end-structure', "CALL 'SUBBODY'") &&
+    !bodyDiags.some(x => String(x.code) === 'orphan-scope-delimiter'),
+    'PERFORM con il corpo sulla stessa riga e\' inline: CALL segnalata, END-PERFORM non orfano');
+  const performOut = head.concat([
+    '           PERFORM P-UNO',
+    '              2 TIMES',
+    '           GOBACK.',
+    '       P-UNO.',
+    '           CONTINUE.',
+    ''
+  ]);
+  assert(!runLinter(performOut.join('\n'), workDir).some(x => endCodes.includes(String(x.code)) && performOut[x.range.start.line].includes('PERFORM P-UNO')),
+    'PERFORM P-UNO / 2 TIMES su due righe e\' out-of-line, niente END-PERFORM');
+
+  // SECTION: COBOL non distingue maiuscole e minuscole
+  const sec = head.slice(0, 9).concat([
+    '       MAIN section.',
+    '       MAIN-INIZIO.',
+    '           GOBACK.',
+    ''
+  ]);
+  const secDiags = runLinter(sec.join('\n'), workDir);
+  assert(!has(secDiags, sec, 'paragraph-naming', 'MAIN section.'),
+    'paragraph-naming: MAIN section. e\' una SECTION anche in minuscolo');
+
+  console.log('OK - test regressione end-structure lessicale / Quick Fix END-x superati');
+}
+
+// ---------------------------------------------------------------------------
 // perform-range-exit / perform-thru-mismatch / unused-paragraph strutturale
 // (v1.31.0): niente convenzioni di nome per i paragrafi di uscita.
 // ---------------------------------------------------------------------------
@@ -5155,6 +5449,7 @@ try {
   runSizeEngineFixTests();
   runBinaryStorageTests();
   runPerformSectionTests();
+  runEndStructureScopeTests();
   runPerformRangeTests();
   runCopyReplacingTests();
   runCopyContextTests();

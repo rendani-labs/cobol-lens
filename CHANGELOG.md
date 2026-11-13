@@ -3,13 +3,17 @@
 ## [1.34.0] - 2026-11-12
 
 ### Added
-- New rule `end-structure-strict` (off by default, warning): a `CALL` or `UNSTRING` closed by a period instead of `END-CALL`/`END-UNSTRING`. Turn it on for a fully structured style. The Quick Fix that inserts the `END-` keyword also works for this rule.
+- New rule `end-structure-strict` (off by default, warning): a `CALL` or `UNSTRING` without `END-CALL`/`END-UNSTRING`, closed by a period, by the next statement or by the end of the containing structure. Turn it on for a fully structured style. The Quick Fix that inserts the `END-` keyword also works for this rule.
 
 ### Changed
-- `end-structure` no longer reports `CALL` and `UNSTRING` closed by a period: `END-CALL`/`END-UNSTRING` are optional in COBOL and a plain `CALL 'PGM' USING X.` is perfectly valid. These checks moved to `end-structure-strict`. `IF`, `EVALUATE`, `PERFORM` (inline) and `SEARCH` are still reported. Exception: a `CALL ... ON EXCEPTION` / `UNSTRING ... ON OVERFLOW` nested inside another structure (e.g. an `IF`) without `END-CALL`/`END-UNSTRING` is still reported by `end-structure`, because every following statement of the branch silently becomes part of the `ON EXCEPTION`/`ON OVERFLOW` clause.
-- `paragraph-naming` no longer checks `SECTION` headers: the naming convention applies to paragraphs only.
+- `end-structure` no longer reports `CALL` and `UNSTRING` without `END-CALL`/`END-UNSTRING`: they are optional in COBOL and a plain `CALL 'PGM' USING X.` is perfectly valid. These checks moved to `end-structure-strict`. `IF`, `EVALUATE`, `PERFORM` (inline) and `SEARCH` are still reported. Exception: a `CALL ... ON EXCEPTION` / `UNSTRING ... ON OVERFLOW` without `END-CALL`/`END-UNSTRING` inside an `IF`, `EVALUATE`, `SEARCH`, inline `PERFORM` or the handler of another statement (`AT END`, `INVALID KEY`, `ON SIZE ERROR`, ...) is still reported by `end-structure`. In `WHEN`, inline `PERFORM` and handlers the standard accepts only imperative statements there; inside an `IF` the following statements of the branch silently become part of the `ON EXCEPTION`/`ON OVERFLOW` clause until `ELSE`/`END-IF` or the period.
+- `end-structure` now reads the procedure word by word in source order: a structure closed implicitly by the containing structure (`END-IF`, `ELSE`, `WHEN`) or by the alternative phrase of a handler (`NOT AT END`, `NOT ON EXCEPTION`, `NOT INVALID KEY`, ...) is reported as such, and the diagnosis no longer depends on how the code is split across lines (including `PERFORM 2` / `TIMES` on two lines and `PERFORM` followed by its body on the same line).
+- `paragraph-naming` no longer checks `SECTION` headers (in any letter case): the naming convention applies to paragraphs only.
 
 ### Fixed
+- The `end-structure` Quick Fix inserted `END-CALL` after the `END-IF` of the containing `IF`, outside the block. It now inserts the `END-` keyword where the structure actually ends: before the closing period or before the word that closes it implicitly (including `NOT AT END` and the other alternative handler phrases). With two structures of the same type on one line, it now fixes the reported one, and the diagnostic underlines the opening keyword.
+- A nested statement closed by its own `END-` keyword (e.g. `READ ... END-READ` inside the `AT END` of another `READ`) no longer closes the outer statement's scope.
+- `EXIT PERFORM` was taken as the start of an inline `PERFORM`, causing false `end-structure` reports.
 - A decimal point (`PIC ZZ9.99`, `1.5`) was taken as the end of the sentence. Effects: `missing-period` missed a data item without the final period when its PIC had a decimal point; `alphanumeric-in-compute`, `move-truncation`, `move-alphanumeric-to-numeric`, `compute-multiline-asterisk`, `string-delimited` and `missing-level` stopped reading the statement at the decimal point. Only a period followed by a space or the end of the line now ends a sentence.
 - `string-delimited` no longer reports a `STRING` whose literal contains the word `INTO` (e.g. `STRING 'INTO' DELIMITED BY SIZE ...`).
 
