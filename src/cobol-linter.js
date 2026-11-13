@@ -2591,12 +2591,17 @@ function collectPerformStatements(lines) {
         if (pending) {
             const p = pending;
             pending = null;
-            // "PERFORM X THRU" a fine riga: il nome e' la prima parola della riga dopo
-            const thruCont = p.expectName
-                ? /^\s*([A-Z0-9][\w-]*)/.exec(upper)
-                : /^\s*(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/.exec(upper);
-            if (thruCont) p.stmt.thru = thruCont[1];
-            if (thruCont) continue;
+            // "PERFORM WS-N" a fine riga e TIMES sulla riga dopo: WS-N e' il contatore
+            if (!p.expectName && /^\s*TIMES\b/.test(upper)) {
+                stmts.splice(stmts.indexOf(p.stmt), 1);
+            } else {
+                // "PERFORM X THRU" a fine riga: il nome e' la prima parola della riga dopo
+                const thruCont = p.expectName
+                    ? /^\s*([A-Z0-9][\w-]*)/.exec(upper)
+                    : /^\s*(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/.exec(upper);
+                if (thruCont) p.stmt.thru = thruCont[1];
+                if (thruCont) continue;
+            }
         }
 
         const perfRe = /(?<![\w-])PERFORM\s+([A-Z0-9][\w-]*)(?:\s+(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*))?/g;
@@ -2678,6 +2683,16 @@ function extractVariableRefs(lines) {
         copyCut.set(cs.line, cs.col);
         for (let k = cs.line + 1; k <= cs.endLine; k++) copyCut.set(k, 0);
     }
+    // Righe la cui riga di codice successiva inizia con TIMES ("PERFORM WS-N" / "TIMES")
+    const timesNext = new Set();
+    let prevCode = -1;
+    for (let i = 0; i < lines.length; i++) {
+        if (isSkippable(lines[i])) continue;
+        const c = getCodeContent(lines[i]);
+        if (!c.trim()) continue;
+        if (prevCode >= 0 && /^\s*TIMES\b/i.test(c)) timesNext.add(prevCode);
+        prevCode = i;
+    }
     for (let i = 0; i < lines.length; i++) {
         const raw = lines[i];
         if (isSkippable(raw)) continue;
@@ -2704,7 +2719,9 @@ function extractVariableRefs(lines) {
         // insieme alla macro prima dell'estrazione dei token.
         cleaned = cleaned.replace(/\b(?:DFHRESP|DFHVALUE)\s*\([^)]*\)/g, ' ');
         // "PERFORM WS-N TIMES": WS-N e' una variabile, va lasciata
-        cleaned = cleaned.replace(/\bPERFORM\s+([A-Z0-9][\w-]*)(?![\w-])(?!\s+TIMES\b)/g, 'PERFORM');
+        cleaned = timesNext.has(i)
+            ? cleaned.replace(/\bPERFORM\s+([A-Z0-9][\w-]*)(?![\w-])(?!\s+TIMES\b)(?!\s*$)/g, 'PERFORM')
+            : cleaned.replace(/\bPERFORM\s+([A-Z0-9][\w-]*)(?![\w-])(?!\s+TIMES\b)/g, 'PERFORM');
         cleaned = cleaned.replace(/\b(?:THRU|THROUGH)\s+([A-Z0-9][\w-]*)/g, 'THRU');
         cleaned = cleaned.replace(/\bCOPY\s+([A-Z0-9][\w-]*)/g, 'COPY');
         // END PROGRAM nome-programma: il nome e' l'identificativo del programma

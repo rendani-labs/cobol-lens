@@ -14,6 +14,7 @@
 - The `end-structure` Quick Fix inserted `END-CALL` after the `END-IF` of the containing `IF`, outside the block. It now inserts the `END-` keyword where the structure actually ends: before the closing period or before the word that closes it implicitly (including `NOT AT END` and the other alternative handler phrases). With two structures of the same type on one line, it now fixes the reported one, and the diagnostic underlines the opening keyword.
 - A nested statement closed by its own `END-` keyword (e.g. `READ ... END-READ` inside the `AT END` of another `READ`) no longer closes the outer statement's scope.
 - `EXIT PERFORM` was taken as the start of an inline `PERFORM`, causing false `end-structure` reports.
+- `undefined-paragraph`: `PERFORM WS-N` with `TIMES` on the next line took the counter `WS-N` for a paragraph name.
 - A decimal point (`PIC ZZ9.99`, `1.5`) was taken as the end of the sentence. Effects: `missing-period` missed a data item without the final period when its PIC had a decimal point; `alphanumeric-in-compute`, `move-truncation`, `move-alphanumeric-to-numeric`, `compute-multiline-asterisk`, `string-delimited` and `missing-level` stopped reading the statement at the decimal point. Only a period followed by a space or the end of the line now ends a sentence.
 - `string-delimited` no longer reports a `STRING` whose literal contains the word `INTO` (e.g. `STRING 'INTO' DELIMITED BY SIZE ...`).
 

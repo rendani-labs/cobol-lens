@@ -4563,7 +4563,25 @@ function runEndStructureScopeTests() {
     const pd = runLinter(p.join('\n'), workDir).filter(x => endCodes.concat('orphan-scope-delimiter').includes(String(x.code)));
     assert(!pd.length, 'PERFORM inline ' + JSON.stringify(form) + ': nessuna diagnostica di scope attesa: '
       + pd.map(x => x.code + ': ' + x.message).join(' | '));
+    assert(!runLinter(p.join('\n'), workDir).some(x => String(x.code) === 'undefined-paragraph'),
+      'PERFORM inline ' + JSON.stringify(form) + ': il contatore non e\' un paragrafo');
   }
+  const timesOnly = head.slice(0, 7).concat([
+    '       01 WS-CNT        PIC 9.',
+    '       PROCEDURE DIVISION.',
+    '       MAIN-PARA.',
+    '           PERFORM WS-CNT',
+    '              TIMES',
+    '              CONTINUE',
+    '           END-PERFORM.',
+    '           GOBACK.',
+    ''
+  ]);
+  const timesDiags = runLinter(timesOnly.join('\n'), workDir);
+  assert(!timesDiags.some(x => ['undefined-paragraph', 'unused-variable'].includes(String(x.code)) &&
+    timesOnly[x.range.start.line].includes('WS-CNT')),
+    'PERFORM WS-CNT / TIMES: WS-CNT e\' un contatore usato: '
+      + timesDiags.filter(x => ['undefined-paragraph', 'unused-variable'].includes(String(x.code))).map(x => x.message).join(' | '));
   const performBody = head.concat([
     "           PERFORM CALL 'SUBBODY' ON EXCEPTION CONTINUE",
     '           END-PERFORM.',
